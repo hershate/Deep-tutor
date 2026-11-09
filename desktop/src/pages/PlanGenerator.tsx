@@ -27,7 +27,7 @@ const validationNames: [LearningCheckName, string][] = [
 const statusNames: Record<string, string> = { pending: '等待', running: '处理中', done: '已完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' }
 const planStatusNames: Record<string, string> = { running: '正在生成', cancelling: '正在取消', done: '已生成', degraded: '降级交付', failed: '生成失败', cancelled: '已取消', interrupted: '已中断' }
 const parsedStatuses = ['parsed', 'degraded']
-const materialStatusNames: Record<string, string> = { staged: '已暂存', queued: '等待解析', parsing: '解析中', parsed: '已解析', degraded: '部分解析', failed: '解析失败', cancelled: '已取消', metadata_only: '原件不可用' }
+const materialStatusNames: Record<string, string> = { staged: '已暂存', queued: '等待解析', parsing: '解析中', parsed: '已解析', degraded: '部分解析', failed: '解析失败', cancelling: '正在取消', cancelled: '已取消', metadata_only: '原件不可用' } // 66#1：补 cancelling（Library 页同表完备）
 
 function localDeadline() {
   const date = new Date()

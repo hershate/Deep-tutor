@@ -44,7 +44,7 @@ pub fn adopt<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: &str) ->
     let tx = store.conn.unchecked_transaction()?;
     let project_id = Store::next_free_id(&tx, "projects")?
         .parse::<i64>()
-        .map_err(|_| BackendError::new("storage_failed", "无法分配项目标识"))?;
+        .map_err(|_| BackendError::new("invalid_plan_data", "无法分配项目标识"))?;
     let milestones = result
         .stages
         .iter()
@@ -78,7 +78,7 @@ pub fn adopt<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: &str) ->
             .ok_or_else(|| BackendError::new("invalid_persisted_plan", "排期引用了不存在的阶段"))?;
         let task_id = Store::next_free_id(&tx, "tasks")?
             .parse::<i64>()
-            .map_err(|_| BackendError::new("storage_failed", "无法分配任务标识"))?;
+            .map_err(|_| BackendError::new("invalid_plan_data", "无法分配任务标识"))?;
         let titles = entry
             .node_ids
             .iter()

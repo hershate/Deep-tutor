@@ -33,6 +33,57 @@ fn key(value: &Value) -> Result<String> {
     serde_json::to_string(value).map_err(Into::into)
 }
 
+/// 66#3/62#10：key() 是 JSON 编码（字符串带引号）——用户消息里剥引号原样展示
+fn plain_key(key: &str) -> &str {
+    key.strip_prefix('"')
+        .and_then(|inner| inner.strip_suffix('"'))
+        .unwrap_or(key)
+}
+
+/// 66#3/62#10：SQLite 表名到用户可见中文域名——导入错误/警告不再向用户
+/// 暴露内部 schema 结构
+fn table_label(table: &str) -> &str {
+    if table.starts_with("agent_") {
+        return "Agent 会话数据";
+    }
+    if table.starts_with("community_") {
+        return "学习社区数据";
+    }
+    if table.starts_with("provider_") {
+        return "模型请求记录";
+    }
+    if table.starts_with("learning_") {
+        return "学习方案数据";
+    }
+    if table.starts_with("practice_") {
+        return "练习与测评数据";
+    }
+    if table.starts_with("review_") {
+        return "复习计划数据";
+    }
+    if table.starts_with("knowledge_") {
+        return "Wiki 问答数据";
+    }
+    if table.starts_with("focus_") {
+        return "专注记录";
+    }
+    if table.starts_with("sync_") {
+        return "同步配置";
+    }
+    if table.starts_with("auth_") {
+        return "账户安全数据";
+    }
+    match table {
+        "materials" | "material_jobs" | "material_text" => "资料数据",
+        "kv" => "任务与笔记集合",
+        "plugins" | "plugin_deliveries" => "插件数据",
+        "events" => "事件记录",
+        "shared_plans" => "分享快照",
+        "study_checkins" => "学习打卡",
+        _ => "应用数据",
+    }
+}
+
 fn invalid_record() -> BackendError {
     BackendError::invalid(
         "invalid_backup_record",
@@ -499,7 +550,11 @@ fn map_plain(value: &Value, target: &str, maps: &IdMap) -> Result<Value> {
         .ok_or_else(|| {
             BackendError::new(
                 "invalid_backup_reference",
-                &format!("备份关联目标 {target} 缺少记录 {key:?}"),
+                &format!(
+                    "备份关联目标 {} 缺少记录 {}",
+                    table_label(target),
+                    plain_key(&key)
+                ),
             )
         })?;
     if target == "provider_profiles" && value.is_string() {
@@ -982,7 +1037,10 @@ fn insert_row(tx: &Connection, table: &str, schema: &[Column], row: &Row) -> Res
         // failed: …"），错误码 + 表名已足够定位
         BackendError::new(
             "backup_constraint_failed",
-            &format!("备份表 {table} 未通过当前数据库约束，未导入任何记录"),
+            &format!(
+                "备份{}未通过当前数据库约束，未导入任何记录",
+                table_label(table)
+            ),
         )
     })?;
     Ok(())
@@ -1159,7 +1217,7 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
             transform(transfer, table, row, tx).map_err(|error| {
                 BackendError::new(
                     &error.code,
-                    &format!("处理备份表 {table} 时：{}", error.message),
+                    &format!("处理备份{}时：{}", table_label(table), error.message),
                 )
             })?;
             // 31#46：资料复用按目标 id 判定（prepare_ids 已把主键改写为映射值）

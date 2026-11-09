@@ -1161,7 +1161,9 @@ pub fn adopt_recommendations<R: Runtime>(
             .recommendations
             .iter()
             .find(|item| item.id == id)
-            .ok_or_else(|| BackendError::new("not_found", "建议已随学习证据变化，请刷新后重试"))?;
+            .ok_or_else(|| {
+                BackendError::new("recommendation_stale", "建议已随学习证据变化，请刷新后重试")
+            })?;
         if recommendation.kind == "focus" {
             wants_focus = true;
             continue;

@@ -361,7 +361,7 @@ pub fn save_settings<R: Runtime>(
     }
     if settings.failover.len() > 16 {
         return Err(BackendError::new(
-            "quota_exceeded",
+            "route_limit_exceeded",
             "故障转移队列最多支持 16 个供应商",
         ));
     }

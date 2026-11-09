@@ -100,6 +100,19 @@ pub struct Store {
     pub(crate) account_path: PathBuf,
 }
 
+/// 66#3：配额资源 key → 用户可见中文名（与 SecurityPanel quotaNames 对齐），
+/// 消息不再直拼英文资源名
+fn quota_label(resource: &str) -> &'static str {
+    match resource {
+        "sessions" => "Agent 会话",
+        "notes" => "笔记",
+        "materials" => "KB 文档",
+        "threads" => "社区讨论",
+        "agent_memory" => "Agent 记忆",
+        _ => "资源",
+    }
+}
+
 impl Store {
     pub fn new(path: impl Into<PathBuf>) -> Result<Self> {
         let root = path.into();
@@ -449,7 +462,10 @@ impl Store {
         if used.saturating_add(additional) > limit {
             return Err(BackendError::new(
                 "quota_exceeded",
-                &format!("{resource} 配额已用尽：当前 {used}，上限 {limit}；未写入新内容"),
+                &format!(
+                    "{}配额已用尽：当前 {used}，上限 {limit}；未写入新内容",
+                    quota_label(resource)
+                ),
             ));
         }
         Ok(())

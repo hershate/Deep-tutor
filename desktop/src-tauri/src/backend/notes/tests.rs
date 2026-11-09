@@ -159,7 +159,7 @@ fn unsafe_oversized_and_invalid_sources_never_partially_import() {
             json!({"path":oversized.to_string_lossy()})
         )
         .unwrap_err()["code"],
-        "quota_exceeded"
+        "size_limit_exceeded"
     );
     let empty = directory.path().join("empty.zip");
     archive(&empty, &[("manifest.json", b"{}")]);

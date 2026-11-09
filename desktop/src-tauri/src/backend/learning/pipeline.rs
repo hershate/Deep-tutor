@@ -297,7 +297,7 @@ where
         }
         let (_, request_id) = begin_step(app, state, id, index)?;
         let request_id = request_id
-            .ok_or_else(|| BackendError::new("storage_failed", "模型步骤缺少请求标识"))?;
+            .ok_or_else(|| BackendError::new("invalid_plan_data", "模型步骤缺少请求标识"))?;
         let content = if retry == 0 {
             prompt.clone()
         } else {
@@ -382,7 +382,7 @@ fn artifact_data(index: usize, artifact: &Artifact, input: &PlanInput) -> Result
         }
         (6, Artifact::Validation(validation)) => Ok(json!({"validation": validation})),
         _ => Err(BackendError::new(
-            "storage_failed",
+            "invalid_plan_data",
             "学习方案步骤产物类型不一致",
         )),
     }

@@ -305,7 +305,12 @@ where
                             })
                             .or_else(|| event.pointer("/error/message").and_then(Value::as_str))
                             .unwrap_or("模型响应失败");
-                        return Err(output.error("provider_error", message));
+                        // 66#4：上游 message 截断到 200 字符——对齐 openai/gemini
+                        // 的防长技术细节/注入文案口径（原先整段直传）
+                        return Err(output.error(
+                            "provider_error",
+                            &message.chars().take(200).collect::<String>(),
+                        ));
                     }
                     _ => {}
                 }

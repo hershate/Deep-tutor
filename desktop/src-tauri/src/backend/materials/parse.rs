@@ -115,7 +115,7 @@ fn parse_pdf(
     let pages = document.get_pages();
     if pages.len() as u32 > MAX_PDF_PAGES {
         return Err(BackendError::new(
-            "quota_exceeded",
+            "size_limit_exceeded",
             "PDF 页数超过 2000 页上限",
         ));
     }
@@ -179,7 +179,7 @@ fn read_zip_entry(
     check_cancel(cancel)?;
     if archive.len() > 2048 {
         return Err(BackendError::new(
-            "quota_exceeded",
+            "size_limit_exceeded",
             "压缩包条目数超过 2048 上限",
         ));
     }
@@ -190,7 +190,7 @@ fn read_zip_entry(
         || entry.size() > entry.compressed_size().max(1).saturating_mul(200)
     {
         return Err(BackendError::new(
-            "quota_exceeded",
+            "size_limit_exceeded",
             "压缩包条目超过安全解压上限",
         ));
     }
@@ -201,7 +201,7 @@ fn read_zip_entry(
         .map_err(|_| failure("压缩包条目读取失败"))?;
     if bytes.len() > MAX_XML_BYTES || budget.total.saturating_add(bytes.len()) > MAX_ZIP_TOTAL {
         return Err(BackendError::new(
-            "quota_exceeded",
+            "size_limit_exceeded",
             "压缩包解压总量超过 64 MB 上限",
         ));
     }

@@ -156,7 +156,7 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<NoteSource>> {
         .map_err(|_| invalid("invalid_notes_archive", "笔记压缩包结构无效"))?;
     if archive.len() > MAX_ENTRIES {
         return Err(BackendError::new(
-            "quota_exceeded",
+            "size_limit_exceeded",
             "笔记压缩包最多包含 1000 个条目",
         ));
     }
@@ -184,16 +184,16 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<NoteSource>> {
             || entry.size() > entry.compressed_size().max(1).saturating_mul(200)
         {
             return Err(BackendError::new(
-                "quota_exceeded",
+                "size_limit_exceeded",
                 "单条笔记超过 1 MB 或压缩比超过安全上限",
             ));
         }
         total = total
             .checked_add(entry.size())
-            .ok_or_else(|| BackendError::new("quota_exceeded", "笔记解压总量无效"))?;
+            .ok_or_else(|| BackendError::new("size_limit_exceeded", "笔记解压总量无效"))?;
         if total > MAX_FILE_BYTES {
             return Err(BackendError::new(
-                "quota_exceeded",
+                "size_limit_exceeded",
                 "笔记解压总量超过 64 MB 上限",
             ));
         }
@@ -215,7 +215,7 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<NoteSource>> {
             })?;
         if bytes.len() as u64 > MAX_NOTE_BYTES {
             return Err(BackendError::new(
-                "quota_exceeded",
+                "size_limit_exceeded",
                 "单条笔记超过 1 MB 上限",
             ));
         }
@@ -252,7 +252,7 @@ fn read_notes(path: &Path) -> Result<Vec<NoteSource>> {
         .map_err(|_| invalid("import_read_failed", "无法读取所选笔记文件"))?;
     if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
         return Err(BackendError::new(
-            "quota_exceeded",
+            "size_limit_exceeded",
             "笔记文件必须是普通文件且不超过 64 MB",
         ));
     }

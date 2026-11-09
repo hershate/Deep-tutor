@@ -297,7 +297,11 @@ where
                         } else {
                             "provider_error"
                         };
-                        return Err(output.error(code, message));
+                        // 66#4：上游 message 截断到 200 字符——对齐 openai/gemini
+                        // 的防长技术细节/注入文案口径（原先整段直传）
+                        return Err(
+                            output.error(code, &message.chars().take(200).collect::<String>())
+                        );
                     }
                     _ => {}
                 }

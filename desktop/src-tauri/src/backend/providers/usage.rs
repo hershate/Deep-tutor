@@ -248,7 +248,7 @@ pub fn upsert_rate<R: Runtime>(
     rates(&store.conn)?
         .into_iter()
         .find(|rate| rate.provider_id == profile.id && rate.model == input.model)
-        .ok_or_else(|| BackendError::new("not_found", "费率保存后未找到记录"))
+        .ok_or_else(|| BackendError::new("rate_save_failed", "费率保存后未找到记录"))
 }
 
 /// 费率→成本换算（缺 usage 或缺费率返回 None）——聚合口径与 budget_spend

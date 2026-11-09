@@ -220,7 +220,7 @@ pub fn add_task<R: Runtime>(
     let tx = store.conn.unchecked_transaction()?;
     let task_id = Store::next_free_id(&tx, "tasks")?
         .parse::<i64>()
-        .map_err(|_| BackendError::new("storage_failed", "无法分配补学任务标识"))?;
+        .map_err(|_| BackendError::new("invalid_plan_data", "无法分配补学任务标识"))?;
     Store::insert_json(
         &tx,
         "tasks",
@@ -324,7 +324,7 @@ pub fn save_note<R: Runtime>(
     store.ensure_quota_in_tx(&tx, "notes", 1)?;
     let note_id = Store::next_free_id(&tx, "notes")?
         .parse::<i64>()
-        .map_err(|_| BackendError::new("storage_failed", "无法分配批注标识"))?;
+        .map_err(|_| BackendError::new("invalid_plan_data", "无法分配批注标识"))?;
     Store::insert_json(
         &tx,
         "notes",
