@@ -224,6 +224,10 @@ pub fn schedule(
         .iter()
         .map(|node| (node.id.as_str(), node))
         .collect::<HashMap<_, _>>();
+    // 77#10：首日按完整 daily_minutes 装填（不按生成时刻折算）——设计取舍：
+    // 排期是确定性整数规划，按剩余时刻折算会把「深夜生成」的方案首日变成
+    // 空日，任务顺延整段日程；深夜生成的首日「即刻逾期」由前端逾期着色
+    // 呈现，不改变排期本体
     let mut cursor = start;
     let mut remaining_today = daily_minutes;
     let mut total_minutes = 0u32;

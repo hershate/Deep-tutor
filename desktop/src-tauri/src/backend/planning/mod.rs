@@ -311,6 +311,9 @@ fn factor(intensity: &str) -> Result<f64> {
 /// 2 分钟尾条目切「冲刺」被抬到 10 分钟、再切回时单调卡死在 10（52#1）。
 fn scaled(minutes: u32, current: &str, target: &str) -> Result<u32> {
     let ratio = factor(target)? / factor(current)?;
+    // 77#12：已知取舍——0.8/1.2 往返经两次独立取整可漂移 -1 分钟/条目
+    //（7→8→6）；比例因子从当前值链式计算，保留「无钳制卡死」（52#1）与
+    // 简洁性，±1 分钟漂移不修正
     Ok(((minutes as f64) * ratio).round() as u32)
 }
 

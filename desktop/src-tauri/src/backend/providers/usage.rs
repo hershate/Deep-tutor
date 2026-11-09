@@ -389,8 +389,25 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
             .filter(|entry| entry.input_tokens.is_none() || entry.output_tokens.is_none())
             .count() as u32,
     };
+    // 77#2：模型明细/份额按所选窗口聚合——原先遍历全部历史 entries，与并排
+    // 的「近 N 日已计价成本」趋势图窗口不一致，旧月份的大额成本会把份额
+    // 顶成 100% 造成账单误读
+    let window_start = daily
+        .first()
+        .map(|day| day.date.as_str())
+        .unwrap_or_default();
+    let windowed: Vec<&UsageEntry> = entries
+        .iter()
+        .filter(|entry| {
+            local_date(&entry.created_at, local.offset())
+                .ok()
+                .and_then(|date| Some(date.to_string()))
+                .map(|date| date >= window_start.to_string())
+                .unwrap_or(false)
+        })
+        .collect();
     let mut models: HashMap<(String, String), ModelUsage> = HashMap::new();
-    for entry in &entries {
+    for entry in &windowed {
         let key = (entry.provider_id.clone(), entry.model.clone());
         let model = models.entry(key).or_insert_with(|| ModelUsage {
             provider_id: entry.provider_id.clone(),

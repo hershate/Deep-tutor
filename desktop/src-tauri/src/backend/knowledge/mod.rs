@@ -454,6 +454,9 @@ pub fn search(state: &KnowledgeState, query: &str) -> Result<Vec<KnowledgeHit>> 
             .then_with(|| a.kind.cmp(&b.kind))
             .then_with(|| a.id.cmp(&b.id))
     });
+    // 77#6：结果封顶——原先全量返回无分页无上限，大库长查询的返回载荷
+    // 无界（对照 engagement 全局搜索固定 40 条的有界口径）
+    hits.truncate(40);
     Ok(hits)
 }
 

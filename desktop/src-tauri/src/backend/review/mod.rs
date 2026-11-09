@@ -547,8 +547,13 @@ pub(crate) fn stats_with(store: &super::store::Store) -> Result<ReviewStats> {
     )?;
     let mut calendar = Vec::new();
     for offset in 0..7 {
-        let date = today.checked_add(Duration::days(offset)).unwrap();
-        let next_date = date.next_day().unwrap();
+        // 77#8：边界日期类型化报错（47#3 同型）——不再 unwrap panic
+        let date = today
+            .checked_add(Duration::days(offset))
+            .ok_or_else(|| BackendError::new("invalid_persisted_time", "无法计算复习日历日期"))?;
+        let next_date = date
+            .next_day()
+            .ok_or_else(|| BackendError::new("invalid_persisted_time", "无法计算复习日历日期"))?;
         // 13#17：“今天”桶与 dueToday 同口径（含全部逾期），复习页两数字不再矛盾
         let count: u32 = if offset == 0 {
             store.conn.query_row(

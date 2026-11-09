@@ -319,6 +319,7 @@ fn evaluate(
     draft: GradingDraft,
     rubric: &[RubricCriterion],
     task: &GradingTask,
+    pass_ratio: f64,
 ) -> Result<(f64, bool, Value)> {
     if draft.criteria.len() != rubric.len()
         || draft.overall_feedback.trim().is_empty()
@@ -361,8 +362,12 @@ fn evaluate(
             "evidence": result.evidence, "feedback": result.feedback,
         }));
     }
+    // 77#11a：±1e-4 容差校验在 validate_rubric——超出容差的 rubric 已被拒收，
+    // 此处 clamp 只兜浮点累加尾差，不掩盖非法输入
     let score = total.clamp(0.0, 1.0);
-    let correct = score >= 0.8;
+    // 77#11b：达标阈值取本组 set 的 pass_score_percent（原先硬编码 0.8，
+    // 错题本判定与考试通过口径脱节）
+    let correct = score >= pass_ratio;
     let expected: Value = serde_json::from_str(&task.expected)?;
     Ok((
         score,
@@ -438,7 +443,13 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
     }
     let draft: GradingDraft = learning::pipeline::parse_model_json(&result.output)?;
     validate_citations(&draft.citations, &source_list)?;
-    let (score, correct, feedback) = evaluate(draft, &rubric, &task)?;
+    let set = set_row(&store.conn, task.set_id)?;
+    let (score, correct, feedback) = evaluate(
+        draft,
+        &rubric,
+        &task,
+        f64::from(set.pass_score_percent.unwrap_or(80)) / 100.0,
+    )?;
     let overall_feedback = feedback["overallFeedback"]
         .as_str()
         .unwrap_or("评分未达到掌握阈值")

@@ -482,7 +482,9 @@ pub fn search(state: &EngagementState, query: String) -> Result<Vec<SearchResult
                 {
                     continue;
                 }
-                let mastery: Option<f64> = store.conn.query_row("SELECT AVG(score / max_score) FROM learning_node_evidence WHERE plan_id = ?1 AND node_id = ?2", params![super::learning::plan_id(&plan.id)?, node.id], |row| row.get(0))?;
+                // 77#1：搜索结果掌握度补行级过滤（与报告页/知识页同口径）——原先裸
+                // AVG 在脏行（score>max）下可显示超过 100% 的掌握度
+                let mastery: Option<f64> = store.conn.query_row("SELECT AVG(score / max_score) FROM learning_node_evidence WHERE plan_id = ?1 AND node_id = ?2 AND max_score > 0 AND score >= 0 AND score <= max_score", params![super::learning::plan_id(&plan.id)?, node.id], |row| row.get(0))?;
                 let stage_id = plan_result
                     .stages
                     .iter()
@@ -590,7 +592,9 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
             |row| row.get(0),
         )?;
         if due > 0 {
-            let minutes = (due * 2).min(60);
+            // 77#5：估算口径与 review stats 统一为 40 秒/卡——原先 2 分钟/卡，
+            // 同一批到期卡两处预估差 3 倍（30 张卡 20 分钟 vs 60 分钟封顶）
+            let minutes = ((due as f64 * 40.0 / 60.0).ceil() as u32).min(60);
             add_notification(
                 &store.conn,
                 &format!("review-due-{today}"),

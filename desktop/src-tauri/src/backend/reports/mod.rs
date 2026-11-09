@@ -809,7 +809,7 @@ pub(crate) fn report_with(store: &super::store::Store, period: &str) -> Result<L
     // （与 :639 evidence 路径的 finite+界内过滤同口径），不再被 as u8 饱和
     // 转换静默钳到 100% 掩盖
     let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN a.max_score > 0 AND a.score >= 0 AND a.score <= a.max_score THEN a.score / a.max_score END) FROM practice_answers a JOIN practice_sets s ON s.id = a.set_id WHERE a.status = 'done' AND a.created_at >= ?1 AND s.feedback_mode != 'hints'", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
-    let retention_percent: Option<f64> = store.conn.query_row("SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 ELSE 0.0 END) FROM review_history WHERE reviewed_at >= ?1", params![since_text], |row| row.get(0))?;
+    let retention_percent: Option<f64> = store.conn.query_row("SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 WHEN 'again' THEN 0.0 ELSE NULL END) FROM review_history WHERE reviewed_at >= ?1", params![since_text], |row| row.get(0))?;
     // 13#6：与首页同口径——最近采用的方案优先，无采用记录回退最新。
     // 73#13a：改在已持有的连接上取回——原先每域扇出各自 Store::new
     let all_plans = super::learning::list_with(&store)?;
@@ -1164,7 +1164,12 @@ pub fn adopt_recommendations<R: Runtime>(
     let store = state.store()?;
     let mut added = 0;
     let mut wants_focus = false;
-    let mut tasks = store.collection("tasks")?.value;
+    // 77#3：revision 随任务快照一次取定——原先提交前另读一次新 revision，
+    // 并发采纳持有过期 tasks 数组也能通过守卫，同 id 行互相覆盖静默丢任务；
+    // 改用快照 revision 后并发方收到可重试的 revision_conflict
+    let tasks_collection = store.collection("tasks")?;
+    let snapshot_revision = tasks_collection.revision;
+    let mut tasks = tasks_collection.value;
     let tasks = tasks
         .as_array_mut()
         .ok_or_else(|| BackendError::new("invalid_record", "任务集合格式无效"))?;
@@ -1208,8 +1213,8 @@ pub fn adopt_recommendations<R: Runtime>(
         None
     };
     if added > 0 {
-        let revision = store.collection("tasks")?.revision;
-        let mutation = store.replace_collection("tasks", revision, &Value::Array(tasks.clone()))?;
+        let mutation =
+            store.replace_collection("tasks", snapshot_revision, &Value::Array(tasks.clone()))?;
         if let Some(event) = mutation.event {
             emit(app, &event);
         }
