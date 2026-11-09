@@ -17,6 +17,9 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<KnowledgeHit[]>([])
   const [searching, setSearching] = useState(false)
+  // 62#2：记录产出当前命中的检索词——输入改词后旧结果仍挂在新词下方，
+  // 视觉上是新词的结果；标注实际检索词区分三态
+  const [searched, setSearched] = useState('')
   const [reading, setReading] = useState<{ citation: KnowledgeCitation | null; detail: MaterialDetail } | null>(null)
   const [noteHit, setNoteHit] = useState<KnowledgeHit | null>(null)
   const currentId = useRef<number | null>(null)
@@ -121,7 +124,7 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
   const search = async () => {
     if (searching || !query.trim()) return
     setSearching(true)
-    try { setHits(await knowledgeBackend.search(query)) }
+    try { setHits(await knowledgeBackend.search(query)); setSearched(query) }
     catch (error) { reportBackendError(error) } finally { setSearching(false) }
   }
   const openCitation = async (citation: KnowledgeCitation) => {
@@ -142,7 +145,8 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
 
   return <div className="wiki-layout"><aside className="wiki-docs"><div className="wiki-docs-head"><div><BookOpen size={18} /><strong>引用范围</strong></div><Badge tone="neutral">{selected.length} 份</Badge></div><p>仅使用选中的已解析资料（最多 8 份，解析中的资料不可选）；每次问答会保存实际范围。</p>{resources.map(resource => <label key={resource.id} className={selected.includes(resource.id) ? 'selected' : ''}><input type="checkbox" disabled={!selected.includes(resource.id) && (resource.progress !== 100 || selected.length >= 8)} checked={selected.includes(resource.id)} onChange={() => setSelected(selected.includes(resource.id) ? selected.filter(id => id !== resource.id) : [...selected, resource.id])} /><FileText size={17} /><div><strong>{resource.title}</strong><span>{resource.type} · {resource.progress === 100 ? '已解析' : `解析进度 ${resource.progress}%`}</span></div></label>)}<div className="wiki-policy"><ShieldCheck size={16} />模型引用必须能逐字定位到所选资料，否则不会保存为有效回答。</div></aside><main className="wiki-qa">
     <form className="wiki-search" onSubmit={event => { event.preventDefault(); void search() }}><Search size={17} /><input value={query} onChange={event => setQuery(clampToBytes(event.target.value, 200))} placeholder="检索真实笔记标题、正文与资料解析文本" aria-label="检索知识库" /><Button size="sm" disabled={searching || !query.trim()}>检索</Button></form>
-    {query && <div className="knowledge-search-results">{hits.map(hit => <button key={`${hit.kind}-${hit.id}`} onClick={() => void openHit(hit)}><Badge tone="neutral">{hit.kind === 'material' ? '资料' : '笔记'}</Badge><div><strong>{hit.title}</strong><p>{hit.excerpt || '标题匹配，尚未产生解析正文。'}</p><small>实际匹配 {hit.score} 次{hit.citation ? ` · 第 ${hit.citation.line} 行` : ''}</small></div><ChevronRight size={16} /></button>)}</div>}
+    {searching && <div className="knowledge-search-results"><p className="form-help">正在检索「{query.trim()}」…</p></div>}
+    {!searching && searched && <div className="knowledge-search-results"><p className="form-help">{searched === query ? `「${searched}」的检索结果` : `以下是「${searched}」的检索结果；输入词已修改，重新点检索可更新`}</p>{hits.length ? hits.map(hit => <button key={`${hit.kind}-${hit.id}`} onClick={() => void openHit(hit)}><Badge tone="neutral">{hit.kind === 'material' ? '资料' : '笔记'}</Badge><div><strong>{hit.title}</strong><p>{hit.excerpt || '标题匹配，尚未产生解析正文。'}</p><small>实际匹配 {hit.score} 次{hit.citation ? ` · 第 ${hit.citation.line} 行` : ''}</small></div><ChevronRight size={16} /></button>) : <p className="form-help">没有匹配的笔记或资料解析文本，可更换关键词再试。</p>}</div>}
     <div className="wiki-answer-area">{current ? <article className="wiki-answer"><Badge tone={current.sufficient === false ? 'amber' : 'green'}>{current.status === 'done' ? current.sufficient === false ? '资料不足' : '库内引用回答' : '真实问答任务'}</Badge><h2>{current.question}</h2>
       {['running', 'cancelling'].includes(current.status) && <><pre className="streaming-output">{output || '问题与资料范围已保存，等待真实模型输出…'}</pre><Button variant="secondary" onClick={() => void cancel()} disabled={busy || current.status === 'cancelling'}>取消问答</Button></>}
       {['failed', 'cancelled', 'interrupted'].includes(current.status) && <div className="answer-feedback is-wrong"><CircleAlert size={20} /><p>{current.error ? backendErrorMessage(current.error) : '问答尚未完成'}</p><Button onClick={() => void resume()} disabled={busy}>恢复问答</Button></div>}

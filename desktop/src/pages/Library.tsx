@@ -272,10 +272,17 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     setImporting(true)
     try {
       const selected = await notesBackend.openFiles()
-      const path = Array.isArray(selected) ? selected[0] : selected
-      if (!path) return
-      const imported = await onImportNotes(path)
-      notify(`已由原生后端追加 ${imported} 条笔记，原有内容未覆盖`)
+      // 62#7：多选逐个导入（ZIP 归档单选一次即可含至多 1000 条）
+      const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
+      if (!paths.length) return
+      let imported = 0
+      const failures: string[] = []
+      for (const path of paths) {
+        try { imported += await onImportNotes(path) }
+        catch (error) { failures.push(`${path.split(/[\\\\/]/).pop() ?? path}：${backendErrorMessage(error)}`) }
+      }
+      if (imported) notify(`已由原生后端追加 ${imported} 条笔记，原有内容未覆盖`)
+      if (failures.length) notify(`${failures.length} 个文件导入失败：${failures[0]}${failures.length > 1 ? ' 等' : ''}`)
     } catch (error) { reportBackendError(error, 'write') } finally { setImporting(false) }
   }
   return <div className="page library-page">

@@ -80,7 +80,9 @@ export default function DataDirectoryPanel() {
   const reveal = async () => {
     if (!overview) return
     try { await revealInFileManager(overview.dataRoot) }
-    catch (cause) { setError(backendErrorMessage(cause)) }
+    // 62#8：opener 失败抛非 BackendError 的原生串（英文/系统级）——给出
+    // 自救指引而非原样上屏；目录尚未创建时按钮本身也已禁用
+    catch { setError('无法在资源管理器中打开：目录可能尚未创建或被其他程序占用。请先点击下方「重试初始化」创建目录后再试。') }
   }
 
   if (!overview) return <section className="surface setting-section storage-location-panel"><SectionHeader title="本地学习数据目录" description="目录设置由原生后端保存。" />{error ? <div className="form-error" role="alert"><span>{error}</span><Button size="sm" onClick={() => void refresh()}>重新读取</Button></div> : <p>正在读取目录设置…</p>}</section>
@@ -88,7 +90,7 @@ export default function DataDirectoryPanel() {
   const pending = overview.pendingDataRoot
   return <section className="surface setting-section storage-location-panel">
     <SectionHeader title="本地学习数据目录" description="默认目录自动创建。你可以修改保存位置，新设置在下次启动时生效。" action={<Badge tone={pending ? 'amber' : overview.initializing ? 'neutral' : overview.ready ? 'green' : 'red'}>{pending ? '重启后生效' : overview.initializing ? '正在初始化' : overview.ready ? '当前使用' : '需要处理'}</Badge>} />
-    <div className="storage-current"><Folder size={18} /><div><strong>{pending ? '当前目录' : '学习数据保存位置'}</strong><code>{overview.dataRoot}</code><small>默认目录：{overview.defaultDataRoot}</small><div><Button variant="ghost" size="sm" onClick={() => void reveal()}><FolderOpen size={15} />在资源管理器中显示</Button></div></div></div>
+    <div className="storage-current"><Folder size={18} /><div><strong>{pending ? '当前目录' : '学习数据保存位置'}</strong><code>{overview.dataRoot}</code><small>默认目录：{overview.defaultDataRoot}</small><div>{/* 62#8：目录未就绪时可能尚未创建——直点必败，禁用并提示先初始化 */}<Button variant="ghost" size="sm" disabled={!overview.ready} title={overview.ready ? undefined : '数据目录尚未创建，请先重试初始化'} onClick={() => void reveal()}><FolderOpen size={15} />在资源管理器中显示</Button></div></div></div>
     {pending && <div className="modal-callout"><RefreshCw size={17} /><div><strong>下次启动使用：{pending}</strong><p>当前进程仍使用原目录。切换不会自动迁移或删除旧数据；需要原有内容时，请先通过备份功能导出，再在新目录中导入。重启会结束当前进程，请先完成或取消正在运行的任务。</p></div></div>}
     {overview.error && <div className="form-error" role="alert">{overview.error.code}：{overview.error.message}</div>}
     <label>新的保存位置<input aria-label="本地学习数据目录" value={draft} disabled={Boolean(busy)} onChange={event => { setDraft(event.target.value); setMessage('') }} placeholder="输入磁盘上的绝对目录" /></label>
