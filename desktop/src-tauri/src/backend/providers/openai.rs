@@ -212,6 +212,29 @@ fn socket_addresses(
     Ok(addresses)
 }
 
+/// 81#2：地址是否全为回环/私网/保留——deep link 的 kind 判定用。
+/// 原先 https 端点落入 LocalHttps 分支无任何地址检查（endpoint() 恒 Ok），
+/// 云端 https 兼容服务一律被判「本地模型」，且本地模型的宽松网络语义
+/// （免「远程必须 HTTPS+公网」校验）被 deep link 静默扩大到内网 https 地址
+pub(crate) fn is_local_address(base_url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(base_url) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let port = url.port_or_known_default().unwrap_or(80);
+    match (host, port).to_socket_addrs() {
+        Ok(addresses) => {
+            let list: Vec<_> = addresses.collect();
+            !list.is_empty() && list.iter().all(|address| !public_address(address.ip()))
+        }
+        // 解析失败（如 hosts 未命名的 .local、断网）——按非本地处理，
+        // 交由后续真实请求路径的既有校验兜底
+        Err(_) => false,
+    }
+}
+
 pub(crate) fn endpoint(base_url: &str, kind: &str, suffix: &str) -> Result<reqwest::Url> {
     let raw_path = base_url.split(['?', '#']).next().unwrap_or(base_url);
     if raw_path

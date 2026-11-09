@@ -25,36 +25,29 @@ pub fn run_due<R: Runtime>(
         return Ok(None);
     }
     let store = service.store()?;
-    let last_attempt = store.conn.query_row(
-        "SELECT COALESCE(MAX(finished_at), '') FROM sync_jobs WHERE kind = 'upload'",
-        [],
-        |row| row.get::<_, String>(0),
-    )?;
-    let anchor = if last_attempt.is_empty() {
-        config.updated_at.clone()
-    } else {
-        last_attempt.clone()
+    // 81#6：锚点按 rowid 取最新一行——原先 MAX(finished_at) 是 RFC3339 字符串
+    // 字典序比较，time crate 亚秒位数不定（0/3/6/9 位），混合精度下字典序
+    // 与时间序不一致；且后续 WHERE finished_at = ?1 再按字符串匹配取
+    // status 可能读到空/错行。rowid 单调递增即真实写入顺序
+    let last_row = store
+        .conn
+        .query_row(
+            "SELECT finished_at, status FROM sync_jobs WHERE kind = 'upload' ORDER BY id DESC LIMIT 1",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let (anchor_text, last_status): (String, Option<String>) = match last_row {
+        Some((finished_at, status)) => (finished_at, Some(status)),
+        None => (config.updated_at.clone(), None),
     };
+    let anchor = anchor_text;
     let anchor = OffsetDateTime::parse(&anchor, &Rfc3339).map_err(|_| {
         super::super::error::BackendError::new("invalid_sync_schedule", "同步调度时间无效")
     })?;
     // 47#5：失败也写 finished_at，原先失败后同样要等满 24h——断网当天的同步
     // 缺失且不自愈（一天最多尝试一次）；失败后 1 小时短退避重试，成功/取消
     // 仍按滚动 24h（决策文档的 24h 口径指成功后的同步间隔）
-    let last_status: Option<String> = if last_attempt.is_empty() {
-        None
-    } else {
-        store
-            .conn
-            .query_row(
-                "SELECT status FROM sync_jobs WHERE kind = 'upload' AND finished_at = ?1 ORDER BY id DESC LIMIT 1",
-                rusqlite::params![last_attempt],
-                |row| row.get(0),
-            )
-            .optional()
-            .ok()
-            .flatten()
-    };
     let interval = if last_status.as_deref() == Some("failed") {
         1
     } else {

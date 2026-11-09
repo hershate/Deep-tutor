@@ -130,6 +130,23 @@ fn schema(conn: &Connection, table: &str) -> Result<Vec<Column>> {
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
+    // 85#1：列名白名单校验——列名会经 format!("\"{}\"", ...) 拼进对活库执行
+    // 的 SQL，恶意备份可用含双引号的列名（SQLite 标识符合法）闭合标识符注入
+    // 单条 SQL（改写 base_url 窃取凭据等）；自有 schema 列名全符合
+    // ^[A-Za-z0-9_]+$，不合法即拒绝整单导入
+    for column in &rows {
+        if column.name.is_empty()
+            || !column
+                .name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(BackendError::invalid(
+                "invalid_backup_schema",
+                "备份包含不允许的列名，已拒绝导入",
+            ));
+        }
+    }
     Ok(rows)
 }
 
@@ -1187,13 +1204,19 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
                     .ok_or_else(invalid_record)?
                     .to_string();
                 if exists(tx, table, "key", &Value::String(original.clone()))? {
-                    row.insert(
-                        "key".into(),
-                        Value::String(format!(
-                            "{original} · 导入 {}",
-                            transfer.maps.get("agent_memory").map_or(0, HashMap::len) + 1
-                        )),
-                    );
+                    // 81#1：改写键被占时递增序号直到空闲——原先后缀取备份内
+                    // 行数（同一备份恒定），第 2 次导入改写出 X，第 3 次对同一
+                    // 原键又改写出完全相同的 X 撞 TEXT 主键，整单回滚且报错
+                    // 文案与真实原因不符
+                    let mut suffix = transfer.maps.get("agent_memory").map_or(0, HashMap::len) + 1;
+                    loop {
+                        let candidate = format!("{original} · 导入 {suffix}");
+                        if !exists(tx, table, "key", &Value::String(candidate.clone()))? {
+                            row.insert("key".into(), Value::String(candidate));
+                            break;
+                        }
+                        suffix += 1;
+                    }
                 }
             }
             if table == &"shared_plans" {

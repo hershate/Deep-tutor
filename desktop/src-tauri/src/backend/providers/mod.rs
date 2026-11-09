@@ -740,18 +740,44 @@ pub fn deep_link<R: Runtime>(
     let model = model.unwrap_or_else(|| "custom-chat-model".into());
     let base_url = base_url
         .ok_or_else(|| BackendError::invalid("invalid_deep_link", "Deep Link 缺少 baseUrl"))?;
-    let kind = if openai::endpoint(&base_url, "本地模型", "models").is_ok() {
+    // 85#2：name/model 拒绝控制字符与 bidi 覆盖字符——恶意 deep link 可用
+    // U+202E（RTL 覆盖）等在设置页列表中伪装官方条目名（React 文本节点
+    // 自动转义无 XSS，属文案伪装/钓鱼面）
+    let display_safe = |text: &str| {
+        !text.chars().any(|c| {
+            c.is_control() || matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069)
+        })
+    };
+    if !display_safe(&model) {
+        return Err(BackendError::invalid(
+            "invalid_deep_link",
+            "Deep Link 的 model 参数包含不允许的字符",
+        ));
+    }
+    // 81#2：https 端点按解析地址分类——回环/私网才是「本地模型」，
+    // 公网 https 云服务归「兼容服务」；http 地址维持 endpoint() 的
+    // 既有判定（公网 http 被拒 → 兼容服务）
+    let kind = if openai::endpoint(&base_url, "本地模型", "models").is_ok()
+        && openai::is_local_address(&base_url)
+    {
         "本地模型"
     } else {
         "兼容服务"
     };
+    let name = name
+        .ok_or_else(|| BackendError::invalid("invalid_deep_link", "Deep Link 缺少 name"))?;
+    if !display_safe(&name) {
+        return Err(BackendError::invalid(
+            "invalid_deep_link",
+            "Deep Link 的 name 参数包含不允许的字符",
+        ));
+    }
     upsert(
         app,
         state,
         ProfileInput {
             id: None,
-            name: name
-                .ok_or_else(|| BackendError::invalid("invalid_deep_link", "Deep Link 缺少 name"))?,
+            name,
             preset: Some("custom".into()),
             kind: kind.into(),
             protocol: protocol.unwrap_or_else(|| "OpenAI Chat".into()),
@@ -1050,6 +1076,10 @@ fn begin_chat<R: Runtime>(
         Err(error) if error.code == "not_found" => {}
         Err(error) => return Err(error),
     }
+    // 81#4：锁内只做幂等检查与登记，SQLite 查询/事务移出锁窗口——原先
+    // chat() 与 tx.commit()（busy_timeout 最长 10s）都在 chat_cancels 持锁
+    // 期间执行，恰逢备份导入等长写事务时取消/停机全部阻塞在同一把锁上
+    drop(cancels);
     let store = state.store()?;
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
@@ -1062,15 +1092,21 @@ fn begin_chat<R: Runtime>(
         "provider.chat_started",
         json!({"requestId": request_id, "providerId": provider_id}),
     )?;
-    cancels.insert(
-        request_id.to_string(),
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    );
+    let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    state
+        .chat_cancels
+        .lock()
+        .map_err(|_| BackendError::new("store_unavailable", "模型请求状态不可用"))?
+        .insert(request_id.to_string(), Arc::clone(&cancel_flag));
     if let Err(error) = tx.commit() {
-        cancels.remove(request_id);
+        // 81#4：登记先于 commit——失败时补偿移除（与原分支同语义）
+        state
+            .chat_cancels
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "模型请求状态不可用"))?
+            .remove(request_id);
         return Err(error.into());
     }
-    drop(cancels);
     emit(app, &event);
     Ok((
         chat(state, request_id)?,

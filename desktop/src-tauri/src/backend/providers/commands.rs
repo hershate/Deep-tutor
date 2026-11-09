@@ -74,13 +74,24 @@ pub fn export_provider_config_file<R: Runtime>(
     super::super::write_export_bytes(&app, &destination, &bytes)
 }
 
-#[tauri::command]
-pub fn import_provider_deep_link<R: Runtime>(
+// 81#3：async 化对齐 upsert/test 范本——deep_link 内经 endpoint() 做
+// 阻塞 DNS 解析与凭据库/SQLite 读写，原先同步命令在主线程执行，弱网下
+// 点击 deep link 界面冻结数秒（44#1/73#5 同型）
+#[tauri::command(async)]
+pub async fn import_provider_deep_link<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     link: String,
 ) -> Result<ProviderProfile> {
-    deep_link(&app, &state.providers, &link)
+    let state = state.providers.shared();
+    let principal = session_principal(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        with_principal(principal, || deep_link(&app, &state, &link))
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("task_join_failed", "Deep Link 导入任务异常终止")
+    })?
 }
 
 #[tauri::command(async)]
