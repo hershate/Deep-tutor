@@ -593,8 +593,10 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
         )?;
         if due > 0 {
             // 77#5：估算口径与 review stats 统一为 40 秒/卡——原先 2 分钟/卡，
-            // 同一批到期卡两处预估差 3 倍（30 张卡 20 分钟 vs 60 分钟封顶）
-            let minutes = ((due as f64 * 40.0 / 60.0).ceil() as u32).min(60);
+            // 同一批到期卡两处预估差 3 倍
+            // 89#9：去掉 60 分钟封顶——复习页同公式不封顶，200 张到期时
+            // 通知说 60 分钟、页面说 134 分钟，同一数字两处打架
+            let minutes = (due as f64 * 40.0 / 60.0).ceil() as u32;
             add_notification(
                 &store.conn,
                 &format!("review-due-{today}"),
@@ -873,7 +875,7 @@ pub fn dashboard<R: Runtime>(
         upcoming.push(DashboardItem {
             kind: "exam".into(),
             title: format!("模拟考试 · 方案 {plan_id}"),
-            detail: format!("{count} 题 · 及格 {pass}%"),
+            detail: format!("{count} 题 · 通过线 {pass}%"),
             date,
             page: "practice".into(),
         });

@@ -8,7 +8,16 @@ import { clampToBytes } from '../limits'
 const emptyStats: ReviewStats = { dueToday: 0, retention: null, estimatedMinutes: 0, tomorrow: 0, calendar: [] }
 const emptyInput: ReviewCardInput = { front: '', back: '', tag: '', planId: null, nodeId: null }
 const gradeNames: Record<ReviewGrade, string> = { again: '再来一次', hard: '困难', good: '良好', easy: '轻松' }
-const gradeDays: Record<ReviewGrade, string> = { again: '10 分钟后', hard: '首次 2 天', good: '首次 5 天', easy: '首次 12 天' }
+const firstGradeDays: Record<ReviewGrade, string> = { again: '10 分钟后', hard: '首次 2 天', good: '首次 5 天', easy: '首次 12 天' }
+// 89#5：副标签按当前卡实际间隔/难度计算——原先恒显「首次 X 天」，非首次
+// 卡四个按钮全部失真（如间隔 12.5 天 ease 2.5 的卡按「良好」实际得 31 天，
+// 按钮仍写「首次 5 天」）；调度系数与 review/mod.rs schedule_next 一致
+const gradeHint = (card: ReviewCard | null, grade: ReviewGrade): string => {
+  if (!card || grade === 'again') return firstGradeDays[grade]
+  if (card.repetitions === 0) return firstGradeDays[grade]
+  const days = grade === 'hard' ? card.intervalDays * 1.2 : grade === 'good' ? card.intervalDays * card.ease : card.intervalDays * card.ease * 1.3
+  return `${Math.max(1, Math.round(days))} 天后`
+}
 
 export default function Review({ notify }: { notify: (message: string) => void }) {
   const [card, setCard] = useState<ReviewCard | null>(null)
@@ -157,7 +166,7 @@ export default function Review({ notify }: { notify: (message: string) => void }
             <div className="flashcard-face flashcard-back"><span>参考答案</span><h2>{card.back}</h2><small>对照你的回答，再诚实选择记忆程度</small></div>
           </button>
           <div className="review-keyboard">Space 翻卡 · 1 再来一次 · 2 困难 · 3 良好 · 4 轻松</div>
-          {!flipped ? <Button size="lg" onClick={() => setFlipped(true)}>显示答案<ChevronRight size={18} /></Button> : <div className="review-grade">{(['again', 'hard', 'good', 'easy'] as ReviewGrade[]).map(level => <button key={level} className={`grade-${level}`} onClick={() => void grade(level)} disabled={busy}><span>{gradeNames[level]}</span><small>{gradeDays[level]}</small></button>)}</div>}
+          {!flipped ? <Button size="lg" onClick={() => setFlipped(true)}>显示答案<ChevronRight size={18} /></Button> : <div className="review-grade">{(['again', 'hard', 'good', 'easy'] as ReviewGrade[]).map(level => <button key={level} className={`grade-${level}`} onClick={() => void grade(level)} disabled={busy}><span>{gradeNames[level]}</span><small>{gradeHint(card, level)}</small></button>)}</div>}
         </> : <div className="review-complete"><span><Check size={32} /></span><h2>{reviewed ? '本轮到期卡片复习完成' : '现在没有到期卡片'}</h2><p>本次完成 {reviewed} 次主动回忆；明日到期 {stats.tomorrow} 张。暂停或未来到期的卡片不会提前出现。</p><div><Button onClick={() => { void refresh().catch(reportBackendError) }}><RotateCcw size={17} />刷新到期队列</Button><Button variant="secondary" onClick={() => setManageOpen(true)}>查看全部记忆卡</Button></div></div>}
       </section>
       <aside className="review-side"><section className="surface forgetting-panel"><SectionHeader title="记忆节奏" description="未来 7 天真实到期卡片" /><div className="review-calendar">{stats.calendar.map((day, index) => <div key={day.date}><span style={{ height: `${Math.max(2, day.count / maximum * 96)}px` }} className={index === 0 ? 'active' : ''} /><small>{day.label}</small><strong>{day.count}</strong></div>)}</div></section><section className="surface review-method"><Sparkles size={20} /><h3>为什么先显示问题？</h3><p>主动回忆会暴露「看得熟但想不起」的假性掌握。反馈会保存为复习历史，并作为关联知识节点的学习证据。</p><button onClick={() => setLogicOpen(!logicOpen)}>了解复习安排逻辑<ArrowRight size={15} /></button>{logicOpen && <p>首次反馈：困难 2 天、良好 5 天、轻松 12 天；之后按上次间隔与难度系数计算。再来一次为 10 分钟，并清零连续次数。保持率按困难 60%、良好 80%、轻松 100% 的历史反馈均值计算（再来一次按 0% 计入均值）；预计每张 40 秒。</p>}</section></aside>

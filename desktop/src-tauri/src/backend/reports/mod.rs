@@ -808,7 +808,11 @@ pub(crate) fn report_with(store: &super::store::Store, period: &str) -> Result<L
     // 属遮蔽口径的报表旁路；47#7：脏行（score 超界/负值/缺 max）退出 AVG
     // （与 :639 evidence 路径的 finite+界内过滤同口径），不再被 as u8 饱和
     // 转换静默钳到 100% 掩盖
-    let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN a.max_score > 0 AND a.score >= 0 AND a.score <= a.max_score THEN a.score / a.max_score END) FROM practice_answers a JOIN practice_sets s ON s.id = a.set_id WHERE a.status = 'done' AND a.created_at >= ?1 AND s.feedback_mode != 'hints'", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    // 89#1：「主动练习」只计主动作答的题——03#13-27 让交卷时未作答题也落
+    // done/0 分行（判分与掌握度证据口径），原先计数与正确率把空卷全算进
+    // 「主动练习」（10 题空卷即 +10 题），首页/报告/周报三处同源此聚合；
+    // unanswered 标记由 exams.rs 交卷路径写入 feedback_json
+    let (practice_count, correct_percent): (i64, Option<f64>) = store.conn.query_row("SELECT COUNT(*), AVG(CASE WHEN a.max_score > 0 AND a.score >= 0 AND a.score <= a.max_score THEN a.score / a.max_score END) FROM practice_answers a JOIN practice_sets s ON s.id = a.set_id WHERE a.status = 'done' AND a.created_at >= ?1 AND s.feedback_mode != 'hints' AND COALESCE(CAST(json_extract(a.feedback_json, '$.unanswered') AS INTEGER), 0) = 0", params![since_text], |row| Ok((row.get(0)?, row.get(1)?)))?;
     let retention_percent: Option<f64> = store.conn.query_row("SELECT AVG(CASE grade WHEN 'good' THEN 0.8 WHEN 'easy' THEN 1.0 WHEN 'hard' THEN 0.6 WHEN 'again' THEN 0.0 ELSE NULL END) FROM review_history WHERE reviewed_at >= ?1", params![since_text], |row| row.get(0))?;
     // 13#6：与首页同口径——最近采用的方案优先，无采用记录回退最新。
     // 73#13a：改在已持有的连接上取回——原先每域扇出各自 Store::new
@@ -939,7 +943,9 @@ pub(crate) fn report_with(store: &super::store::Store, period: &str) -> Result<L
         // 25#8：局部重生成不清理旧阶段的完成行，孤儿计数可超过当前阶段总数
         //（"3/2 已完成"）——封顶到 total_stages 保持统计自洽
         let completed_stages: i64 = store.conn.query_row("SELECT COUNT(*) FROM learning_reading_progress WHERE plan_id = ?1 AND completed = 1", params![id], |row| row.get::<_, i64>(0))?.min(i64::try_from(total_stages).unwrap_or(i64::MAX));
-        let practice_count: i64 = store.conn.query_row("SELECT COUNT(*) FROM practice_sets WHERE plan_id = ?1", params![id], |row| row.get(0))?;
+        // 89#6：「X 组练习」只计可用组（ready/completed）——原先把生成失败/
+        // 取消的集合也计入，连续失败 3 次显示「3 组练习」而一组没做过
+        let practice_count: i64 = store.conn.query_row("SELECT COUNT(*) FROM practice_sets WHERE plan_id = ?1 AND status IN ('ready', 'completed')", params![id], |row| row.get(0))?;
         Ok(PlanStats { id: plan.id.clone(), title: plan.goal, status: plan.status, progress: plan.progress, focus_seconds: focus_by_plan.get(&id).copied().unwrap_or(0), practice_count: practice_count as u64, completed_stages: completed_stages as u64, total_stages })
     }).collect::<Result<Vec<_>>>()?;
     let mut time_composition: Vec<TimeSlice> = Vec::new();

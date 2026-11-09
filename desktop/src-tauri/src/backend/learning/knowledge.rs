@@ -40,8 +40,11 @@ pub fn progress(state: &LearningState, id: &str) -> Result<KnowledgeOverview> {
         .result
         .ok_or_else(|| BackendError::new("plan_not_ready", "方案尚未形成知识图谱"))?;
     let store = state.store()?;
-    // 77#7：掌握度为全历史证据的等权平均（无时间衰减/最新优先）——设计
-    // 语义：长期未复习的早期低分会拉低当前估计，报告推荐同口径排序
+    // 77#7：掌握度为全历史证据按 max_score 加权合并（无时间衰减/最新优先）
+    // ——设计语义：长期未复习的早期低分会拉低当前估计，报告推荐同口径排序。
+    // 89#3：注释与实现对齐——SUM(score)/SUM(max_score) 是加权合并而非等权
+    // 平均，当前所有写入方 max_score 恒 1，两公式数值巧合相等；报告页按
+    // 周期窗口取证据（evidence(&since)），本表为全历史口径
     // 77#1：行级过滤进 SQL（与报告页 evidence() 同口径）——原先 SUM/SUM 池化
     // 全部行，单条脏行（score>max）使池化值超界、整个节点从掌握度消失
     let mut statement = store.conn.prepare("SELECT node_id, COUNT(*), SUM(score), SUM(max_score) FROM learning_node_evidence WHERE plan_id = ?1 AND max_score > 0 AND score >= 0 AND score <= max_score GROUP BY node_id")?;
