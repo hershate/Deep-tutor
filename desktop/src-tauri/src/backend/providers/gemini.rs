@@ -256,9 +256,7 @@ where
                         output.finish_reason = Some(reason.into());
                         done = true;
                         if reason == "SAFETY" {
-                            return Err(
-                                output.error("content_blocked", "供应商因安全策略停止生成")
-                            );
+                            return Err(output.error("content_blocked", "供应商因安全策略停止生成"));
                         }
                     }
                 }

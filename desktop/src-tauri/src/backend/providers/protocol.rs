@@ -275,10 +275,7 @@ where
             return Err(ChatError::new("provider_timeout", "供应商响应超时"));
         }
         Ok(Err(_)) => {
-            return Err(ChatError::new(
-                "endpoint_unreachable",
-                "无法连接供应商端点",
-            ));
+            return Err(ChatError::new("endpoint_unreachable", "无法连接供应商端点"));
         }
         Err(_) => return Err(ChatError::new("provider_timeout", "供应商响应头等待超时")),
     };

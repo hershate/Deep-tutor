@@ -10,7 +10,7 @@ import { Badge, Button, ConfirmDialog, EmptyState, MarkdownLink, Modal, Progress
 import { localId } from '../ids'
 import WikiPanel from '../components/WikiPanel'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace } from '../backend/client'
-import type { AppSnapshot, MaterialDetail } from '../backend/client'
+import type { MaterialDetail, WriteReceipt } from '../backend/client'
 import { exportBackend } from '../backend/export'
 import { importMaterialPaths, summarizeMaterialImport } from '../backend/materialImport'
 import { notesBackend } from '../backend/notes'
@@ -42,7 +42,7 @@ function formatUpdated(value: string) {
   return new Date(time).toLocaleDateString()
 }
 
-export default function Library({ notes, setNotes, resources, onImportNotes, notify }: { notes: Note[]; setNotes: (notes: Note[] | ((current: Note[]) => Note[])) => Promise<AppSnapshot>; resources: Resource[]; onImportNotes: (path: string) => Promise<number>; notify: (message: string) => void }) {
+export default function Library({ notes, setNotes, resources, onImportNotes, notify }: { notes: Note[]; setNotes: (notes: Note[] | ((current: Note[]) => Note[])) => Promise<WriteReceipt>; resources: Resource[]; onImportNotes: (path: string) => Promise<number>; notify: (message: string) => void }) {
   const [tab, setTab] = useState('笔记')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('全部')
@@ -50,6 +50,13 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   const [activeNote, setActiveNote] = useState<Note | null>(null)
   const [noteTitle, setNoteTitle] = useState('')
   const [noteContent, setNoteContent] = useState('')
+  // 80#4：预览渲染防抖（350ms，与草稿自动保存同窗口）——正文上限 1MB，
+  // 原先每击键全文 Markdown/KaTeX 重解析，长笔记编辑可感卡顿
+  const [previewText, setPreviewText] = useState('')
+  useEffect(() => {
+    const timer = window.setTimeout(() => setPreviewText(noteContent), 350)
+    return () => window.clearTimeout(timer)
+  }, [noteContent])
   // 74#11：笔记工具栏作用于光标/选区——原先一律文末追加固定模板，与「加粗」名义不符
   const noteAreaRef = useRef<HTMLTextAreaElement>(null)
   const [noteTag, setNoteTag] = useState('概率论')
@@ -72,7 +79,14 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   const draftRevisionRef = useRef<number | null>(null)
   const [saving, setSaving] = useState(false)
   const noteTags = useMemo(() => Array.from(new Set([...notes.map(note => note.tag), noteTag].filter(Boolean))), [notes, noteTag])
-  const filteredNotes = useMemo(() => notes.filter(n => (filter === '全部' || n.tag === filter) && `${n.title}${n.excerpt}${n.content}`.toLowerCase().includes(query.toLowerCase())), [notes, query, filter])
+  // 80#5：搜索词去抖 250ms（社区帖同款）——原先每击键对全部笔记
+  // 标题+摘要+正文全文拼接小写化，500×50KB≈每击键 25MB 分配
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query), 250)
+    return () => window.clearTimeout(timer)
+  }, [query])
+  const filteredNotes = useMemo(() => notes.filter(n => (filter === '全部' || n.tag === filter) && `${n.title}${n.excerpt}${n.content}`.toLowerCase().includes(debouncedQuery.toLowerCase())), [notes, debouncedQuery, filter])
   const filteredResources = useMemo(() => resources.filter(r => (filter === '全部' || r.type === filter) && r.title.toLowerCase().includes(query.toLowerCase())), [resources, query, filter])
   const draftKey = `deep-tutor-draft-${activeNote?.id || 'new'}`
 
@@ -336,7 +350,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
 
     <Modal open={checkOpen} onClose={() => setCheckOpen(false)} title="真实资料库检查" wide><div className="form-stack"><p className="form-help">检查当前用户的笔记关联、完全相同的正文、原件可用性和解析状态。不会自动删除笔记或原件。</p><div className="form-grid"><div><strong>{libraryOverview?.unlinkedNotes ?? '—'}</strong><p>未关联笔记</p></div><div><strong>{libraryOverview?.duplicateNoteGroups ?? '—'}</strong><p>重复正文组</p></div><div><strong>{libraryOverview?.missingOriginals ?? '—'}</strong><p>缺失原件</p></div><div><strong>{libraryOverview?.failedMaterials ?? '—'}</strong><p>解析失败</p></div></div><div className="milestone-list">{libraryOverview?.issues.map(issue => <div className="milestone-row" key={issue.id}><span className="milestone-marker"><Tag size={15} /></span><div><strong>{issue.title}</strong><p>{issue.detail}</p></div><Badge tone={issue.severity === 'error' ? 'red' : issue.severity === 'warning' ? 'amber' : 'neutral'}>{issue.severity === 'error' ? '失败' : issue.severity === 'warning' ? '需检查' : '提示'}</Badge>{issue.noteId && notes.some(note => note.id === issue.noteId) ? <Button variant="ghost" size="sm" onClick={() => { const note = notes.find(item => item.id === issue.noteId); if (note) { setCheckOpen(false); openNote(note) } }}>打开笔记</Button> : issue.materialId && resources.some(resource => resource.id === issue.materialId) ? <Button variant="ghost" size="sm" onClick={() => { setCheckOpen(false); void openMaterial(issue.materialId!) }}>打开资料</Button> : null}</div>)}{libraryOverview && !libraryOverview.issues.length && <EmptyState title="当前没有需要提示的条目" description="没有重复正文、未关联笔记、缺失原件或解析失败。此结果只描述上述真实检查范围。" />}{!libraryOverview && (libraryError ? <div className="form-error" role="alert"><p>{libraryError}</p><Button variant="secondary" size="sm" onClick={() => { setLibraryError(''); setLibraryReloadKey(current => current + 1) }}>重新检查</Button></div> : <p>正在读取真实笔记、关联和资料状态…</p>)}</div></div></Modal>
     <Modal open={noteOpen} onClose={closeNote} title={activeNote ? '编辑笔记' : '新建笔记'} wide><div className="note-editor"><div className="editor-meta"><input value={noteTitle} disabled={saving} onChange={e => { setNoteTitle(clampToBytes(e.target.value, 500)); setDirty(true) }} placeholder="笔记标题" aria-label="笔记标题" /><select value={noteTag} disabled={saving} onChange={e => { setNoteTag(e.target.value); setDirty(true) }} aria-label="笔记标签">{noteTags.map(tag => <option key={tag}>{tag}</option>)}</select></div>{draftRestored && <div className="draft-notice"><Check size={15} />已恢复未保存草稿；本地草稿与离开警告双重保护。</div>}<div className="editor-toolbar"><span>Markdown + GFM + LaTeX</span>{/* 60#5：51#14 的保存期锁定未覆盖工具栏——点击仍追加内容并置 dirty，不进本次保存载荷 */}<button disabled={saving} onClick={() => insertAtSelection('\n## ', '\n')}>H2</button><button disabled={saving} onClick={() => insertAtSelection('**', '**')}>加粗</button><button disabled={saving} onClick={() => insertAtSelection('\n- ', '')}>列表</button><button disabled={saving} onClick={() => insertAtSelection('\n```ts\n', '\n```\n')}>代码</button><button disabled={saving} onClick={() => insertAtSelection('\n$$P(A|B)=\\frac{P(B|A)P(A)}{P(B)}$$', '$$\n')}>公式</button></div>{/* 51#14：保存 IPC 在途期间禁用输入——原先窗口内继续打字的内容不进保存值即被丢弃 */}
-<div className="note-editor-grid"><textarea ref={noteAreaRef} value={noteContent} disabled={saving} onChange={e => { setNoteContent(e.target.value); setDirty(true) }} placeholder="用自己的话记录理解，而不只是摘抄…" aria-label="笔记 Markdown 正文" /><article className="note-preview"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{noteContent || '实时预览将在这里显示。'}</ReactMarkdown></article></div><div className="editor-footer"><span>{noteContent.length} 字 · {dirty ? '草稿自动暂存中' : '已保存'}</span><div>{activeNote && <Button variant="ghost" disabled={saving} onClick={() => setDeleteNoteOpen(true)}><Trash2 size={16} />删除</Button>}<Button onClick={saveNote} disabled={saving || !noteTitle.trim() || !noteContent.trim()}>保存笔记</Button></div></div></div></Modal>
+<div className="note-editor-grid"><textarea ref={noteAreaRef} value={noteContent} disabled={saving} onChange={e => { setNoteContent(e.target.value); setDirty(true) }} placeholder="用自己的话记录理解，而不只是摘抄…" aria-label="笔记 Markdown 正文" /><article className="note-preview"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{previewText || '实时预览将在这里显示。'}</ReactMarkdown></article></div><div className="editor-footer"><span>{noteContent.length} 字 · {dirty ? '草稿自动暂存中' : '已保存'}</span><div>{activeNote && <Button variant="ghost" disabled={saving} onClick={() => setDeleteNoteOpen(true)}><Trash2 size={16} />删除</Button>}<Button onClick={saveNote} disabled={saving || !noteTitle.trim() || !noteContent.trim()}>保存笔记</Button></div></div></div></Modal>
     <ConfirmDialog open={deleteMaterialOpen} onClose={() => setDeleteMaterialOpen(false)} onConfirm={() => { if (activeMaterial) void deleteMaterial(activeMaterial.id) }} title="删除这份资料？" description="将同时删除资料记录与可用原件文件，已生成的知识引用会失效；此操作不可恢复。" confirmLabel="确认删除" busy={materialBusy || exportBusy !== ''} />
     <ConfirmDialog open={deleteNoteOpen} onClose={() => setDeleteNoteOpen(false)} onConfirm={() => { setDeleteNoteOpen(false); void deleteNote() }} title="删除这条笔记？" description="笔记正文与关联知识节点将一并移除；此操作不可恢复（可先保留草稿再删除）。" confirmLabel="确认删除" busy={saving} />
     <Modal open={discardOpen} onClose={() => { if (!saving) setDiscardOpen(false) }} title="关闭但保留草稿？"><div className="confirm-dialog"><p>保留时会先等待原生后端写入；丢弃时会删除后端草稿。</p><div><Button variant="ghost" disabled={saving} onClick={() => { void settleDraft(false) }}>丢弃草稿</Button><Button disabled={saving} onClick={() => { void settleDraft(true) }}>保留草稿并关闭</Button></div></div></Modal>

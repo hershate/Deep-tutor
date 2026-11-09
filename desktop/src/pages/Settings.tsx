@@ -8,7 +8,7 @@ import { onBackendEvent, reportBackendError } from '../backend/client'
 import { engagementBackend } from '../backend/engagement'
 import { clampToBytes } from '../limits'
 import type { LearningProfile } from '../backend/engagement'
-import type { AppSnapshot } from '../backend/client'
+import type { AppSnapshot, WriteReceipt } from '../backend/client'
 
 export type Preferences = {
   proactive: boolean
@@ -32,7 +32,7 @@ const settingNav = [
 const learningStyles = ['案例与练习结合', '先系统阅读，再集中练习', '以项目实践为主']
 const explanationStyles = ['先追问，再针对讲解', '直接给出完整讲解', '苏格拉底式引导']
 
-export default function Settings({ preferences, setPreferences, onImport, counts, onReset, notify }: { preferences: Preferences; setPreferences: (p: Preferences | ((current: Preferences) => Preferences)) => Promise<AppSnapshot>; onImport: (path: string) => Promise<AppSnapshot>; counts: { tasks: number; notes: number; resources: number; projects: number }; onReset: () => Promise<AppSnapshot>; notify: (message: string) => void }) {
+export default function Settings({ preferences, setPreferences, onImport, counts, onReset, notify }: { preferences: Preferences; setPreferences: (p: Preferences | ((current: Preferences) => Preferences)) => Promise<WriteReceipt>; onImport: (path: string) => Promise<AppSnapshot>; counts: { tasks: number; notes: number; resources: number; projects: number }; onReset: () => Promise<WriteReceipt>; notify: (message: string) => void }) {
   const [resetOpen, setResetOpen] = useState(false)
   const [profile, setProfile] = useState<LearningProfile | null>(null)
   const [draft, setDraft] = useState<LearningProfile | null>(null)

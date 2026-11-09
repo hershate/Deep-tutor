@@ -3,7 +3,7 @@ import { ArrowRight, CalendarDays, Check, CheckCircle2, ChevronRight, Circle, Fi
 import type { Project } from '../data'
 import { Badge, Button, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
-import type { AppSnapshot, LearningPlan, Material } from '../backend/client'
+import type { LearningPlan, Material, WriteReceipt } from '../backend/client'
 import { projectsBackend } from '../backend/projects'
 import { localId } from '../ids'
 import type { ProjectVersion } from '../backend/projects'
@@ -19,7 +19,7 @@ function withProgress(project: Project): Project {
   return { ...project, progress: project.milestones.length ? Math.round(project.milestones.filter(item => item.done).length / project.milestones.length * 100) : 0 }
 }
 
-export default function Projects({ projects, setProjects, onNavigateMap, notify }: { projects: Project[]; setProjects: (projects: Project[] | ((current: Project[]) => Project[])) => Promise<AppSnapshot>; onNavigateMap: (planId: string) => void; notify: (message: string) => void }) {
+export default function Projects({ projects, setProjects, onNavigateMap, notify }: { projects: Project[]; setProjects: (projects: Project[] | ((current: Project[]) => Project[])) => Promise<WriteReceipt>; onNavigateMap: (planId: string) => void; notify: (message: string) => void }) {
   const [selected, setSelected] = useState(projects[0]?.id || 0)
   const [versions, setVersions] = useState<ProjectVersion[]>([])
   const [plans, setPlans] = useState<LearningPlan[]>([])

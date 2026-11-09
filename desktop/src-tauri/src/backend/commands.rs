@@ -14,6 +14,18 @@ fn store<'a>(state: &'a State<'_, BackendState>) -> Result<MutexGuard<'a, Store>
         .unwrap_or_else(|poisoned| poisoned.into_inner()))
 }
 
+/// 80#1：写路径轻量回执——只回 versions/lastEventId/workspaceId，不再整包
+/// 返回全部集合（写放大 ×2 的下载半边；UI 由本地构造快照即时更新，
+/// 后续事件仍走去抖全量快照兜底一致）
+fn light_receipt(mutation: Mutation) -> Result<Value> {
+    use serde_json::json;
+    Ok(json!({
+        "versions": mutation.state.get("versions").cloned().unwrap_or(Value::Null),
+        "lastEventId": mutation.state.get("lastEventId").cloned().unwrap_or(json!(0)),
+        "workspaceId": mutation.state.get("workspaceId").cloned().unwrap_or(json!(0)),
+    }))
+}
+
 fn finish<R: Runtime>(app: &AppHandle<R>, mutation: Mutation) -> Result<Value> {
     if let Some(event) = mutation.event {
         emit(app, &event);
@@ -75,7 +87,10 @@ pub fn replace_collection<R: Runtime>(
     value: Value,
 ) -> Result<Value> {
     let mutation = store(&state)?.replace_collection(&namespace, expected_revision, &value)?;
-    finish(&app, mutation)
+    if let Some(event) = &mutation.event {
+        emit(&app, event);
+    }
+    light_receipt(mutation)
 }
 
 #[tauri::command]
@@ -87,7 +102,10 @@ pub fn save_draft<R: Runtime>(
     expected_revision: Option<i64>,
 ) -> Result<Value> {
     let mutation = store(&state)?.put_draft(&id, &value, expected_revision)?;
-    finish(&app, mutation)
+    if let Some(event) = &mutation.event {
+        emit(&app, event);
+    }
+    light_receipt(mutation)
 }
 
 #[tauri::command]
@@ -102,7 +120,10 @@ pub fn delete_draft<R: Runtime>(
     id: String,
 ) -> Result<Value> {
     let mutation = store(&state)?.delete_draft(&id)?;
-    finish(&app, mutation)
+    if let Some(event) = &mutation.event {
+        emit(&app, event);
+    }
+    light_receipt(mutation)
 }
 
 // 73#10/73#14：停机集合改用 guard::stop_all（原先六个串行 `?` 首败即弃、
@@ -304,8 +325,9 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(state["tasks"][0]["title"], "IPC 任务");
         assert_eq!(state["lastEventId"], 1);
+        // 80#1：写路径返回轻量回执——不再整包回全部集合
+        assert!(state.get("tasks").is_none());
         let observed = received.lock().unwrap();
         assert_eq!(observed.len(), 1);
         assert_eq!(observed[0]["event"]["id"], 1);

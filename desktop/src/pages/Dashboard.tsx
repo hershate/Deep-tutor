@@ -3,12 +3,12 @@ import { ArrowRight, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleA
 import type { PageId, Task } from '../data'
 import { Badge, Button, MiniBars, ProgressBar, ProgressRing, SectionHeader } from '../components/UI'
 import { reportBackendError } from '../backend/client'
-import type { AppSnapshot } from '../backend/client'
+import type { WriteReceipt } from '../backend/client'
 import type { DashboardOverview } from '../backend/engagement'
 import { localId } from '../ids'
 
 /** 摘要由 App 全局加载一次并随事件刷新（侧栏与今日页共用），页面自身不再重复请求。 */
-export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify, overview, summaryError, onRetrySummary }: { tasks: Task[]; setTasks: (tasks: Task[] | ((current: Task[]) => Task[])) => Promise<AppSnapshot>; onNavigate: (page: PageId) => void; onFocus: (taskId?: number) => void; notify: (message: string) => void; overview: DashboardOverview | null; summaryError: string; onRetrySummary: () => void }) {
+export default function Dashboard({ tasks, setTasks, onNavigate, onFocus, notify, overview, summaryError, onRetrySummary }: { tasks: Task[]; setTasks: (tasks: Task[] | ((current: Task[]) => Task[])) => Promise<WriteReceipt>; onNavigate: (page: PageId) => void; onFocus: (taskId?: number) => void; notify: (message: string) => void; overview: DashboardOverview | null; summaryError: string; onRetrySummary: () => void }) {
   const error = summaryError
   // 43#3：在途翻转集——勾选后立即按目标态渲染（IPC 往返期间控件不再无响应），
   // 同一任务在途时的二次点击直接忽略（原先连点两次经串行化相互抵消）

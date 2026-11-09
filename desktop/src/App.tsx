@@ -150,8 +150,13 @@ export default function App() {
     void onBackendEvent(event => {
       if (active && ['notifications.', 'review.', 'community.', 'plan.', 'study.checkin'].some(prefix => event.kind.startsWith(prefix))) void load()
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(fail)
-    const timer = window.setInterval(() => { void load() }, 30000)
-    return () => { active = false; stop?.(); window.clearInterval(timer) }
+    // 80#7e：窗口隐藏暂停轮询（结果无人消费）；恢复可见立即补拉一轮
+    const hidden = () => { if (document.hidden) window.clearInterval(timer) }
+    const visible = () => { if (!document.hidden) { window.clearInterval(timer); timer = window.setInterval(() => { void load() }, 30000); void load() } }
+    let timer = window.setInterval(() => { void load() }, 30000)
+    document.addEventListener('visibilitychange', onVisibility)
+    function onVisibility() { document.hidden ? hidden() : visible() }
+    return () => { active = false; stop?.(); document.removeEventListener('visibilitychange', onVisibility); window.clearInterval(timer) }
   }, [ready, loginRequired])
   const [homeSummaryError, setHomeSummaryError] = useState('')
   const [summaryReload, setSummaryReload] = useState(0)
@@ -190,8 +195,14 @@ export default function App() {
       } catch { /* 尽力而为的提醒轮询：失败时等待下一轮，不打断主界面 */ }
     }
     void claim()
-    const timer = window.setInterval(() => { void claim() }, 60000)
-    return () => { active = false; window.clearInterval(timer) }
+    // 80#7e：隐藏暂停、恢复即领（同通知轮询口径）
+    let timer = window.setInterval(() => { void claim() }, 60000)
+    const onVisibility = () => {
+      if (document.hidden) window.clearInterval(timer)
+      else { window.clearInterval(timer); timer = window.setInterval(() => { void claim() }, 60000); void claim() }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { active = false; document.removeEventListener('visibilitychange', onVisibility); window.clearInterval(timer) }
   }, [ready, loginRequired])
   useEffect(() => {
     // 37#3：dragDropEnabled 早已开启但全仓无处理器——拖入被 WebView2 静默

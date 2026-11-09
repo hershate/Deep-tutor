@@ -47,12 +47,18 @@ export default function Integrations({ notify }: { notify: (message: string) => 
     let unlisten: (() => void) | undefined
     // 32#5：晚解析守卫——卸载早于 listen() resolve 时立即注销
     let disposed = false
+    // 80#7b：事件刷新尾沿节流（全站唯一漏配页）——插件批量投递风暴
+    // 不再逐事件全量重拉 overview
+    let refreshTimer: number | undefined
     onBackendEvent(event => {
       // 32#22：过滤收窄——原先 `.completed` 等后缀命中 provider.chat_completed，
       // 任意模型请求完成都触发插件 overview 全量刷新
-      if (event.kind.startsWith('plugin.') || event.kind.startsWith('material.') || event.kind.startsWith('practice.') || event.kind.startsWith('knowledge.')) void refresh()
+      if (event.kind.startsWith('plugin.') || event.kind.startsWith('material.') || event.kind.startsWith('practice.') || event.kind.startsWith('knowledge.')) {
+        if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+        refreshTimer = window.setTimeout(() => { refreshTimer = undefined; void refresh() }, 250)
+      }
     }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
-    return () => { disposed = true; unlisten?.() }
+    return () => { disposed = true; unlisten?.(); if (refreshTimer !== undefined) window.clearTimeout(refreshTimer) }
   }, [refresh])
 
   const install = async (file: File | undefined) => {

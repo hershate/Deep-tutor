@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, BookMarked, BookOpen, Check, ChevronDown, ChevronRight, FileText, Highlighter, ListTree, LoaderCircle, Maximize2, Minus, NotebookPen, Plus, Quote, Sparkles, Video } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -13,6 +13,12 @@ import MediaPlayer from '../components/MediaPlayer'
 import { clampToBytes } from '../limits'
 
 const lectureStatus: Record<string, string> = { empty: '尚未生成', running: '正在生成', cancelling: '正在取消', done: '已生成', failed: '生成失败', cancelled: '已取消', interrupted: '已中断' }
+
+// 80#2：讲义区块 memo 化——直播 tick 引发的整页重渲染不再对全文
+// Markdown/KaTeX 逐次重解析（内容引用不变即跳过）
+const MemoMarkdown = memo(function MemoMarkdown({ text }: { text: string }) {
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{text}</ReactMarkdown>
+})
 
 export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext, notify }: { target?: { planId: string; stageId: string; nonce: number } | null; onFocus: () => void; onNavigate: (page: PageId) => void; onTutorContext: (context: { planId: string; label: string } | null) => void; notify: (message: string) => void }) {
   const [plans, setPlans] = useState<LearningPlan[]>([])
@@ -269,10 +275,10 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
         {tab === '阅读' && <article className="reading-article" style={{ fontSize: `${fontScale}rem` }}>
           <div className="article-kicker"><Badge tone="green">{stage.title}</Badge><span>难度 {stage.difficulty}/5 · 单元 {Math.min(unitIndex + 1, nodes.length)} / {nodes.length}</span></div>
           {content ? <>
-            <h1>{content.title}</h1><div className="article-lead"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{content.overview}</ReactMarkdown></div>
-            {content.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{section.content}</ReactMarkdown></section>)}
-            {content.examples.map((example, index) => <div className="worked-example" key={`${example.title}-${index}`}><div className="example-head"><span>例题</span><strong>{example.title}</strong></div><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{example.content}</ReactMarkdown></div>)}
-            <div className="article-check"><Check size={20} /><h3>主动检查</h3></div>{content.checkpoints.map((checkpoint, index) => <details className="lecture-checkpoint" key={`${checkpoint.question}-${index}`}><summary>{checkpoint.question}</summary><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{checkpoint.answer}</ReactMarkdown></details>)}
+            <h1>{content.title}</h1><div className="article-lead"><MemoMarkdown text={content.overview} /></div>
+            {content.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2><MemoMarkdown text={section.content} /></section>)}
+            {content.examples.map((example, index) => <div className="worked-example" key={`${example.title}-${index}`}><div className="example-head"><span>例题</span><strong>{example.title}</strong></div><MemoMarkdown text={example.content} /></div>)}
+            <div className="article-check"><Check size={20} /><h3>主动检查</h3></div>{content.checkpoints.map((checkpoint, index) => <details className="lecture-checkpoint" key={`${checkpoint.question}-${index}`}><summary>{checkpoint.question}</summary><MemoMarkdown text={checkpoint.answer} /></details>)}
             <div className="lecture-citations"><h3>原文引用</h3>{content.citations.map((citation, index) => <button key={`${citation.materialId}-${index}`} onClick={() => { setNote(citation.quote); setNoteOpen(true) }}><Quote size={16} /><span>「{citation.quote}」</span><small>资料 #{citation.materialId} · 引用到批注</small></button>)}</div>
           </> : <>
             <h1>{currentNode?.title || stage.title}</h1><p className="article-lead">尚未生成这一单元的讲义。以下只展示已保存的节点摘要与原文引用，不用模板正文替代。</p>

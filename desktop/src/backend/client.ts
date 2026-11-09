@@ -14,6 +14,13 @@ function sanitizeFileBaseName(name: string) {
   // 会把代理对切半，defaultPath 序列化出孤立代理解析必败
   return Array.from(safe).slice(0, 80).join('') || 'DeepTutor-export'
 }
+/** 80#1：写路径轻量回执——不整包返回全部集合，UI 由本地构造快照更新 */
+export type WriteReceipt = {
+  versions: Record<CollectionNamespace | 'drafts', number>
+  lastEventId: number
+  workspaceId: number
+}
+
 export type AppSnapshot = {
   tasks: Task[]
   notes: Note[]
@@ -355,11 +362,11 @@ export const backend = {
   bootstrap: () => invoke<AppSnapshot>('bootstrap'),
   getAppState: () => invoke<AppSnapshot>('get_app_state'),
   getCollection: <T>(namespace: CollectionNamespace) => invoke<{ value: T; revision: number }>('get_collection', { namespace }),
-  replaceCollection: <T>(namespace: CollectionNamespace, expectedRevision: number, value: T) => invoke<AppSnapshot>('replace_collection', { namespace, expectedRevision, value }),
+  replaceCollection: <T>(namespace: CollectionNamespace, expectedRevision: number, value: T) => invoke<WriteReceipt>('replace_collection', { namespace, expectedRevision, value }),
   // 75#4：可选期望版本——并发编辑面得到 revision_conflict 而非静默覆盖
-  saveDraft: (id: string, value: unknown, expectedRevision?: number) => invoke<AppSnapshot>('save_draft', { id, value, expectedRevision }),
+  saveDraft: (id: string, value: unknown, expectedRevision?: number) => invoke<WriteReceipt>('save_draft', { id, value, expectedRevision }),
   getDraft: <T>(id: string) => invoke<{ value: T | null; revision: number }>('get_draft', { id }),
-  deleteDraft: (id: string) => invoke<AppSnapshot>('delete_draft', { id }),
+  deleteDraft: (id: string) => invoke<WriteReceipt>('delete_draft', { id }),
   resetApplication: () => invoke<AppSnapshot>('reset_application'),
   openMaterialFiles: () => invoke<string[] | null>('plugin:dialog|open', {
     options: { title: '导入学习资料', multiple: true, filters: [{ name: '学习资料', extensions: ['pdf', 'docx', 'pptx', 'epub', 'txt', 'md', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'ogg', 'm4a', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'] }] },

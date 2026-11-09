@@ -1304,7 +1304,9 @@ pub fn history(state: &PracticeState) -> Result<Vec<PracticeSet>> {
 
 pub fn mistakes(state: &PracticeState) -> Result<Vec<Mistake>> {
     let store = state.store()?;
-    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id ORDER BY m.last_wrong_at DESC")?;
+    // 80#3：上限 500——原先无界返回，每答错一行永不清理，长用的库错题本
+    // 渲染节点数无上限（对照 Dashboard 100/历史 50 的有界口径；按最近错误排序）
+    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id ORDER BY m.last_wrong_at DESC LIMIT 500")?;
     let rows = statement.query_map([], |row| {
         let nodes: String = row.get(6)?;
         Ok(Mistake {

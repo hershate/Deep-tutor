@@ -5,7 +5,7 @@ import { Badge, Button, ConfirmDialog, EmptyState, Modal, ProgressBar, SectionHe
 import ExportCenter from '../components/ExportCenter'
 import SharePlanDialog from '../components/SharePlanDialog'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
-import type { AppSnapshot } from '../backend/client'
+import type { WriteReceipt } from '../backend/client'
 import { localId } from '../ids'
 import { localShareUrl } from '../backend/sharing'
 import { planningBackend } from '../backend/planning'
@@ -29,7 +29,7 @@ function shiftWeek(start: string, amount: number) {
   return localDate(date)
 }
 
-export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (tasks: Task[] | ((current: Task[]) => Task[])) => Promise<AppSnapshot>; onNavigate: (page: PageId) => void; notify: (message: string) => void }) {
+export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (tasks: Task[] | ((current: Task[]) => Task[])) => Promise<WriteReceipt>; onNavigate: (page: PageId) => void; notify: (message: string) => void }) {
   const [overview, setOverview] = useState<PlanOverview | null>(null)
   const [weekStart, setWeekStart] = useState(currentMonday)
   const [busy, setBusy] = useState('')
@@ -199,7 +199,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
       {overview && !overview.days.some(day => day.events.length) && <EmptyState title="本周没有已排期任务" description="可从下方待排期任务选择真实日期，或切换周查看已有安排。" />}
     </section>
 
-    {overview && overview.unscheduled.length > 0 && <section className="surface"><SectionHeader title="待排期任务" description="这些任务已保存，但当前方案中没有日期。选择任务即可安排或调整日期。" /><div className="milestone-list">{overview.unscheduled.map(event => <button className="milestone-row" key={event.taskId} onClick={() => openTask(event)}><span className="milestone-marker"><CalendarRange size={15} /></span><div><strong>{event.title}</strong><small>{event.kind} · {event.minutes} 分钟{event.done ? ' · 已完成' : ''}</small></div><Badge>选择日期</Badge></button>)}</div></section>}
+    {overview && overview.unscheduled.length > 0 && <section className="surface"><SectionHeader title="待排期任务" description="这些任务已保存，但当前方案中没有日期。选择任务即可安排或调整日期；列表最多显示 500 条。" /><div className="milestone-list">{overview.unscheduled.map(event => <button className="milestone-row" key={event.taskId} onClick={() => openTask(event)}><span className="milestone-marker"><CalendarRange size={15} /></span><div><strong>{event.title}</strong><small>{event.kind} · {event.minutes} 分钟{event.done ? ' · 已完成' : ''}</small></div><Badge>选择日期</Badge></button>)}</div></section>}
 
     <div className="plan-bottom-grid">
       <section className="surface milestone-panel"><SectionHeader title="阶段里程碑" description="完成状态来自真实阅读记录；掌握证据请在知识地图与报告中查看。" /><div className="milestone-list">

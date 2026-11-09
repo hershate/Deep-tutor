@@ -372,10 +372,7 @@ pub(crate) fn read_json(response: reqwest::blocking::Response) -> Result<Value> 
 
 pub(crate) fn http_error(status: u16) -> BackendError {
     match status {
-        401 | 403 => BackendError::new(
-            "authentication_failed",
-            "供应商拒绝了凭据，请检查 API Key",
-        ),
+        401 | 403 => BackendError::new("authentication_failed", "供应商拒绝了凭据，请检查 API Key"),
         404 => BackendError::new("endpoint_not_found", "供应商不存在该 API 端点"),
         408 => BackendError::new("provider_timeout", "供应商请求超时"),
         429 => BackendError::new("rate_limited", "供应商触发了速率限制"),
@@ -1153,12 +1150,7 @@ where
         Ok(Err(error)) if error.is_timeout() => {
             return Err(ChatError::new("provider_timeout", "供应商响应超时"))
         }
-        Ok(Err(_)) => {
-            return Err(ChatError::new(
-                "endpoint_unreachable",
-                "无法连接供应商端点",
-            ))
-        }
+        Ok(Err(_)) => return Err(ChatError::new("endpoint_unreachable", "无法连接供应商端点")),
         Err(_) => return Err(ChatError::new("provider_timeout", "供应商响应头等待超时")),
     };
     let status = response.status().as_u16();

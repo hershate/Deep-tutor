@@ -220,9 +220,11 @@ export function useBackendState() {
         ? (value as (current: T) => T)(collections.current[namespace] as T)
         : value
       try {
-        const next = await backend.replaceCollection(namespace, versions.current[namespace] ?? 0, resolved)
-        applySnapshot(next, requestedGeneration)
-        return next
+        const receipt = await backend.replaceCollection(namespace, versions.current[namespace] ?? 0, resolved)
+        // 80#1：写回执只带版本游标——集合内容本地构造（写请求本身已携带
+        // 全量新值），不再下载整包全集合快照；后续事件仍走去抖全量兜底
+        applySnapshot({ ...collections.current, [namespace]: resolved, versions: receipt.versions, lastEventId: receipt.lastEventId, workspaceId: receipt.workspaceId } as AppSnapshot, requestedGeneration)
+        return receipt
       } catch (error) {
         if ((error as Partial<BackendError>)?.code !== 'revision_conflict') throw error
         // 快速连续操作时后到者撞版本号（先到者已生效）：立即拉取最新快照同步界面，

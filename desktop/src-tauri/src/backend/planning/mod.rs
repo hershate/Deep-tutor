@@ -230,13 +230,16 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
         .unwrap_or("标准")
         .to_string();
     let load_percent = ((weekly_minutes * 100) / (u64::from(weekly_hours) * 60).max(1)) as u32;
+    // 80#3：待排期任务上限 500——任务配额 10000 × 每条 3 DOM 曾无界渲染；
+    // 截断按数组序（新任务在前），前端对超限另行提示
+    let unscheduled_cap = 500usize;
     let unscheduled = if let Some(id) = &plan_id {
         let numeric = super::learning::plan_id(id)?;
         let tasks = store.collection("tasks")?.value;
         tasks.as_array().into_iter().flatten().filter(|task| {
             let Some(id) = task.get("id").and_then(Value::as_i64) else { return false };
             !store.conn.query_row("SELECT EXISTS(SELECT 1 FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND task_id = ?2)", params![numeric, id], |row| row.get::<_, bool>(0)).unwrap_or(false)
-        }).map(|task| ScheduleEvent { task_id: task.get("id").and_then(Value::as_i64), title: task.get("title").and_then(Value::as_str).unwrap_or("任务").into(), kind: task.get("kind").and_then(Value::as_str).unwrap_or("学习").into(), minutes: task.get("duration").and_then(Value::as_u64).unwrap_or(0) as u32, done: task.get("done").and_then(Value::as_bool).unwrap_or(false), date: None, stage_id: None }).collect::<Vec<_>>()
+        }).map(|task| ScheduleEvent { task_id: task.get("id").and_then(Value::as_i64), title: task.get("title").and_then(Value::as_str).unwrap_or("任务").into(), kind: task.get("kind").and_then(Value::as_str).unwrap_or("学习").into(), minutes: task.get("duration").and_then(Value::as_u64).unwrap_or(0) as u32, done: task.get("done").and_then(Value::as_bool).unwrap_or(false), date: None, stage_id: None }).take(unscheduled_cap).collect::<Vec<_>>()
     } else {
         store
             .collection("tasks")?
@@ -261,6 +264,7 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
                 date: None,
                 stage_id: None,
             })
+            .take(unscheduled_cap)
             .collect()
     };
     Ok(PlanOverview {
