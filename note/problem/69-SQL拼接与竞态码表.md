@@ -15,8 +15,8 @@
   - `no_paused_focus`（reports/mod.rs:499：resume 未命中暂停态）
   - `job_active`（materials/mod.rs:937：重复入队）
   - `request_active`（providers/mod.rs:1175、routing.rs:548/924，3 处：取消/复用窗口）
-- 链条（以专注层为例）：App.tsx:250/258 的 pause/resume/cancel/complete 在状态滞后窗口（如倒计时归零自动收尾与手动点击并发）→ 弹「当前没有进行中的专注」错误 toast——按 29 轮以来的竞态静默口径应静默或自愈刷新。job_active/request_active 同型（UI 有 busy 守卫但事件滞后双击仍可露）。
-- 修复：五码补入 isCancelRace 表。
+- 传递链条（以专注层为例）：① 专注层状态来自事件刷新（focusSession 快照），倒计时归零自动收尾（App.tsx remaining===0 → completeFocus）与用户手动点击完成/暂停存在并发窗口 → ② 第二次操作到达后端时条件 UPDATE（status IN running/paused）未命中 → ③ 返回 no_active_focus「当前没有进行中的专注」→ ④ 前端 isCancelRace 表不含该码 → 弹错误 toast——按 29 轮以来的竞态静默口径（no_active_plan 等 19 码同族）应静默或自愈刷新。job_active（重复入队）/request_active（取消/复用窗口）同型：UI 有 busy 守卫，但事件滞后下的双击仍可穿透到错误 toast。
+- 影响范围：使用专注计时（暂停/恢复/取消/完成）、KB 文档「开始解析」、模型请求「取消」的高频操作用户；触发需状态滞后窄窗（每类每用户偶发），后果为一次不该出现的错误提示——无数据损害（操作本身幂等或已生效），与全站竞态静默口径不一致造成困惑。修复：五码补入表内（一行级）。
 
 ## 正向结论
 
