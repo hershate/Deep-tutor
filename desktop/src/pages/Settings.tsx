@@ -46,6 +46,10 @@ export default function Settings({ preferences, setPreferences, onImport, counts
   // preferences 刷新被跳过，恰在他处切换会话时 setDraft 仍会冲掉草稿，28#10 同型）
   const profileOpenRef = useRef(false)
   useEffect(() => { profileOpenRef.current = profileOpen })
+  // 60#2：弹窗打开期间到达的会话/偏好事件被 51#15 跳过——记录下来，
+  // 关闭弹窗时补偿刷新，主区块不再滞留前一用户的档案与语言
+  const pendingReloadRef = useRef(false)
+  const reloadRef = useRef<() => void>(() => {})
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
@@ -57,12 +61,26 @@ export default function Settings({ preferences, setPreferences, onImport, counts
         document.documentElement.lang = next.language
       }
     }
+    reloadRef.current = () => void load().catch(reportBackendError)
     void load().catch(reportBackendError)
     void onBackendEvent(event => {
-      if (active && !profileOpenRef.current && (event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'preferences'))) void load().catch(reportBackendError)
+      if (!active) return
+      if (event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'preferences')) {
+        if (profileOpenRef.current) {
+          pendingReloadRef.current = true
+          return
+        }
+        void load().catch(reportBackendError)
+      }
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
   }, [])
+  useEffect(() => {
+    if (!profileOpen && pendingReloadRef.current) {
+      pendingReloadRef.current = false
+      reloadRef.current()
+    }
+  }, [profileOpen])
   const update = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     // 32#13：以 updater 形态提交——渲染闭包整对象在排队写入期间会被后续
     // 切换整体覆盖（replaceCollection 已支持 updater，24#5 正为此设计）

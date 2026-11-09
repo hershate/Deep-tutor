@@ -60,10 +60,11 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
 
   // 51#2：序号守卫——快速翻周/事件并发时，后到的旧周响应不再覆盖新周视图
   const refreshSeq = useRef(0)
-  const refresh = useCallback(async () => {
+  // 60#1：可选 week 参数供写路径复查（写回值不得绕过守卫直写 overview）
+  const refresh = useCallback(async (week: string = weekStart) => {
     const ticket = ++refreshSeq.current
     try {
-      const next = await planningBackend.overview(weekStart)
+      const next = await planningBackend.overview(week)
       if (ticket !== refreshSeq.current) return
       setOverview(next)
       setError('')
@@ -87,8 +88,12 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     if (busy || !ready) return
     setBusy('intensity')
     try {
-      setOverview(await planningBackend.applyIntensity(intensity, weekStart))
+      await planningBackend.applyIntensity(intensity, weekStart)
       notify(`已按「${intensity}」保存全部方案排期与任务时长`)
+      // 60#1：写回值不得直写 setOverview——applyIntensity 在途时用户翻周，
+      // 后到的 W1 响应会绕过 51#2 序号守卫盖掉 W2 视图（错周无自愈）；
+      // 改经 refresh 统一过守卫取数
+      await refresh()
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const showAlternatives = async () => {
@@ -144,7 +149,11 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     setBusy('schedule')
     try {
       const next = await planningBackend.assignTaskDate(selectedTask.taskId, taskDate)
-      setOverview(next); setWeekStart(next.weekStart); setSelectedTask(null)
+      // 60#1 同型：写回值不直写 overview——跨周由 setWeekStart 触发 effect
+      // 过守卫重取；同周 effect 不重挂，显式刷新
+      if (next.weekStart === weekStart) await refresh(next.weekStart)
+      else setWeekStart(next.weekStart)
+      setSelectedTask(null)
       notify('任务日期已保存到真实排期')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }

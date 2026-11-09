@@ -5,9 +5,11 @@ import type { Preferences } from '../pages/Settings'
 
 export type CollectionNamespace = 'tasks' | 'notes' | 'resources' | 'projects' | 'preferences'
 
-/** 42#1：Windows 文件名清洗（非法字符替换、尾部点/空格剥离、80 码点截断） */
+/** 42#1：Windows 文件名清洗（非法字符替换、控制字符剥离、尾部点/空格剥离、80 码点截断） */
 function sanitizeFileBaseName(name: string) {
-  const safe = name.replace(/[\\/:*?"<>|]/g, '_').replace(/[.\s]+$/, '')
+  // 60#6：标题携带换行等控制字符（U+0000-U+001F）时 defaultPath 传 IFileDialog
+  // 打不开保存对话框（42#1 残留诱因）——先剥离再替换非法字符
+  const safe = name.replace(/[\u0000-\u001f]/g, '').replace(/[\\/:*?"<>|]/g, '_').replace(/[.\s]+$/, '')
   // E-5：按码点截断（与后端 chars().take(80) 同口径）——UTF-16 码元切片
   // 会把代理对切半，defaultPath 序列化出孤立代理解析必败
   return Array.from(safe).slice(0, 80).join('') || 'DeepTutor-export'

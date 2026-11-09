@@ -56,6 +56,9 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
   // 就先注销再异步重挂，间隙到达的 project.*/chat_delta 事件被丢弃；改经 ref 取
   const runningRequestIdRef = useRef<string | null>(null)
   useEffect(() => { runningRequestIdRef.current = running?.requestId ?? null })
+  // 60#3：upstream→logical 映射（StudyRoom 51#5 同型）——failover 后 delta
+  // 携带 {R}-f1 上游 id，严格相等失配会让直播停在 failover 前最后一帧
+  const routeUpstreamsRef = useRef<Record<string, string>>({})
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
@@ -73,10 +76,17 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     const throttledFetch = deltaThrottle()
     void onBackendEvent(event => {
       if (active && (event.kind.startsWith('project.') || event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'projects'))) void load()
+      if (active && event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && event.payload.requestId === runningRequestIdRef.current) {
+        // 15#6：以上游 id 为 key、逻辑 id 为 value，方向写反会 failover 后必 miss
+        routeUpstreamsRef.current[event.payload.upstreamRequestId] = event.payload.requestId
+      }
       const requestId = runningRequestIdRef.current
-      if (active && requestId && event.kind === 'provider.chat_delta' && event.payload.requestId === requestId) {
-        // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
-        throttledFetch(() => void backend.getProviderChat(requestId).then(request => { if (active) setLiveOutput(request.output) }).catch(reportBackendError))
+      if (active && requestId && event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string') {
+        const logicalId = routeUpstreamsRef.current[event.payload.requestId] ?? event.payload.requestId
+        if (logicalId === requestId) {
+          // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
+          throttledFetch(() => void backend.getProviderChat(logicalId).then(request => { if (active) setLiveOutput(request.output) }).catch(reportBackendError))
+        }
       }
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
