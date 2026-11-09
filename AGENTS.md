@@ -34,8 +34,10 @@
 ## 构建与验证
 
 - 前端：`cd desktop && npm run build`。
-- Rust 按 `rust-toolchain.toml` 钉住 1.99.1 msvc（本机在默认 rustup 目录），
-  crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`。
+- Rust 按 `rust-toolchain.toml` 钉住 1.99.1（本机解析为 `1.99.1-x86_64-pc-windows-gnu`）。
+  跑 cargo 一律带：`export PATH="/f/DevCache/toolchains/winlibs-16.2.0-ucrt/mingw64/bin:$PATH"`
+  （gnu 工具链链接需要 dlltool）与 `CARGO_HOME=F:/DevCache/cargo`、
+  `RUSTUP_HOME=F:/DevCache/rustup`（Git Bash 里用正斜杠）；rustfmt 已装于该工具链。
 - 后端：`cd desktop/src-tauri && cargo test --release --locked -- --test-threads=1`。
 - 门禁：`make check`；安装包：`make build`。不要并行启动多个重型测试套件。
 - 临时文件使用 `F:\TEMP\deeptutor`，完成后按仓库规约分批清理。
