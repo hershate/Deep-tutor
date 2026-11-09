@@ -91,7 +91,7 @@ or authority. Do not claim a security property without an enforcing implementati
 - `make lint` checks Rust formatting, cross-file version consistency (`scripts/check-versions.mjs`)
   and the frontend production build.
 - `make test` runs `cargo test --release --locked -- --test-threads=1` in `desktop/src-tauri`.
-- The Rust toolchain is pinned to 1.95.0 via `rust-toolchain.toml` (CI pins the same
+- The Rust toolchain is pinned to 1.99.1 via `rust-toolchain.toml` (CI pins the same
   version); do not bump it casually — local stable and pinned rustfmt rules may diverge.
 - `make check` runs both. `make build` collects third-party licenses
   (`scripts/collect-licenses.mjs`) and produces the Tauri 2 NSIS installer.

@@ -12,7 +12,7 @@
 | Makefile:18 | `make build` | `collect-licenses.mjs` 收集第三方许可 → `npm run tauri build -- -- --locked`（`--locked` 透传 cargo，Cargo.lock 不一致即失败）→ tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
 | Makefile:34 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
 
-本地 Rust 工具链复用：`F:\DevCache\toolchains\1.95-x86_64-pc-windows-msvc`，`CARGO_HOME=F:\DevCache\cargo`、`RUSTUP_HOME=F:\DevCache\rustup`（AGENTS.md 约定）。
+本地 Rust 工具链按 `rust-toolchain.toml` 钉 1.99.1 msvc（安装于默认 rustup 目录，CI 同版本）；crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`（AGENTS.md 约定）。
 
 CI（.github/workflows/ci.yml）：push:main + PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → `cargo fmt --check` → 原生测试（同 --test-threads=1）→ check-versions → collect-licenses → NSIS 安装包（前端 tsc/vite 构建在该步骤的 beforeBuildCommand 内执行）→ 上传构件 `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
 
@@ -27,11 +27,11 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test]
 ```
 
-发布节奏证据：dist/ 下 1.0.0→1.1.0 七个安装包；版本号五处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml 与根 README 均为 1.1.0，check-versions.mjs 校验）。
+发布节奏证据：dist/ 下 1.0.0→1.1.1 八个安装包；版本号五处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml 与根 README 均为 1.1.1，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，195 个测试串行全绿。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，202 个测试串行全绿。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:630-692 `mock_app/ipc` 辅助函数）。
@@ -82,7 +82,7 @@ flowchart TD
 - 启动前置：材料 1-8 份已解析、daily_minutes 10-600、路由存在（learning/mod.rs:281-346）。
 - 采纳 `adopt_learning_plan`（learning/actions.rs:19）：幂等（已有 adoptions 直接返回）；创建 project + 每 `learning_plan_schedule_tasks` 一条 tasks 集合任务 + `plan.adopted`。
 - 目标修改 `update_learning_goal`（planning/commands.rs:38）：事务内预检方案状态与 `regeneration_limit=2` 再进入再生成；**已采纳方案不原地重跑**——`regenerate`（actions.rs:121）scope 2..=6 局部重跑，旧版本存 `learning_plan_versions`，version+1。
-- 强度调整 `apply_plan_intensity`（planning/mod.rs:348）：factor 稳妥 0.8/标准 1.0/冲刺 1.2；`round(m×target/current)` 下限 10 分钟（31#20）——按比例避免往返切换累积缩放；基准取首次采纳方案（`adopted_first_plan` planning/mod.rs:116），不随展示中的方案切换漂移；乐观锁 preferences/tasks revision；事务内复查方案状态，防与并发 regenerate 穿插（34#21）。缩放同步写五处：schedule entries、stages[].minutes（31#15）、覆盖前 `learning_plan_versions` 快照（31#16；34#3 起同版本重复切换用 OR REPLACE 以最近一次为准）、artifacts_json `$.step5` 与 `learning_plan_steps.output_json` 双写（34#4——run() 重建读 step 表，单写 artifacts 会静默回退缩放）。强度调整不再重算 within_deadline/within_milestone——逾期判定只由排期与截止日推导。
+- 强度调整 `apply_plan_intensity`（planning/mod.rs:348）：factor 稳妥 0.8/标准 1.0/冲刺 1.2；条目/任务/阶段分钟按 `round(m×target/current)` 纯比例取整、不套 10..=600 钳制（52#1：排期装填合法产出 1–9 分钟尾条目，旧 clamp(10,600) 使 2 分钟尾条目切「冲刺」被抬到 10 再切回时单调卡死）；每日分钟是排期步硬校验 10..=600 的唯一对象，缩放后钳回界内（scaled_daily）；基准取首次采纳方案（`adopted_first_plan` planning/mod.rs:116），不随展示中的方案切换漂移；乐观锁 preferences/tasks revision；事务内复查方案状态，防与并发 regenerate 穿插（34#21）。缩放同步写五处：schedule entries、stages[].minutes（31#15）、覆盖前 `learning_plan_versions` 快照（31#16；34#3 起同版本重复切换用 OR REPLACE 以最近一次为准）、artifacts_json `$.step5` 与 `learning_plan_steps.output_json` 双写（34#4——run() 重建读 step 表，单写 artifacts 会静默回退缩放）。强度调整不再重算 within_deadline/within_milestone——逾期判定只由排期与截止日推导。
 
 方案生命周期：
 
@@ -215,7 +215,7 @@ flowchart LR
 |---|---|---|---|
 | 启动目录配置损坏 | typed error storage_config_invalid，不开错工作区 | 主窗口内恢复默认/重选/重试 | startup.rs:557-569,724-747 |
 | 数据库损坏 | Store::root 拒绝打开（storage_failed） | 用户指定目录级恢复；维护页 integrity_check | startup.rs:571-601 |
-| 数据库降级 | user_version>1 拒绝（unsupported_schema） | 升级应用 | store.rs:185-191 |
+| 数据库降级 | max(user_version, meta.schema_version)>SCHEMA_VERSION 拒绝（unsupported_schema） | 升级应用 | store.rs:216-231 |
 | 写锁竞争 | busy_timeout 10s → database_busy（前端瞬态自动重试至多 5 次） | 前端提示重试 | store.rs:172；error.rs |
 | 模型步骤中断 | 步骤 interrupted + request_id 持久化 | resume 复用 completed_chat，不重调上游 | learning/mod.rs:655-668 |
 | 提供商连续失败 | 熔断 open 60s | half_open 试探恢复 | routing.rs:626-714 |
@@ -271,4 +271,4 @@ flowchart LR
 
 ## 8. 命令与事件契约一致性
 
-前端 25 个客户端文件调用的命令名与 main.rs:79-277 注册表（191 个命令）逐一核对一致；`fetch_webpage` 为后端内部命令（`import_webpage` 复用同一抓取链）前端不直接调用，`events_since` 自 38#2 起保留给 IPC 级测试作事件断言通道。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:424）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。
+前端 25 个客户端文件调用的命令名与 main.rs:169-363 注册表（192 个命令）逐一核对一致；`fetch_webpage` 为后端内部命令（`import_webpage` 复用同一抓取链）前端不直接调用，`events_since` 自 38#2 起保留给 IPC 级测试作事件断言通道。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:424）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。

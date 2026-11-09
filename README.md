@@ -69,7 +69,7 @@ Deep-tutor/
 ├── .githooks/pre-push       # 推送前执行 make check
 ├── scripts/                 # 版本校验与第三方许可收集（lint/build 各步骤）
 ├── Makefile                 # 构建与检查入口
-├── rust-toolchain.toml      # 钉住 Rust 1.95.0（CI 与本地一致）
+├── rust-toolchain.toml      # 钉住 Rust 1.99.1（CI 与本地一致）
 ├── LICENSE / LICENSE-REASONIX # 本仓库 MIT 与历史上游 MIT 许可全文
 ├── NOTICE                   # 来源与许可披露
 └── REF/                     # 用户提供的参考源，非交付目录

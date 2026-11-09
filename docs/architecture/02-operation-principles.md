@@ -17,7 +17,7 @@ sequenceDiagram
     SU->>SEC: SecurityState::new + initialize_session
     SU->>B: manage BackendState(10 个域 State)
     SU->>SU: with_user: materials/providers/learning/agent/practice/projects/knowledge/sync/reports recover
-    SU->>SU: start_scheduler(sync 24h)
+    SU->>SU: start_scheduler(sync 24h 上次失败 1h 短退避)
     FE->>FE: bootstrap 轮询(250ms, 20s 上限)
     FE->>FE: get_app_state 全量校准(游标取快照 lastEventId)
 ```
@@ -42,7 +42,7 @@ flowchart TD
     G --> I
     H --> I
     I --> J{assemble 成功?}
-    J -->|是| K[recover 八模块 + 启动 sync 调度]
+    J -->|是| K[recover 九模块 + 启动 sync 调度]
     J -->|否| L[记录 failure 前端显示恢复面板]
     L --> M{用户操作}
     M -->|重试| I
@@ -57,7 +57,7 @@ flowchart TD
 1. 解析工作区路径（无 owner=根库；有 owner=`users/{id}/`）。
 2. `STORE_OPEN_LOCK` 全局互斥（store.rs:20）串行化打开与 user-1 旧库复制。
 3. PRAGMA：WAL（非 WAL 才切换）、`foreign_keys=ON`、`busy_timeout=10000`、`synchronous=NORMAL`（WAL 常规搭配：断电最多丢最后一次已确认提交，outbox 顺序与重放语义不变）。
-4. `user_version > 1` → `unsupported_schema` 拒绝降级（:185-191）。
+4. `max(PRAGMA user_version, meta.schema_version) > SCHEMA_VERSION(2)` → `unsupported_schema` 拒绝降级（:216-231；user_version 惯例只写 1、版本实际记录在 meta 表，双取最大防任一通道漏记）。
 5. 建四张通用表（:187-210，events 附表达式索引 `events_kind_request ON events(kind, json_extract(payload, '$.requestId'))`，流式 delta 重放免全表扫描），计算 `schema_fingerprint`（sqlite_master 全量 SHA-256，:100-125）；与 `meta.schema_fingerprint` 或 `schema_version` 记录不一致时依次执行 15 个模块 `migrate`（:230-250），再回写指纹与版本（:253-258）。指纹未变且记录版本不低于代码 SCHEMA_VERSION 才零迁移（测试 store.rs:1289 幂等 / :1315 版本门禁补列）；DROP 表造成的漂移会被修复重跑。
 
 各模块 migrate 均为幂等 `CREATE TABLE IF NOT EXISTS` + `PRAGMA table_info` 检测补列（如 providers/mod.rs:284-295、reports/mod.rs:197-199、practice/exams.rs:26-44）。
@@ -75,7 +75,7 @@ flowchart TD
     D --> G
     F --> G
     G --> H[WAL + foreign_keys + busy_timeout 10s]
-    H --> I{user_version 大于 1?}
+    H --> I{max user_version meta.schema_version 大于 2?}
     I -->|是| J[unsupported_schema 拒绝降级]
     I -->|否| K[建四张通用表]
     K --> L{指纹一致 且 meta.schema_version ≥ SCHEMA_VERSION?}
@@ -110,8 +110,7 @@ sequenceDiagram
     TX-->>CMD: commit 终态已落盘
     CMD->>FE: emit backend://event
     FE->>FE: applySnapshot 校验 lastEventId 单调
-    FE->>CMD: events_since 每页 200 翻页追赶
-    FE->>CMD: get_app_state 全量校准快照
+    FE->>CMD: get_app_state 全量校准快照 游标取快照 lastEventId
 ```
 
 ## 4. 方案生成八步流水线（learning）
@@ -164,9 +163,10 @@ flowchart TD
 1. `begin_chat`（:989）INSERT `provider_requests('running')` + 注册取消标志 + emit `provider.chat_started`。
 2. enabled/has_key 校验 → `protocol::stream_chat_with_policy`（protocol.rs:351）按 `profile.protocol` 分派：OpenAI Chat（openai.rs:701 `stream_chat_with_policy` 自建 SSE 泵 `stream_once` :1024）/ OpenAI Responses（responses.rs:86）/ Anthropic（anthropic.rs:98）/ Gemini（gemini.rs:114）。
 3. HTTP 客户端（openai.rs:258 / :269）：禁自动重定向 + DNS 解析后固定 IP（防 DNS rebinding）+ `public_address` 拒绝非公网（:103）；`endpoint`（:212）做 SSRF/路径穿越校验。
-4. 流式约束：`validate_messages` 1-64 条/256KB（openai.rs:562）；响应 1MB（read_json :310）；增量文本累计 1MB（protocol.rs:23）；SSE 每 chunk 超时窗口前后各检查一次取消（protocol.rs cancel 检查）。
-5. 每个 delta 双写：`Store::event("provider.chat_delta")` 落库 + emit（P/mod.rs:1169 起）——delta 事件同时是恢复重建源（`completed_chat` :978）。
-6. 结束 UPDATE status=done/cancelled/failed + 终态事件（P/mod.rs:1209 起）。
+4. 流式约束：`validate_messages` 1-64 条/256KB（openai.rs:562）；响应 1MB（read_json :310，4xx 时读 body 末段进错误信息）；增量文本累计 1MB（protocol.rs:23）；SSE 每 chunk 超时窗口前后各检查一次取消（protocol.rs cancel 检查）。
+5. SSE 泵（`stream_once`，55 号专项加固）：游标偏移逐行切分（`position()` 相对偏移加 cursor，消 O(N²) 缓冲 drain）；行终止兼容 CRLF/LF/裸 CR，首行剥 BOM；「空闲字节预算」限制单事件累计无进展字节数防恶意慢流；`data:` 行解析剥 `error:null` 心跳；工具调用 index 上限 256、同 index 异 id fail-closed；干净 FIN 或 EOF 且零事件/零 `data:` 行一律归 `endpoint_unreachable`（不误报成功）。四协议（openai/responses/anthropic/gemini）游标循环同构（protocol.rs stream_events 复用）。
+6. 每个 delta 双写：`Store::event("provider.chat_delta")` 落库 + emit（P/mod.rs:1169 起）——delta 事件同时是恢复重建源（`completed_chat` :978）。
+7. 结束 UPDATE status=done/cancelled/failed + 终态事件（P/mod.rs:1209 起）。
 
 取消：`cancel_provider_chat`（P/commands.rs:122）→ 路由层 `cancel_inner`（routing.rs:1148）置 `Arc<AtomicBool>`（Acquire/Release）→ 级联直连层 flag → SSE 泵检测后以 `cancelled` 错误收尾。
 
@@ -372,9 +372,9 @@ flowchart TD
 **客观题**（practice/mod.rs 判分段）：choice——answer 须为合法选项下标且等于期望；fill——`normalize`（去空白+lowercase，:1082）后全等；`correct`（:1139）同时决定错题与掌握度写入——hints 模式作答不进错题本、不置掌握（遮蔽承诺）。
 **主观题**（subjective.rs:189 起）：INSERT `practice_answers('grading')` + request_id=`practice-grade-{id}-1` → 线程 `grade`（:385）：题面+参考答案+rubric+学生作答 prompt → `stream_chat` 4096 → `evaluate`（:325）逐项 `score∈[0,1]×points` 求和并 clamp，`correct = score≥0.8`（:372）→ 二次 `validate_citations`。rubric 校验 2-6 项、points∈(0,1]、总和=1（:56）。
 **共同尾部**：错题 upsert wrong_count+1（hints 模式除外）；逐节点写 `learning_node_evidence`（kind practice/exam、evidence_key=`practice-answer-{answer_id}`，mod.rs:1190）——**hints 模式同样跳过 evidence 写入**（31#12：evidence 带真实得分会被知识图谱页「0/1」反推对错，与错题本同口径遮蔽）；变式答对 → 原错题 mastered=1（variants.rs:106-133）；全部作答完 → set completed。
-**模拟考交卷**（exams.rs:74）：幂等；评分中拒收（:119）；未答题逐题落 0 分 practice_answers + evidence(0)（:141-163）——不写错题本（03#13-27 未作答≠做错，避免空题灌满错题与变式来源）。
+**模拟考交卷**（exams.rs:74）：幂等；评分中拒收（:119）；未答题逐题落 0 分 practice_answers + evidence(0)（:141-163）——不写错题本（03#13-27 未作答≠做错，避免空题灌满错题与变式来源）。考试计时从首次成功拉卷（生成完成后的第一次 detail 读取）起算：`start_exam_timer` 原子置位幂等（`UPDATE ... WHERE timer_started_at IS NULL`），重启不重置；未拉卷的考试 remaining 为 None（前端显示无时限），deadline 只在有起点的会话计算。
 **复习调度**（review/mod.rs:403 grade，SM-2 简化、4 档无 q 因子；挂起卡片返回 `card_suspended`）：
-- 间隔（:419-428）：again=10 分钟；首轮 hard=2/good=5/easy=12 天；后续 hard=prev×1.2、good=prev×ease、easy=prev×ease×1.3。
+- 间隔（:419-451）：again=10 分钟；首轮 hard=2/good=5/easy=12 天；后续 hard=prev×1.2、good=prev×ease、easy=prev×ease×1.3；结果 `.min(36500.0)` 封顶（对齐 Anki 上限，防越过 time crate 最大年份 9999 使日期加法 panic）；prev/ease 非有限值直接判 invalid 记录。
 - ease（:429-435）：again −0.2 / hard −0.15（下限 1.3）、easy +0.15（上限 3.0）；again 重置 repetitions=0、lapses+1。
 - 并发防护：条件 UPDATE 带 `due_at<=?8`，仅一行生效（:438-447，测试 :768）。
 - 证据映射：again/hard/good/easy = 0/0.6/0.8/1.0（:453-465）。
@@ -426,9 +426,9 @@ flowchart TD
 ## 11. 备份、分享、同步、运维
 
 - **导出**（backup/archive.rs:364）：停 sync → `.dtbackup` 扩展名校验 → RAII 临时目录 → `VACUUM INTO state.db` → 回填 local_users/security_quotas → `secure_delete=ON` 清三张敏感表再 VACUUM（:410-416）→ 收集三类文件（原件/插件清单/agent scratch 仅 json-md-txt）→ 写入前逐项哈希重验防 TOCTOU → zip ≤2GB → `materials::atomic_export` + `backup.exported`。
-- **预演/导入**（transfer.rs:1320 dry_run / :1351 import）：预演只读统计；导入前停全部子系统（backup/commands.rs）；schema 双端比对（唯一容忍 focus_sessions.paused_at）→ IMMEDIATE 事务内 `prepare_ids`（:205）：materials 按 sha256 复用已有 ID、shared_plans 按 token_hash 复用、security_quotas 按 (user_id,resource) 复合键跳过、主键=外键子表（material_text/community_group_members/community_reservations）随父表映射重写、其余 INTEGER 主键 MAX+1、文本主键 `imported-{n}`、provider_requests 的 TEXT 主键冲突先按内容签名（model/created_at/finish_reason/attempts/latency_ms/status/usage_json 七字段，31#43；34#15 起含 usage_json 且按 request_id 排序取首——provider_id 不可用，profiles 每次导入都重映射）找回既有行复用（重复导入幂等，agent- 前缀请求不改名）、kv 重编号、preferences 已有则跳过 → `stage_files`（:1243，须在 prepare_ids 之后：插件清单目标路径按重映射 id 落位）→ 外键拓扑排序（:602）→ `transform`（:833）重写列与 `*_json` 内嵌 ID → 单事务 import_rows（:1078）+ install_files（canonicalize+hard_link）→ 失败回滚删已装文件 → 收尾各模块 recover + `backup.imported(appendOnly:true)`。
+- **预演/导入**（transfer.rs:1320 dry_run / :1351 import；backup 三个命令均为 `#[tauri::command(async)]` + `spawn_blocking`，44#1）：预演只读统计；导入前停全部子系统；schema 双端比对（唯一容忍 focus_sessions.paused_at）→ IMMEDIATE 事务内 `prepare_ids`（:205）：materials 按 sha256 复用已有 ID、shared_plans 按 token_hash 复用、security_quotas 按 (user_id,resource) 复合键跳过、主键=外键子表（material_text/community_group_members/community_reservations）随父表映射重写、其余 INTEGER 主键 MAX+1、文本主键 `imported-{n}`、provider_requests 的 TEXT 主键冲突先按内容签名（model/created_at/finish_reason/attempts/latency_ms/status/usage_json 七字段，31#43；34#15 起含 usage_json 且按 request_id 排序取首——provider_id 不可用，profiles 每次导入都重映射）找回既有行复用（重复导入幂等，agent- 前缀请求不改名）、kv 重编号、preferences 已有则跳过 → `stage_files`（:1243，须在 prepare_ids 之后：插件清单目标路径按重映射 id 落位）→ 外键拓扑排序（:602）→ `transform`（:833）重写列与 `*_json` 内嵌 ID（tool_calls_json 内嵌 "id" 一并重写）→ 单事务 import_rows（缺列行剔除）+ install_files（canonicalize+hard_link）→ 失败回滚删已装文件 → 收尾各模块 recover + `backup.imported(appendOnly:true)`。导入/预演对 manifest 缺失文件显式枚举（driftedFiles/missingFiles 进 backupImportWarnings，前端 BackupPanel 展示漂移），不静默跳过。
 - **分享**（sharing/mod.rs:267 create）：仅 done/degraded 方案、快照≤2MB；令牌 `dt_` 46 字符只存 SHA-256（token_hash）+ 根库 share_index；读取无登录时先查索引定位 owner，`with_user` 切库读取，仍未命中遍历 users/ 目录（≤10000）回填索引（:408-453）；revoked/expired 一律 `share_unavailable`。
-- **同步**（sync/）：上传 = `providers::export_config`（脱敏，无 apiKey，测试断言）→ PUT 历史对象+当前对象 → GET 回读双双比对（`sync_verify_failed`）→ 版本保留：list（S3 list-type=2 / WebDAV PROPFIND）按时间倒序 skip(10) 删除，复查 remaining>10 → `sync_retention_failed`（versions.rs:236 起）。调度线程 1s tick/60s 检查，auto_sync 且距上次上传 ≥24h 触发（scheduler.rs:40）。凭据 WebDAV 密码/S3 密钥存 keyring，库中 sync_config 脱敏（mod.rs:150）；下载/恢复的目的地拒绝落在应用数据目录内（数据根遏制）。
+- **同步**（sync/）：上传 = `providers::export_config`（脱敏，无 apiKey，测试断言）→ PUT 历史对象+当前对象 → GET 回读双双比对（`sync_verify_failed`）→ 版本保留：list（S3 list-type=2 / WebDAV PROPFIND）按时间倒序 skip(10) 删除，复查 remaining>10 → `sync_retention_failed`（versions.rs:236 起）。调度线程 1s tick/60s 检查，auto_sync 且距上次上传 ≥24h 触发；上次 upload 终态为 failed 时缩短为 1h 重试（失败也写 finished_at，scheduler.rs:58-62；用户取消不触发短退避）。凭据 WebDAV 密码/S3 密钥存 keyring，库中 sync_config 脱敏（mod.rs:150）；下载/恢复的目的地拒绝落在应用数据目录内（数据根遏制）。
 - **运维**（maintenance/）：`health` 读 PRAGMA integrity_check/foreign_key_check/journal_mode/page 统计/WAL 字节数（mod.rs:106 起）；孤儿扫描白名单=DB 记录的原件 + agent scratch + 有效插件清单 + 可识别临时目录，缺失原件只报告；清理/VACUUM 前置 `OPERATION` 互斥（commands.rs:9）+ 停全部任务 + 锁 store，结束必重启调度（commands.rs:51）。
 
 备份导出：
@@ -551,7 +551,7 @@ stateDiagram-v2
 - **线程**：全部后台线程经 `security::thread_builder()`（SEC/mod.rs:100）创建以继承 principal（thread-local PRINCIPAL :34；`session_principal` :76 供 async 命令从会话派生）。裸线程无 principal 时 `Store::new` 返回 `store_unavailable`（fail-closed，store.rs:74-88；测试环境回退根库语义）。命名线程：`backend-startup`、`learning-plan-{id}`、`lecture-{id}`、`wiki-answer-{id}`、`practice-generate-{id}`、`practice-grade-{id}`、`project-feedback-{id}`、`agent-run-{id}`、`material-parse-{id}`、`sync-{id}`、调度线程。全部 catch_unwind，panic 映射 `task_panicked` 落失败态。
 - **锁**：`BackendState.store: Mutex<Store>`（全局单连接）；`STORE_OPEN_LOCK`（打开互斥）；`WORKSPACE_SWITCH: RwLock`（切换写锁/命令读锁）；各域 `active: Mutex<HashMap<id, Arc<AtomicBool>>>` 取消注册表；maintenance `OPERATION`；sync 全局 `ACTIVE/NEXT_JOB`；startup `LOCATION_LOCK`（pointer 原子写）。
 - **SQLite 并发**：WAL + synchronous=NORMAL + busy_timeout 10s；写路径 `unchecked_transaction`；关键防重用 Immediate 事务（agent send、resume、start_focus、备份 prepare_ids、熔断读改写）或条件 UPDATE（review grade）。
-- **停止协议**：`stop`/`stop_all` 置全部取消标志 + 取消全部上游请求 + 15s 轮询等待 active map 清空（learning L/mod.rs:856、providers P/mod.rs:1292、materials M/mod.rs:120、agent :1172、sync :896）；重置（reset_application，backend/commands.rs:82）先停五类任务，DB reset 成功后才删原件备份与凭据。
+- **停止协议**：各域 `stop` 置取消标志 + 取消上游请求 + 15s 轮询等待 active map 清空（learning L/mod.rs:856、providers P/mod.rs:1292、materials M/mod.rs:120、agent :1172、sync :896）；`security::guard::stop_all` 逐域独立停并汇总结果（reports::stop 收尾专注会话为 interrupted，plans/实践/知识等各自停），maintenance 与备份导入复用同一入口；重置（reset_application，backend/commands.rs:82）先停五类任务，DB reset 成功后才删原件备份与凭据。
 
 停止协议：
 
@@ -579,7 +579,7 @@ flowchart TD
 
 - 启动：bootstrap 对 `startup_not_ready` 每 250ms 重试至 20s（useBackendState.ts 看门狗 armTimeout :114）；认证错误码集合切 loginRequired；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次（:96）不弹错。
 - 实时渲染：页面按事件 kind 前缀 + 业务 id 过滤后调用对应 get 命令刷新（如 PlanGenerator.tsx:105 起 `plan.*` → getLearningPlan；`provider.chat_delta` 按 requestId 命中后 getProviderChat 拉增量）。
-- 媒体预览：MediaPlayer.tsx:19-36 `get_material_media_info` → 循环 `read_material_media_chunk(256KB)` → 拼 Blob → `crypto.subtle` SHA-256 与 info 比对 → objectURL 渲染，卸载 revoke。
+- 媒体预览：MediaPlayer.tsx `get_material_media_info`（后端 streaming_sha256 边读边算复核）→ 循环 `read_material_media_chunk`（≤256KiB，二进制 `tauri::ipc::Response` 通道返回原始字节，不再经 JSON number[] 数组往返，46#2）→ 拼 Blob → `verify_material_media` 复核哈希 → objectURL 渲染，卸载 revoke。
 - 主题/无障碍：preferences 经 `replace_collection('preferences')` 持久化，App.tsx:180-183 同步 `data-theme/large-text/high-contrast/reduce-motion` 到 `<html>`；reduce-motion 另经 matchMedia 跟随系统偏好（App.tsx:251），`html.reduce-motion` 规则同时关闭 smooth scroll。
 
 前端启动与实时流：
@@ -590,7 +590,7 @@ flowchart TD
     B -->|是 每 250ms 重试 上限 20s| A
     B -->|认证类错误码| C[loginRequired → SecurityPanel 选用户]
     B -->|其他错误| D[startupError → DataDirectoryPanel 恢复面板]
-    B -->|成功| E[events_since 翻页追赶 + get_app_state 校准]
+    B -->|成功| E[get_app_state 全量校准 游标取快照 lastEventId]
     E --> F[listen backend://event]
     F --> G{workspaceId 变化?}
     G -->|是| H[游标归零 重新 bootstrap]
