@@ -45,12 +45,14 @@ export function ProgressBar({ value, label, tone = 'green' }: { value: number; l
 export function ProgressRing({ value, size = 112, children }: { value: number; size?: number; children?: ReactNode }) {
   const radius = 43
   const circumference = 2 * Math.PI * radius
-  return <div className="progress-ring" style={{ width: size, height: size }}>
+  // 74#1：对齐 ProgressBar（09#7）——裸 svg 读屏听不到「方案生成进度 X%」
+  const clamped = Math.max(0, Math.min(100, Math.round(value)))
+  return <div className="progress-ring" style={{ width: size, height: size }} role="progressbar" aria-label={`完成进度 ${clamped}%`} aria-valuenow={clamped} aria-valuemin={0} aria-valuemax={100}>
     <svg viewBox="0 0 100 100" aria-hidden="true">
       <circle className="ring-track" cx="50" cy="50" r={radius} />
       <circle className="ring-value" cx="50" cy="50" r={radius} strokeDasharray={circumference} strokeDashoffset={circumference * (1 - value / 100)} />
     </svg>
-    <div className="ring-content">{children || <strong>{value}%</strong>}</div>
+    <div className="ring-content" aria-hidden="true">{children || <strong>{value}%</strong>}</div>
   </div>
 }
 
@@ -181,7 +183,9 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, description, co
   busy?: boolean
 }) {
   return <Modal open={open} onClose={onClose} title={title}>
-    <div className="confirm-dialog"><p>{description}</p><div><Button variant="secondary" onClick={onClose}>取消</Button><Button disabled={busy} onClick={onConfirm}>{confirmLabel}</Button></div></div>
+    {/* 74#18：首焦点落「取消」而非头部 X——破坏性确认的主选项惯例（useFocusContainment */}
+    {/* 对 autoFocus 已在容器内的焦点不抢夺，此处直接落位生效） */}
+    <div className="confirm-dialog"><p>{description}</p><div><Button variant="secondary" autoFocus onClick={onClose}>取消</Button><Button disabled={busy} onClick={onConfirm}>{confirmLabel}</Button></div></div>
   </Modal>
 }
 
@@ -191,7 +195,10 @@ export function EmptyState({ title, description, action }: { title: string; desc
 
 export function MiniBars({ values, labels }: { values: number[]; labels?: string[] }) {
   const max = Math.max(...values, 1)
-  return <div className="mini-bars">{values.map((value, index) => <div className="mini-bar-item" key={index}><div className="mini-bar-track"><div className="mini-bar-value" style={{ height: `${Math.max(8, value / max * 100)}%` }} /></div><span>{labels?.[index] || value}</span></div>)}</div>
+  // 74#2：传 labels 时数值原先只存在于柱高样式里，对所有人不可达——容器
+  // 按 role=img 提供完整数据摘要，内部视觉元素对读屏隐藏
+  const summary = labels ? labels.map((label, index) => `${label} ${values[index]}`).join('，') : values.join('、')
+  return <div className="mini-bars" role="img" aria-label={`图表：${summary}`}>{values.map((value, index) => <div className="mini-bar-item" key={index} aria-hidden="true"><div className="mini-bar-track"><div className="mini-bar-value" style={{ height: `${Math.max(8, value / max * 100)}%` }} /></div><span>{labels?.[index] || value}</span></div>)}</div>
 }
 
 export function LineChart({ values, labels, color = 'currentColor' }: { values: number[]; labels: string[]; color?: string }) {

@@ -31,7 +31,7 @@ export default function TutorPanel({ compact = false, onClose, planId, contextLa
   return <div className={`tutor-panel ${compact ? 'is-compact' : ''}`}>
     <div className="tutor-head"><div><span className="agent-mark"><Sparkles size={18} /></span><div><strong>知舟导师</strong><span><i />{error ? '后端操作失败' : '本地后端会话'}</span></div></div>{onClose && <IconButton label="关闭导师" onClick={onClose}><X size={18} /></IconButton>}</div>
     <div className="tutor-context"><BookOpen size={14} /><span>{context}</span><button disabled={running || busy === 'create'} onClick={() => void newSession()}><RotateCcw size={13} />新对话</button></div>
-    <div className="tutor-modes">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} disabled={running} onClick={() => setMode(item)}>{item}</button>)}</div>
+    <div className="tutor-modes">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} disabled={running} onClick={() => setMode(item)}>{item}</button>)}</div>
     {error && <div className="form-error" role="alert">{error}</div>}
     <div className="tutor-messages" aria-live="polite">
       {loading && <div className="message message-assistant"><div className="message-bubble">正在读取真实会话…</div></div>}

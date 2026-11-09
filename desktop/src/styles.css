@@ -172,7 +172,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .badge-neutral { background: var(--surface-soft); color: var(--text-secondary); }
 .badge-green { background: var(--accent-soft); color: var(--accent); }
 .badge-amber { background: oklch(0.93 0.06 85); color: oklch(0.43 0.09 65); }
-.badge-red { background: oklch(0.94 0.04 28); color: var(--danger); }
+.badge-red { background: oklch(0.94 0.04 28); color: oklch(0.42 0.16 25); } /* 74#15：亮色改用与 amber/blue 同档的深红字——原 var(--danger)=red-500(L0.54) 对 0.94 底约 3.7-4.3:1 低于 AA 小字 4.5 */
 .badge-blue { background: oklch(0.93 0.035 235); color: oklch(0.42 0.09 235); }
 /* 48#2：深色主题不再把状态色抹平成 neutral——改深底亮字，警告/失败/信息的色调通道保留 */
 :root[data-theme="dark"] .badge-amber { background: oklch(0.32 0.05 75); color: oklch(0.86 0.11 85); }

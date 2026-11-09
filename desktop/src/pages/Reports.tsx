@@ -82,10 +82,10 @@ export default function Reports({ notify, onNavigate }: { notify: (message: stri
   const metrics = report?.metrics
   const difference = metrics && metrics.previousFocusSeconds > 0 ? (metrics.focusSeconds - metrics.previousFocusSeconds) / metrics.previousFocusSeconds : null
   return <div className="page reports-page">
-    <div className="page-heading"><div><h1>学习报告</h1><p>只展示真实记录；没有证据时不以示例数字代替。</p></div><div className="heading-actions"><div className="segmented" aria-busy={pending}>{periods.map(item => <button key={item.id} className={period === item.id ? 'active' : ''} onClick={() => setPeriod(item.id)}>{item.label}</button>)}{pending && <LoaderCircle size={15} className="spin" aria-label="正在切换周期" />}</div><Button variant="secondary" disabled={busy === 'export'} onClick={() => void exportReport()}>{busy === 'export' ? <LoaderCircle size={16} className="spin" /> : <Download size={17} />}导出</Button></div></div>
-    <div className="report-view-tabs">{['总览', '日历', '按方案'].map(item => <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{item}</button>)}</div>
+    <div className="page-heading"><div><h1>学习报告</h1><p>只展示真实记录；没有证据时不以示例数字代替。</p></div><div className="heading-actions"><div className="segmented" aria-busy={pending}>{periods.map(item => <button key={item.id} className={period === item.id ? 'active' : ''} aria-pressed={period === item.id} onClick={() => setPeriod(item.id)}>{item.label}</button>)}{pending && <LoaderCircle size={15} className="spin" aria-label="正在切换周期" />}</div><Button variant="secondary" disabled={busy === 'export'} onClick={() => void exportReport()}>{busy === 'export' ? <LoaderCircle size={16} className="spin" /> : <Download size={17} />}导出</Button></div></div>
+    <div className="report-view-tabs">{['总览', '日历', '按方案'].map(item => <button key={item} className={view === item ? 'active' : ''} aria-pressed={view === item} onClick={() => setView(item)}>{item}</button>)}</div>
     {error && <div className="form-error" role="alert"><CircleAlert size={16} /><span>{error}</span><Button variant="ghost" size="sm" onClick={() => { setError(''); void refresh() }}>重新读取</Button></div>}
-    {!report ? error ? null : <div className="page-loading"><LoaderCircle size={22} className="spin" />正在读取真实学习记录…</div> : <>
+    {!report ? error ? null : <div className="page-loading" role="status"><LoaderCircle size={22} className="spin" />正在读取真实学习记录…</div> : <>
       {view === '日历' && <CalendarReport data={calendar} onSaved={setCalendar} notify={notify} />}
       {view === '按方案' && <PlanReport report={report} onNavigate={onNavigate} onAdopt={adopt} busy={busy === 'adopt'} />}
       {view === '总览' && <>
