@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, CalendarDays, Check, CheckCircle2, ChevronRight, Circle, FileUp, FolderKanban, GitBranch, Lightbulb, Plus, Rocket, Sparkles, Trophy } from 'lucide-react'
 import type { Project } from '../data'
 import { Badge, Button, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
@@ -52,6 +52,10 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
   const completedMilestones = projects.reduce((total, item) => total + item.milestones.filter(milestone => milestone.done).length, 0)
   const evaluatedVersions = versions.filter(item => item.status === 'done').length
 
+  // 51#9：事件监听只挂载一次——原先依赖 running?.requestId，评估版本状态一变
+  // 就先注销再异步重挂，间隙到达的 project.*/chat_delta 事件被丢弃；改经 ref 取
+  const runningRequestIdRef = useRef<string | null>(null)
+  useEffect(() => { runningRequestIdRef.current = running?.requestId ?? null })
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
@@ -69,14 +73,14 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     const throttledFetch = deltaThrottle()
     void onBackendEvent(event => {
       if (active && (event.kind.startsWith('project.') || event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'projects'))) void load()
-      const requestId = running?.requestId
+      const requestId = runningRequestIdRef.current
       if (active && requestId && event.kind === 'provider.chat_delta' && event.payload.requestId === requestId) {
         // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
         throttledFetch(() => void backend.getProviderChat(requestId).then(request => { if (active) setLiveOutput(request.output) }).catch(reportBackendError))
       }
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
-  }, [running?.requestId])
+  }, [])
   useEffect(() => { setSelectedVersionId(null); setLiveOutput('') }, [project?.id])
   useEffect(() => {
     const requestId = running?.requestId

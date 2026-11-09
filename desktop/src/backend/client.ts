@@ -336,6 +336,19 @@ export type AgentSession = {
   updatedAt: string
 }
 
+// 45#2：serde_json::Value 透传边界的运行时键守卫——后端 Rust 侧为自由 Value，
+// 改键名编译期不报错。artifacts 各键本就可选（消费方全部 ?. 链）无需断言；
+// resources.items/externalSearch 由 pipeline 恒定写入且 StudyRoom 直接 .map，
+// 键漂移时在这里抛可定位错误，而不是渲染层 undefined 崩溃
+function guardLearningPlan(plan: LearningPlan): LearningPlan {
+  if (!plan.result) return plan
+  const resources = plan.result.resources as unknown as Record<string, unknown> | undefined
+  if (!resources || !Array.isArray(resources.items) || resources.externalSearch === undefined) {
+    throw new Error(`方案 ${plan.id} 的 resources 结构与前端断言不符（items/externalSearch 缺失，后端 JSON 键变更？）`)
+  }
+  return plan
+}
+
 export const backend = {
   bootstrap: () => invoke<AppSnapshot>('bootstrap'),
   getAppState: () => invoke<AppSnapshot>('get_app_state'),
@@ -384,8 +397,8 @@ export const backend = {
   cancelProviderChat: (requestId: string) => invoke<void>('cancel_provider_chat', { requestId }),
   getProviderChat: (requestId: string) => invoke<ProviderRequest>('get_provider_chat', { requestId }),
   startLearningPlan: (input: LearningPlanInput) => invoke<LearningPlan>('start_learning_plan', { input }),
-  listLearningPlans: () => invoke<LearningPlan[]>('list_learning_plans'),
-  getLearningPlan: (id: string) => invoke<LearningPlan>('get_learning_plan', { id }),
+  listLearningPlans: () => invoke<LearningPlan[]>('list_learning_plans').then(plans => { plans.forEach(guardLearningPlan); return plans }),
+  getLearningPlan: (id: string) => invoke<LearningPlan>('get_learning_plan', { id }).then(guardLearningPlan),
   cancelLearningPlan: (id: string) => invoke<LearningPlan>('cancel_learning_plan', { id }),
   resumeLearningPlan: (id: string) => invoke<LearningPlan>('resume_learning_plan', { id }),
   adoptLearningPlan: (id: string) => invoke<AppSnapshot>('adopt_learning_plan', { id }),
@@ -416,7 +429,10 @@ export const backend = {
   routeProviderChat: (requestId: string, task: TaskRouteId, profileId: string | null, model: string | null, messages: ProviderChatMessage[], maxTokens: number) => invoke<ProviderRequest>('route_provider_chat', { requestId, task, profileId, model, messages, maxTokens }),
 }
 
-/** 流式 delta 事件合并器：窗口期内多条 delta 只触发一次全量拉取。 */
+/** 流式 delta 事件合并器：窗口期内多条 delta 只触发一次全量拉取。
+ * 51#13 核查结论：首事件起表、窗口到期全量拉取——最后一批 delta 进入窗口后
+ * 即使再无新事件，定时器仍会触发一次覆盖它的全量拉取（拉取是快照而非增量，
+ * 不存在「缺最后 150ms」），无需尾沿补发。 */
 export function deltaThrottle() {
   let timer: number | undefined
   return (fire: () => void) => {

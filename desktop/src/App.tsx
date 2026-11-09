@@ -134,14 +134,17 @@ export default function App() {
     if (!ready || loginRequired) return
     let active = true
     let stop: (() => void) | undefined
+    // 51#6：序号守卫——事件密集期多轮 notifications() 并发时，后到的旧响应不再把角标回跳
+    let seq = 0
     const fail = (error: unknown) => {
       if (active) { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }
     }
     const load = async () => {
+      const ticket = ++seq
       try {
         const next = await engagementBackend.notifications()
-        if (active) { setNotifications(next); setNotificationsError('') }
-      } catch (error) { fail(error) }
+        if (active && ticket === seq) { setNotifications(next); setNotificationsError('') }
+      } catch (error) { if (ticket === seq) fail(error) }
     }
     void load()
     void onBackendEvent(event => {
@@ -156,10 +159,13 @@ export default function App() {
     if (!ready || loginRequired) return
     let active = true
     let stop: (() => void) | undefined
+    // 51#6：序号守卫——同上，dashboard() 并发时后到的旧摘要不再覆盖新值
+    let seq = 0
     const load = async () => {
+      const ticket = ++seq
       // 摘要全局只加载这一份：侧栏与"今日"页共用，前缀取两处需求并集，避免重复请求
       const next = await engagementBackend.dashboard()
-      if (active) { setHomeSummary(next); setHomeSummaryError('') }
+      if (active && ticket === seq) { setHomeSummary(next); setHomeSummaryError('') }
     }
     void load().catch(error => { if (active) { setHomeSummaryError(backendErrorMessage(error)); reportBackendError(error) } })
     void onBackendEvent(event => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, Share2, SlidersHorizontal, Sparkles, Target } from 'lucide-react'
 import type { PageId, Task } from '../data'
 import { Badge, Button, ConfirmDialog, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
@@ -58,21 +58,30 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
   const load = overview?.loadPercent ?? 0
   const loadText = load > 100 ? '超出每周可投入时间' : load >= 75 ? '接近每周投入上限' : '仍有可安排的余量'
 
+  // 51#2：序号守卫——快速翻周/事件并发时，后到的旧周响应不再覆盖新周视图
+  const refreshSeq = useRef(0)
   const refresh = useCallback(async () => {
+    const ticket = ++refreshSeq.current
     try {
-      setOverview(await planningBackend.overview(weekStart))
+      const next = await planningBackend.overview(weekStart)
+      if (ticket !== refreshSeq.current) return
+      setOverview(next)
       setError('')
-    } catch (cause) { setError(backendErrorMessage(cause)) }
+    } catch (cause) { if (ticket === refreshSeq.current) setError(backendErrorMessage(cause)) }
   }, [weekStart])
+  // 51#9：事件监听只挂载一次——原先依赖含 refresh（随 weekStart 变化），
+  // 每次翻周都先注销再异步重挂，间隙到达的事件被丢弃；回调经 ref 取最新
+  const refreshRef = useRef(refresh)
+  useEffect(() => { refreshRef.current = refresh })
+  useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
-    void refresh()
     let active = true
     let stop: (() => void) | undefined
     void onBackendEvent(event => {
-      if (active && (event.kind.startsWith('plan.') || event.kind === 'security.session_started' || (event.kind === 'state.changed' && ['tasks', 'preferences'].includes(String(event.payload.namespace))))) void refresh()
+      if (active && (event.kind.startsWith('plan.') || event.kind === 'security.session_started' || (event.kind === 'state.changed' && ['tasks', 'preferences'].includes(String(event.payload.namespace))))) void refreshRef.current()
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
-  }, [refresh])
+  }, [])
 
   const changeIntensity = async (intensity: string) => {
     if (busy || !ready) return
@@ -114,11 +123,19 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
       // 20#2：title 上限 500B、subject 上限 100B（后端同界）；科目留空回退
       // 方案目标时先截断，长目标不再令保存必败
       await setTasks(current => [...current, { id, title: title.trim(), subject: clampToBytes(subject.trim() || plan?.goal || '综合学习', 100), duration: minutes, done: false, kind: '学习' }])
-      if (plan && newTaskDate) await planningBackend.assignTaskDate(id, newTaskDate)
       // A-7：成功后清除旧错误，重开弹窗不再显示上次的失败提示
       setError('')
       setTitle(''); setAddOpen(false)
-      notify(plan && newTaskDate ? '任务已保存并加入所选日期' : '任务已保存，可在待排期列表中选择日期')
+      if (plan && newTaskDate) {
+        try {
+          await planningBackend.assignTaskDate(id, newTaskDate)
+          notify('任务已保存并加入所选日期')
+        } catch (cause) {
+          // 51#7：任务本体已落库、仅排期失败——分段提示，用户不必重提整个表单
+          // （原先错误提示不分段，重试会创建第二条同标题任务）
+          notify(`任务已保存，但加入所选日期失败：${backendErrorMessage(cause)}。可稍后在待排期列表重选日期`)
+        }
+      } else notify('任务已保存，可在待排期列表中选择日期')
       await refresh()
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }

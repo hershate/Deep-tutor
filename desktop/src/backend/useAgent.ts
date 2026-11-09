@@ -120,6 +120,12 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     return () => { current = false }
   }, [liveRequestId, activeRun?.status])
 
+  // 51#9：refresh/refreshSession 随 planId/sessionTitle 等变化 identity，原先
+  // 依赖它们导致监听器反复卸载重挂，间隙到达的 agent.*/delta 事件被丢弃；
+  // 回调经 ref 取最新，依赖只剩 enabled 与两个空依赖的稳定 setter
+  const refreshRef = useRef(refresh)
+  const refreshSessionRef = useRef(refreshSession)
+  useEffect(() => { refreshRef.current = refresh; refreshSessionRef.current = refreshSession })
   useEffect(() => {
     if (!enabled) return
     let disposed = false
@@ -158,12 +164,12 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
         setStream({ requestId, text: '', reasoning: '' })
       }
       if (event.kind === 'agent.message_saved' && numberField(event.payload.sessionId) === activeIdRef.current) setStream(current => ({ ...current, text: '', reasoning: '' }))
-      if (event.kind === 'agent.approval_expired') void refresh()
-      if (event.kind === 'agent.session_created' || event.kind === 'agent.session_deleted') void refresh()
-      else if (sessionId !== null && sessionId === activeIdRef.current) void refreshSession(sessionId)
+      if (event.kind === 'agent.approval_expired') void refreshRef.current()
+      if (event.kind === 'agent.session_created' || event.kind === 'agent.session_deleted') void refreshRef.current()
+      else if (sessionId !== null && sessionId === activeIdRef.current) void refreshSessionRef.current(sessionId)
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
     return () => { disposed = true; unlisten?.() }
-  }, [enabled, refresh, refreshSession, setLiveLogical, setLiveRequest])
+  }, [enabled, setLiveLogical, setLiveRequest])
 
   const createSession = useCallback(async (title?: string, requestedPlanId?: string): Promise<AgentSession | null> => {
     setBusy('create')

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Accessibility, Bell, Brain, Check, ChevronRight, Keyboard, LockKeyhole, Moon, ShieldCheck, Sun, Trash2, UserRound, Users } from 'lucide-react'
 import { Badge, Button, Modal, SectionHeader, Toggle } from '../components/UI'
 import BackupPanel from '../components/BackupPanel'
@@ -40,6 +40,12 @@ export default function Settings({ preferences, setPreferences, onImport, counts
   const [busy, setBusy] = useState(false)
   // 43#4：清除进行中的防抖（reset 秒级，期间可再次点击）
   const [resetting, setResetting] = useState(false)
+  // 51#9：事件监听只挂载一次——原先依赖 profileOpen，弹窗每次开关都先注销再
+  // 异步重挂，间隙到达的 security.*/state.changed 事件被丢弃；改经 ref 判定
+  // 51#15：弹窗打开期间 session_started 也不覆盖编辑中草稿（原先只有
+  // preferences 刷新被跳过，恰在他处切换会话时 setDraft 仍会冲掉草稿，28#10 同型）
+  const profileOpenRef = useRef(false)
+  useEffect(() => { profileOpenRef.current = profileOpen })
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
@@ -53,10 +59,10 @@ export default function Settings({ preferences, setPreferences, onImport, counts
     }
     void load().catch(reportBackendError)
     void onBackendEvent(event => {
-      if (active && (event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'preferences' && !profileOpen))) void load().catch(reportBackendError)
+      if (active && !profileOpenRef.current && (event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'preferences'))) void load().catch(reportBackendError)
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
-  }, [profileOpen])
+  }, [])
   const update = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     // 32#13：以 updater 形态提交——渲染闭包整对象在排队写入期间会被后续
     // 切换整体覆盖（replaceCollection 已支持 updater，24#5 正为此设计）

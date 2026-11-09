@@ -100,14 +100,19 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
       return []
     }
   }, [])
+  // 51#8：用户切换历史方案同样需要序号守卫——事件路径已有 planRef（32#3），
+  // 但快速选 A 再选 B 时两次 getLearningPlan 并发，A 后到仍会覆盖 setPlan+setStep
+  const selectSeq = useRef(0)
   const selectPlan = useCallback(async (id: string) => {
+    const ticket = ++selectSeq.current
     try {
       const next = await backend.getLearningPlan(id)
+      if (ticket !== selectSeq.current) return
       setPlan(next)
       setStep(next.result ? 3 : 2)
       setLiveRequest(null)
       setError('')
-    } catch (cause) { setError(backendErrorMessage(cause)) }
+    } catch (cause) { if (ticket === selectSeq.current) setError(backendErrorMessage(cause)) }
   }, [])
 
   useEffect(() => {
@@ -170,9 +175,11 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
       notify('音视频与图片仅支持原件预览，不能作为文字模型的方案资料')
       return
     }
-    if (selectedIds.includes(id)) setSelectedIds(selectedIds.filter(item => item !== id))
-    else if (selectedIds.length >= 8) notify('每个方案最多选择 8 份资料')
-    else setSelectedIds([...selectedIds, id])
+    if (selectedIds.includes(id)) { setSelectedIds(current => current.filter(item => item !== id)); return }
+    if (selectedIds.length >= 8) { notify('每个方案最多选择 8 份资料'); return }
+    // 51#8：updater 形态追加——导入循环逐个追加 selectedIds 期间勾选，不再以
+    // 渲染闭包旧快照展开（原先会把刚导入的 id 抹掉、8 份额度被重置）
+    setSelectedIds(current => current.includes(id) || current.length >= 8 ? current : [...current, id])
   }
   const importFiles = async () => {
     setBusy('files')

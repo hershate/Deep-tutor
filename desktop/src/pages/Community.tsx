@@ -51,16 +51,20 @@ export default function Community({ notify }: { notify: (message: string) => voi
     setData(next)
     setProjects(projectCollection.value)
   }, [tab, debouncedQuery])
+  // 51#9：事件监听只挂载一次——原先依赖 refresh（随 tab/搜索变化），每次切换
+  // 都先注销再异步重挂，间隙到达的 community.* 事件被丢弃；回调经 ref 取最新
+  const refreshRef = useRef(refresh)
+  useEffect(() => { refreshRef.current = refresh })
+  useEffect(() => { void refresh().catch(reportBackendError) }, [refresh])
   useEffect(() => {
-    void refresh().catch(reportBackendError)
     let unlisten: (() => void) | undefined
     // 32#5：晚解析守卫——卸载早于 listen() resolve 时立即注销
     let disposed = false
     onBackendEvent(event => {
-      if (event.kind.startsWith('community.')) void refresh().catch(reportBackendError)
+      if (event.kind.startsWith('community.')) void refreshRef.current().catch(reportBackendError)
     }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
     return () => { disposed = true; unlisten?.() }
-  }, [refresh])
+  }, [])
 
   const createPost = async () => {
     if (busy || !postTitle.trim() || !postBody.trim()) return

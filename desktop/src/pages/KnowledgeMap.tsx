@@ -70,18 +70,23 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
   }, [initialPlanId])
   useEffect(() => { void refreshPlans() }, [refreshPlans])
   useEffect(() => { void refreshOverview() }, [refreshOverview])
+  // 51#9：事件监听只挂载一次——原先依赖 refreshOverview/refreshPlans（随方案
+  // 切换变化 identity），重挂间隙到达的证据事件被丢弃；回调经 ref 取最新
+  const refreshOverviewRef = useRef(refreshOverview)
+  const refreshPlansRef = useRef(refreshPlans)
+  useEffect(() => { refreshOverviewRef.current = refreshOverview; refreshPlansRef.current = refreshPlans })
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
     void onBackendEvent(event => {
       if (disposed) return
-      if (event.kind === 'plan.adopted') void refreshPlans()
+      if (event.kind === 'plan.adopted') void refreshPlansRef.current()
       // 练习/复习证据落库后掌握度随之变化，停留页面也要刷新（事件载荷不带 planId，直接重拉概览）
-      if (event.kind === 'study.progress_changed' && event.payload.planId === planRef.current?.id) void refreshOverview()
-      else if (['practice.answer_graded', 'practice.answer_submitted', 'practice.set_completed', 'practice.exam_completed', 'practice.mistake_mastered_by_variant', 'review.graded'].includes(event.kind)) void refreshOverview()
+      if (event.kind === 'study.progress_changed' && event.payload.planId === planRef.current?.id) void refreshOverviewRef.current()
+      else if (['practice.answer_graded', 'practice.answer_submitted', 'practice.set_completed', 'practice.exam_completed', 'practice.mistake_mastered_by_variant', 'review.graded'].includes(event.kind)) void refreshOverviewRef.current()
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
     return () => { disposed = true; unlisten?.() }
-  }, [refreshOverview, refreshPlans])
+  }, [])
 
   const graph = plan?.result?.graph
   useEffect(() => {
