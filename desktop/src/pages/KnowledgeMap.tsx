@@ -60,9 +60,13 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
       setOverview(next)
     } catch (cause) { setError(backendErrorMessage(cause)) }
   }, [plan])
+  // 76#8：序号守卫——他处采用方案触发 plan.adopted 与本页刷新并发时旧列表后到不回写
+  const plansSeq = useRef(0)
   const refreshPlans = useCallback(async () => {
+    const ticket = ++plansSeq.current
     try {
       const items = (await backend.listLearningPlans()).filter(item => item.adoptedProjectId !== null)
+      if (ticket !== plansSeq.current) return
       setPlans(items)
       const preferred = initialPlanId
       setPlan(current => preferred ? items.find(item => item.id === preferred) || items[0] || null : current ? items.find(item => item.id === current.id) || items[0] || null : items[0] || null)
@@ -89,11 +93,15 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
   }, [])
 
   const graph = plan?.result?.graph
+  // 76#10：重置只在方案 id 真正切换时发生——原先依赖 [plan, graph] 对象
+  // identity，他处采用方案触发的 refreshPlans 替换同 id 方案对象也会把
+  // 用户正在浏览的选区/路径弹回首节点
   useEffect(() => {
     setSelected(graph?.nodes[0]?.id || '')
     setTarget(graph?.nodes.at(-1)?.id || '')
     setPath(null)
-  }, [plan, graph])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- graph 随 plan.id 变化派生
+  }, [plan?.id])
   const positions = useMemo(() => graph ? graphLayout(graph) : new Map<string, Position>(), [graph])
   const node = graph?.nodes.find(item => item.id === selected)
   const progress = overview?.nodes.find(item => item.nodeId === selected)

@@ -96,9 +96,14 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
   const upstreamRequestIdRef = useRef('')
   const importRef = useRef<HTMLInputElement>(null)
 
+  // 76#8：次级面板序号守卫（51#2 家族补齐）——保存档案的在途刷新与
+  // provider.* 事件触发的刷新并发时，旧响应后到不再拉回旧列表
+  const refreshSeq = useRef(0)
   const refresh = useCallback(async () => {
+    const ticket = ++refreshSeq.current
     try {
       const [items, active, settings, logs, circuitStates] = await Promise.all([backend.listProviderProfiles(), backend.getActiveProvider(), backend.getRoutingSettings(), backend.listProviderRouteLogs(), backend.listProviderCircuits()])
+      if (ticket !== refreshSeq.current) return
       setProfiles(items)
       setActiveId(active)
       setRouting(settings)
@@ -157,6 +162,8 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
       else unlisten = remove
     })
     return () => { disposed = true; unlisten?.() }
+      // 76#7：卸载取消武装中的定时器
+      throttledChatRefresh.cancel()
   }, [refresh])
 
   // 32#21：预览 effect 依赖基元化——原先依赖 profiles/routing 的数组身份，

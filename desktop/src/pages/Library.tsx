@@ -256,11 +256,20 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
       // 19#3：updated 持久化 ISO 时间戳，卡片渲染时格式化为相对时间；
       // 24#5：更新函数以最新集合为基准
       const stamp = new Date().toISOString()
+      // 76#11：并发删除检测——map 不命中说明笔记已被其他窗口删除，
+      // 原先零写入仍提示「已保存」误导用户
+      let existed = true
       await setNotes(activeNote
-        ? current => current.map(n => n.id === activeNote.id ? { ...n, title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: stamp } : n)
+        ? current => {
+            const hit = current.some(n => n.id === activeNote.id)
+            existed = hit
+            return hit ? current.map(n => n.id === activeNote.id ? { ...n, title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: stamp } : n) : current
+          }
         : current => [{ id: localId(), title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: stamp }, ...current])
       await backend.deleteDraft(draftKey)
-      setDirty(false); setNoteOpen(false); notify(activeNote ? '笔记修改已保存' : '新笔记已创建')
+      setDirty(false); setNoteOpen(false)
+      if (activeNote && !existed) notify('这条笔记已在其他窗口被删除，本次修改未保存')
+      else notify(activeNote ? '笔记修改已保存' : '新笔记已创建')
     } catch (error) { reportBackendError(error, 'write') } finally { draftBlocked.current = false; setSaving(false) }
   }
   const deleteNote = async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Ban, Check, CircleAlert, LoaderCircle, Square } from 'lucide-react'
 import { Badge, Button, EmptyState, ProgressBar } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../backend/client'
@@ -19,9 +19,13 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  // 76#8：次级面板序号守卫（51#2 家族补齐）——并发刷新旧响应后到不覆盖新数据
+  const refreshSeq = useRef(0)
   const refresh = useCallback(async () => {
+    const ticket = ++refreshSeq.current
     try {
       const [plans, sessions] = await Promise.all([backend.listLearningPlans(), backend.listAgentSessions()])
+      if (ticket !== refreshSeq.current) return
       const lectures = (await Promise.all(plans.filter(plan => plan.adoptedProjectId !== null).flatMap(plan => plan.result?.stages.map(async stage => ({ plan, stage, lecture: await backend.getLecture(plan.id, stage.id) })) ?? []))).filter(item => item.lecture.version > 0)
       const entries: TaskEntry[] = [
         ...plans.map(plan => ({ id: `plan-${plan.id}`, title: plan.goal, detail: `方案生成 · 第 ${plan.currentStep} / ${plan.steps.length} 步${plan.error ? ` · ${plan.error.code}：${plan.error.message}` : ''}`, status: plan.status, progress: plan.progress, updatedAt: plan.updatedAt, cancel: plan.status === 'running' ? () => backend.cancelLearningPlan(plan.id) : undefined })),

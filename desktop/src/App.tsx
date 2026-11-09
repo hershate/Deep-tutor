@@ -454,18 +454,23 @@ function FocusLayer({ session, tasks, busy, onToggle, onFinish, onReset, onExit 
   }, [session])
   useEffect(() => {
     if (session?.status !== 'running') return
+    // 76#4：onFinish 经 ref 取最新——deps 含每次渲染新建的函数会使 interval
+    // 反复重建（清掉重 tick），事件/toast 密集期倒计时相位抖动可感
+    const finishRef = useRef(onFinish)
+    finishRef.current = onFinish
     const tick = () => {
       const remaining = Math.max(0, session.plannedSeconds - Math.floor((Date.now() - Date.parse(session.startedAt)) / 1000))
       setSeconds(remaining)
       if (remaining === 0 && !busy && !autoFinishedRef.current) {
         autoFinishedRef.current = true
-        void onFinish(false)
+        void finishRef.current(false)
       }
     }
     tick()
     const timer = window.setInterval(tick, 1000)
     return () => window.clearInterval(timer)
-  }, [session, busy, onFinish])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- busy 由 tick 内读取闭包值，依赖收敛到 session
+  }, [session, busy])
   const minutes = Math.floor(seconds / 60).toString().padStart(2, '0')
   const display = (seconds % 60).toString().padStart(2, '0')
   return <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习" tabIndex={-1} ref={ref}><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={onExit}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{session?.taskId ? tasks.find(task => task.id === session.taskId)?.title || `任务 #${session.taskId}` : '自由专注'}</h2><div className="focus-timer" role="timer" aria-label={`专注计时 ${minutes} 分 ${display} 秒`}><span>{minutes}</span><i>:</i><span>{display}</span></div><div className="focus-actions"><Button variant="light" size="lg" disabled={busy} onClick={onToggle}>{session?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{session?.status === 'running' ? '暂停' : session?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={busy || !session || !['running', 'paused'].includes(session.status)} onClick={() => void onFinish(false)}>结束并保存</Button><IconButton label="取消当前专注并重置" disabled={busy} onClick={onReset}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={onExit}>Esc 退出专注</button></div>

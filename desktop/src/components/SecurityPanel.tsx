@@ -40,9 +40,14 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
     })
     previousLimits.current = Object.fromEntries(next.quotas.map(quota => [quota.resource, quota.limit]))
   }, [])
+  // 76#8：次级面板序号守卫（51#2 家族补齐）——并发刷新旧响应后到不覆盖新数据
+  const refreshSeq = useRef(0)
   const refresh = useCallback(async () => {
+    const ticket = ++refreshSeq.current
     try {
-      apply(await securityBackend.overview())
+      const next = await securityBackend.overview()
+      if (ticket !== refreshSeq.current) return
+      apply(next)
       setError('')
     } catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
   }, [apply])

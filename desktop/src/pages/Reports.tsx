@@ -49,15 +49,19 @@ export default function Reports({ notify, onNavigate }: { notify: (message: stri
       if (ticket === refreshSequence.current) setPending(false)
     }
   }, [period])
+  // 76#6：监听只挂载一次——原先依赖含 refresh（随 period 变化），切周期先注销
+  // 再异步重挂，间隙到达的事件被丢弃；回调经 ref 取最新（51#9 同型）
+  const refreshRef = useRef(refresh)
+  useEffect(() => { refreshRef.current = refresh })
+  useEffect(() => { void refresh() }, [period])
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
-    void refresh()
     void onBackendEvent(event => {
-      if (active && ['focus.', 'study.checkin', 'practice.', 'review.', 'plan.', 'report.', 'state.changed'].some(prefix => event.kind.startsWith(prefix))) void refresh()
+      if (active && ['focus.', 'study.checkin', 'practice.', 'review.', 'plan.', 'report.', 'state.changed'].some(prefix => event.kind.startsWith(prefix))) void refreshRef.current()
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
-  }, [refresh])
+  }, [])
   // 后台事件频繁重拉报告：只清掉已不存在的建议勾选，保留仍然有效的选择
   useEffect(() => { setSelected(previous => previous.filter(id => report?.recommendations.some(item => item.id === id) ?? false)) }, [report])
 

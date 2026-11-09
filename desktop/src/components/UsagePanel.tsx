@@ -21,9 +21,13 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   // 被替换（对齐 SecurityPanel 28#10 的草稿守卫）
   const previousSettings = useRef({ sessionUsd: 1, dailyUsd: 10, regenerationLimit: 2 })
 
+  // 76#8：次级面板序号守卫（51#2 家族补齐）——并发刷新旧响应后到不覆盖新数据
+  const refreshSeq = useRef(0)
   const refresh = useCallback(async () => {
+    const ticket = ++refreshSeq.current
     try {
       const [usage, providers] = await Promise.all([usageBackend.overview(), backend.listProviderProfiles()])
+      if (ticket !== refreshSeq.current) return
       setData(usage)
       setProfiles(providers)
       const previous = previousSettings.current

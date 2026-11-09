@@ -62,10 +62,13 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
+    // 76#8：序号守卫（51#2 家族补齐）——effect 内 load 与 project.* 事件并发时旧响应不回写
+    const loadSeq = { current: 0 }
     const load = async () => {
+      const ticket = ++loadSeq.current
       try {
         const [workspace, allPlans, allMaterials] = await Promise.all([projectsBackend.workspace(), backend.listLearningPlans(), backend.listMaterials()])
-        if (!active) return
+        if (!active || ticket !== loadSeq.current) return
         setVersions(workspace.versions)
         setPlans(allPlans.filter(item => item.adoptedProjectId !== null && item.result))
         setMaterials(allMaterials.filter(item => ['parsed', 'degraded'].includes(item.status) && item.textLength > 0))
@@ -90,6 +93,8 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
       }
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
+      // 76#7：卸载取消武装中的定时器
+      throttledFetch.cancel()
   }, [])
   useEffect(() => { setSelectedVersionId(null); setLiveOutput('') }, [project?.id])
   useEffect(() => {

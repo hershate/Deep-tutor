@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import { ArrowRight, CheckCircle2, CircleAlert, Lightbulb, PenLine, RefreshCw, SlidersHorizontal } from 'lucide-react'
 import { Badge, Button, Modal, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace, deltaThrottle } from '../backend/client'
@@ -14,13 +15,15 @@ type Props = {
   onGenerated: (detail: PracticeDetail) => void
   onShowObjective: () => void
   notify: (message: string) => void
+  /** 76#3：草稿映射由父组件持有——切 tab 卸载不丢未保存作答 */
+  draftByQuestion: MutableRefObject<Record<number, string>>
 }
 
-export default function SubjectivePractice({ detail, history, plans, onUpdated, onGenerated, onShowObjective, notify }: Props) {
+export default function SubjectivePractice({ detail, history, plans, onUpdated, onGenerated, onShowObjective, notify, draftByQuestion }: Props) {
   const [index, setIndex] = useState(0)
   // 28#2：草稿按题暂存——翻题不再静默丢弃未提交的长文作答
   const [draft, setDraft] = useState('')
-  const draftByQuestion = useRef<Record<number, string>>({})
+  // 76#2/76#3：草稿由父组件持有 + 历史切换序号守卫（同 ExamWorkspace）
   const [hint, setHint] = useState(false)
   const [busy, setBusy] = useState(false)
   const [output, setOutput] = useState('')
@@ -80,6 +83,8 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     listening.then(stop => { if (active) unlisten = stop; else stop() }).catch(reportBackendError)
     // 28#5：卸载早于 listen() promise resolve 时立即注销
     return () => { active = false; unlisten?.(); void listening.then(stop => { if (!active) stop() }) }
+      // 76#7：卸载取消武装中的定时器
+      throttledUpdate.cancel()
   }, [answer?.requestId, answer?.status])
 
   const submit = async () => {
@@ -117,8 +122,17 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
       notify('简答题与论述题正在由真实模型生成')
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
+  // 76#2：历史切换序号+busy 守卫——慢响应后到不再覆盖已选组（同 ExamWorkspace）
+  const selectSeq = useRef(0)
+  const [selecting, setSelecting] = useState(false)
   const selectSet = async (id: number) => {
-    try { onGenerated(await practiceBackend.detail(id)) } catch (error) { reportBackendError(error) }
+    if (busy || selecting) return
+    const ticket = ++selectSeq.current
+    setSelecting(true)
+    try {
+      const next = await practiceBackend.detail(id)
+      if (ticket === selectSeq.current) onGenerated(next)
+    } catch (error) { reportBackendError(error) } finally { setSelecting(false) }
   }
 
   const body = question && detail ? <>
@@ -148,7 +162,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     {detail?.set.status === 'completed' && <div className="connection-summary"><CheckCircle2 size={21} /><div><h3>本组已全部判分</h3><p>{detail.set.score === null || detail.set.maxScore === null ? '提示模式：不公布总分；各题反馈可在下方查看。' : `总分 ${detail.set.score} / ${detail.set.maxScore}；各题反馈可在下方查看。`}</p></div></div>}
     {detail && detail.questions.some(item => ['choice', 'fill'].includes(item.kind)) && <Button variant="ghost" onClick={onShowObjective}>本组还包含客观题，去针对练习作答<ArrowRight size={16} /></Button>}
     {body}
-  </section><aside className="practice-side"><section className="surface"><SectionHeader title="主观题历史" description="点击恢复保存的作答与评分" /><div className="practice-history-list">{history.filter(item => item.kinds.some(kind => ['short', 'essay'].includes(kind))).map(item => <button key={item.id} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>第 {item.attempt} 次尝试 · {statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</div></section><section className="surface"><SectionHeader title="评分原则" /><p className="side-copy">每题 1 分，按保存的评分要点加权。80% 为掌握阈值；低于阈值的作答进入真实错题记录。模型必须返回资料原文引用，无效评分不会被保存为成绩。</p></section></aside>
+  </section><aside className="practice-side"><section className="surface"><SectionHeader title="主观题历史" description="点击恢复保存的作答与评分" /><div className="practice-history-list">{history.filter(item => item.kinds.some(kind => ['short', 'essay'].includes(kind))).map(item => <button key={item.id} disabled={busy || selecting} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>第 {item.attempt} 次尝试 · {statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</div></section><section className="surface"><SectionHeader title="评分原则" /><p className="side-copy">每题 1 分，按保存的评分要点加权。80% 为掌握阈值；低于阈值的作答进入真实错题记录。模型必须返回资料原文引用，无效评分不会被保存为成绩。</p></section></aside>
 
     <Modal open={setupOpen} onClose={() => setSetupOpen(false)} title="生成简答与论述题"><div className="form-stack"><label>学习方案<select value={input.planId} onChange={event => setInput({ ...input, planId: event.target.value, stageId: null })}><option value="" disabled>选择已采用的方案</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.goal}</option>)}</select></label><label>练习范围<select value={input.stageId ?? ''} onChange={event => setInput({ ...input, stageId: event.target.value || null })}><option value="">整个学习方案</option>{selectedPlan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>难度<select value={input.difficulty} onChange={event => setInput({ ...input, difficulty: event.target.value as PracticeInput['difficulty'] })}><option value="adaptive">自适应</option><option value="basic">基础</option><option value="advanced">进阶</option><option value="comprehensive">综合</option></select></label><label>反馈方式<select value={input.feedbackMode} onChange={event => setInput({ ...input, feedbackMode: event.target.value as PracticeInput['feedbackMode'] })}><option value="immediate">每题判分后显示分项反馈</option><option value="deferred">全部判分后统一显示</option><option value="hints">只给提示，不显示标准答案</option></select></label><p className="form-help">默认生成简答与论述各 1 道，每题含 2 至 6 项评分要点。</p><Button onClick={() => void generate()} disabled={busy || !input.planId}>开始真实生成<ArrowRight size={17} /></Button></div></Modal>
   </div>

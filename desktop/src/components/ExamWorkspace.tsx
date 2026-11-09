@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import { ArrowRight, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileQuestion, RefreshCw, XCircle } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, Modal, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, type LearningPlan, deltaThrottle } from '../backend/client'
@@ -14,17 +15,19 @@ type Props = {
   onUpdated: (detail: PracticeDetail) => void
   onGenerated: (detail: PracticeDetail) => void
   notify: (message: string) => void
+  /** 76#3：草稿映射由父组件持有——切 tab 卸载不丢未交卷草稿 */
+  draftByQuestion: MutableRefObject<Record<number, string>>
 }
 
 const kindNames: Record<QuestionKind, string> = { choice: '单选', fill: '填空', short: '简答', essay: '论述' }
 const initialInput: PracticeInput = { planId: '', stageId: null, count: 5, difficulty: 'comprehensive', feedbackMode: 'deferred', kinds: ['choice', 'fill', 'short', 'essay'], mode: 'exam', timeLimitMinutes: 45, passScorePercent: 80 }
 
-export default function ExamWorkspace({ detail, history, plans, generationOutput, onUpdated, onGenerated, notify }: Props) {
+export default function ExamWorkspace({ detail, history, plans, generationOutput, onUpdated, onGenerated, notify, draftByQuestion }: Props) {
   const [index, setIndex] = useState(0)
   // 28#2：草稿与选项按题暂存——翻题不再静默丢弃未保存作答（论述长文一次误点即丢）
   const [selected, setSelected] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
-  const draftByQuestion = useRef<Record<number, string>>({})
+  // 76#3：draftByQuestion 由父组件 Practice 持有——切 tab 卸载不再丢未交卷草稿
   const selectedByQuestion = useRef<Record<number, number>>({})
   const [busy, setBusy] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
@@ -103,6 +106,8 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     listening.then(stop => { if (active) unlisten = stop; else stop() }).catch(reportBackendError)
     // 28#5：卸载早于 listen() promise resolve 时立即注销，不再把 stop 存入死闭包
     return () => { active = false; unlisten?.(); void listening.then(stop => { if (!active) stop() }) }
+      // 76#7：卸载取消武装中的定时器
+      throttledUpdate.cancel()
   }, [activeRequest])
 
   const generate = async () => {
@@ -158,8 +163,18 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     setBusy(true)
     try { onUpdated(await practiceBackend.resumeAnswer(answer.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
+  // 76#1：历史切换序号守卫——慢响应后到不再静默覆盖已选卷（对齐父页 51#1）；
+  // 切换期间禁用提交与历史，防止提交写到「非所见卷」
+  const selectSeq = useRef(0)
+  const [selecting, setSelecting] = useState(false)
   const selectSet = async (id: number) => {
-    try { onGenerated(await practiceBackend.detail(id)) } catch (error) { reportBackendError(error) }
+    if (busy || selecting) return
+    const ticket = ++selectSeq.current
+    setSelecting(true)
+    try {
+      const next = await practiceBackend.detail(id)
+      if (ticket === selectSeq.current) onGenerated(next)
+    } catch (error) { reportBackendError(error) } finally { setSelecting(false) }
   }
   const time = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
 
@@ -200,7 +215,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
       </> : <p>试卷尚未生成题目。</p>}
       {!completed && <div className="editor-actions"><p className="form-help">交卷后统一显示评分。未作答按 0 分计；未完成的评分不会被伪造。</p><Button onClick={() => setFinalizeOpen(true)} disabled={pending || busy}>{pending ? '等待评分完成' : '交卷并查看结果'}<CheckCircle2 size={17} /></Button></div>}
     </section>}
-  </div><aside className="surface exam-history"><SectionHeader title="真实测评历史" description="成绩来自已保存的交卷结果" />{history.filter(item => item.mode === 'exam').map(item => <button key={item.id} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>{item.completedAt ? new Date(item.completedAt).toLocaleString() : statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</aside>
+  </div><aside className="surface exam-history"><SectionHeader title="真实测评历史" description="成绩来自已保存的交卷结果" />{history.filter(item => item.mode === 'exam').map(item => <button key={item.id} disabled={busy || selecting} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>{item.completedAt ? new Date(item.completedAt).toLocaleString() : statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</aside>
 
     <ConfirmDialog open={finalizeOpen} onClose={() => setFinalizeOpen(false)} onConfirm={() => { setFinalizeOpen(false); void finalize() }} title="交卷并查看结果？" description={`交卷后不可重考：未作答的题按 0 分计并写入知识证据；当前已判分 ${exam?.set.answeredQuestions ?? 0} / ${exam?.set.totalQuestions ?? 0} 题。`} confirmLabel="确认交卷" busy={busy} />
     <Modal open={setupOpen} onClose={() => setSetupOpen(false)} title="配置模拟考试"><div className="form-stack"><label>学习方案<select value={input.planId} onChange={event => setInput({ ...input, planId: event.target.value, stageId: null })}><option value="" disabled>选择已采用的方案</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.goal}</option>)}</select></label><label>考试范围<select value={input.stageId ?? ''} onChange={event => setInput({ ...input, stageId: event.target.value || null })}><option value="">整个学习方案</option>{selectedPlan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><div className="form-grid"><label>题目数量<select value={input.count} onChange={event => setInput({ ...input, count: Number(event.target.value) })}>{[5, 10, 20].map(count => <option value={count} key={count}>{count} 题</option>)}</select></label><label>考试时长（分钟）<input type="number" min={1} max={240} value={input.timeLimitMinutes} onChange={event => setInput({ ...input, timeLimitMinutes: Math.round(Math.min(240, Math.max(1, Number(event.target.value) || 1))) })} /></label></div><label>建议通过百分比<input type="number" min={1} max={100} value={input.passScorePercent} onChange={event => setInput({ ...input, passScorePercent: Math.round(Math.min(100, Math.max(1, Number(event.target.value) || 1))) })} /></label><fieldset className="question-type-field"><legend>题型覆盖</legend>{(['choice', 'fill', 'short', 'essay'] as const).map(kind => <label key={kind}><input type="checkbox" checked={input.kinds.includes(kind)} onChange={event => setInput({ ...input, kinds: event.target.checked ? [...input.kinds, kind] : input.kinds.filter(item => item !== kind) })} />{kindNames[kind]}</label>)}</fieldset><p className="form-help">题目就绪后开始计时。交卷前统一隐藏答案；未作答按 0 分计，正在评分的作答需完成后才能交卷。</p><Button onClick={() => void generate()} disabled={busy || !input.planId || !input.kinds.length}>生成模拟考试<ArrowRight size={17} /></Button></div></Modal>

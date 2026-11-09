@@ -32,8 +32,15 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   const [error, setError] = useState('')
   const versionsOpenRef = useRef(false)
 
+  // 76#8：次级面板序号守卫（51#2 家族补齐）——并发刷新旧响应后到不覆盖新数据
+  const refreshSeq = useRef(0)
   const refresh = useCallback(async () => {
-    try { setOverview(await syncBackend.overview()) } catch (cause) { setError(backendErrorMessage(cause)) }
+    const ticket = ++refreshSeq.current
+    try {
+      const next = await syncBackend.overview()
+      if (ticket !== refreshSeq.current) return
+      setOverview(next)
+    } catch (cause) { if (ticket === refreshSeq.current) setError(backendErrorMessage(cause)) }
   }, [])
   const loadVersions = useCallback(async () => {
     try { setVersions(await syncBackend.versions()); setVersionsError('') } catch (cause) { setVersionsError(backendErrorMessage(cause)) }

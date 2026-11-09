@@ -436,12 +436,24 @@ export const backend = {
  * 51#13 核查结论：首事件起表、窗口到期全量拉取——最后一批 delta 进入窗口后
  * 即使再无新事件，定时器仍会触发一次覆盖它的全量拉取（拉取是快照而非增量，
  * 不存在「缺最后 150ms」），无需尾沿补发。 */
-export function deltaThrottle() {
+export interface DeltaThrottle {
+  (fire: () => void): void
+  /** 76#7：卸载时取消武装中的定时器 */
+  cancel(): void
+}
+
+export function deltaThrottle(): DeltaThrottle {
   let timer: number | undefined
-  return (fire: () => void) => {
+  const throttled = (fire: () => void) => {
     if (timer !== undefined) return
     timer = window.setTimeout(() => { timer = undefined; fire() }, 150)
   }
+  // 76#7：卸载取消通道——组件卸载时武装中的定时器不再触发多余 IPC 与
+  // 已卸载组件的 setState
+  throttled.cancel = () => {
+    if (timer !== undefined) { window.clearTimeout(timer); timer = undefined }
+  }
+  return throttled
 }
 
 export function onBackendEvent(handler: (event: BackendEvent) => void) {

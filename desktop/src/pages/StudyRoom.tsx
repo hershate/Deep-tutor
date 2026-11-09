@@ -40,22 +40,25 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   // 在途响应的 promise 微任务可先于 effect 冲刷漏过守卫
   useLayoutEffect(() => { stageRef.current = { planId: plan?.id || '', stageId } }, [plan, stageId])
   useEffect(() => { routeUpstreams.current = {} }, [plan?.id, stageId])
+  // 76#6：监听只挂载一次——原先随 tab 重挂，注销与新 listen() 生效之间的
+  // IPC 窗口内 material.* 事件被丢弃（51#9 同型）；当前是否视频页经 ref 读取
+  const mediaTabRef = useRef(false)
+  useEffect(() => { mediaTabRef.current = tab === '视频' })
+  const loadMedia = useCallback(async () => {
+    if (!mediaTabRef.current) return
+    try {
+      const items = (await backend.listMaterials()).filter(item => item.originalAvailable && mediaBackend.isMedia(item.kind))
+      setMediaMaterials(items)
+      setMediaId(current => items.some(item => item.id === current) ? current : items[0]?.id ?? null)
+    } catch (cause) { setError(backendErrorMessage(cause)) }
+  }, [])
   useEffect(() => {
-    if (tab !== '视频') return
     let active = true
     let stop: (() => void) | undefined
-    const load = async () => {
-      try {
-        const items = (await backend.listMaterials()).filter(item => item.originalAvailable && mediaBackend.isMedia(item.kind))
-        if (!active) return
-        setMediaMaterials(items)
-        setMediaId(current => items.some(item => item.id === current) ? current : items[0]?.id ?? null)
-      } catch (cause) { if (active) setError(backendErrorMessage(cause)) }
-    }
-    void load()
-    void onBackendEvent(event => { if (active && event.kind.startsWith('material.')) void load() }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
+    void onBackendEvent(event => { if (active && event.kind.startsWith('material.')) void loadMedia() }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
-  }, [tab])
+  }, [loadMedia])
+  useEffect(() => { if (tab === '视频') void loadMedia() }, [tab, loadMedia])
   const selectedMedia = mediaMaterials.find(item => item.id === mediaId) ?? mediaMaterials[0]
 
   const refreshProgress = useCallback(async () => {
@@ -83,9 +86,13 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       setLecture(next)
     } catch (cause) { setError(backendErrorMessage(cause)) }
   }, [plan, stageId])
+  // 76#8：序号守卫（51#2 家族补齐）
+  const plansSeq = useRef(0)
   const refreshPlans = useCallback(async () => {
+    const ticket = ++plansSeq.current
     try {
       const items = (await backend.listLearningPlans()).filter(item => item.adoptedProjectId !== null)
+      if (ticket !== plansSeq.current) return
       setPlans(items)
       setPlan(current => {
         if (target) return items.find(item => item.id === target.planId) || current || items[0] || null
@@ -153,6 +160,8 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
     return () => { disposed = true; unlisten?.() }
+      // 76#7：卸载取消武装中的定时器
+      throttledFetch.cancel()
   }, [])
 
   const stage = plan?.result?.stages.find(item => item.id === stageId)

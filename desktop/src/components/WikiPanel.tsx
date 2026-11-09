@@ -69,6 +69,8 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string' && (event.payload.requestId === requestId || upstreams.get(event.payload.requestId) === requestId)) throttledUpdate(update)
     }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
     return () => { active = false; disposed = true; unlisten?.() }
+      // 76#7：卸载取消武装中的定时器
+      throttledUpdate.cancel()
   }, [current?.requestId, current?.status])
 
   const choose = (session: KnowledgeSession) => {

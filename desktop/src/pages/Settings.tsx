@@ -53,9 +53,12 @@ export default function Settings({ preferences, setPreferences, onImport, counts
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
+    // 76#8：序号守卫——打开设置与 security 事件触发的 load 并发时旧档案后到不回写
+    const loadSeq = { current: 0 }
     const load = async () => {
+      const ticket = ++loadSeq.current
       const next = await engagementBackend.profile()
-      if (active) {
+      if (active && ticket === loadSeq.current) {
         setProfile(next)
         setDraft(next)
         document.documentElement.lang = next.language
