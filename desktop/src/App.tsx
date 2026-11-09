@@ -43,8 +43,8 @@ const ProviderHub = lazy(() => import('./pages/ProviderHub'))
 
 const navGroups: { label: string; items: { id: PageId; label: string; icon: LucideIcon }[] }[] = [
   { label: '学习', items: [{ id: 'today', label: '今日', icon: Home }, { id: 'generator', label: 'AI 方案生成', icon: Sparkles }, { id: 'plan', label: '学习计划', icon: CalendarDays }, { id: 'study', label: '学习空间', icon: BookOpen }, { id: 'map', label: '知识地图', icon: Map }, { id: 'agent', label: 'Agent 助手', icon: Brain }] },
-  { label: '巩固', items: [{ id: 'practice', label: '练习测评', icon: ListChecks }, { id: 'review', label: '记忆复习', icon: Layers3 }, { id: 'library', label: '笔记与 Wiki', icon: LibraryBig }] },
-  { label: '成长', items: [{ id: 'projects', label: '项目作品', icon: FolderKanban }, { id: 'reports', label: '学习报告', icon: TrendingUp }, { id: 'community', label: '学习社区', icon: Users }, { id: 'providers', label: '模型供应商', icon: Cloud }, { id: 'integrations', label: '插件与事件', icon: Blocks }] },
+  { label: '巩固', items: [{ id: 'practice', label: '练习与测评', icon: ListChecks }, { id: 'review', label: '记忆复习', icon: Layers3 }, { id: 'library', label: '笔记与 Wiki', icon: LibraryBig }] },
+  { label: '成长', items: [{ id: 'projects', label: '项目作品', icon: FolderKanban }, { id: 'reports', label: '学习报告', icon: TrendingUp }, { id: 'community', label: '学习社区', icon: Users }, { id: 'providers', label: '模型接入中心', icon: Cloud }, { id: 'integrations', label: '插件与事件', icon: Blocks }] },
 ]
 const allNav = navGroups.flatMap(group => group.items)
 
@@ -369,7 +369,7 @@ export default function App() {
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus() }}>跳到主要内容</a>
     {mobileNav && <button className="nav-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
-      <div className="brand"><BrandMark /><div><strong>知舟</strong><span>DEEP TUTOR</span></div><IconButton label="关闭导航" className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></IconButton></div>
+      <div className="brand"><BrandMark /><div><strong>知舟</strong><span>Deep Tutor</span></div><IconButton label="关闭导航" className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></IconButton></div>
       {/* 43#12：ChevronDown 形似可展开的下拉，实际整钮跳转学习计划——改右箭头对齐导航语义 */}
       <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>{homeSummary?.goal || '尚未设置学习目标'}</strong></div><ChevronRight size={15} /></button>
       <nav className="main-nav" aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{item.label}</span>{item.id === 'review' && notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</button>)}</div>)}</nav>

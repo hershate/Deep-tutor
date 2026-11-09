@@ -9,7 +9,7 @@ const categories = [
   ['originals', '无引用资料原件'],
   ['scratch', '无引用 Agent 临时文件'],
   ['plugins', '已卸载插件的清单'],
-  ['tempdirs', '已结束的备份／导出临时项'],
+  ['tempdirs', '已结束的备份/导出临时项'],
   ['sync', '超量与中断的本地同步文件'],
 ] as const
 

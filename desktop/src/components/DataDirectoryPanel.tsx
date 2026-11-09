@@ -42,7 +42,7 @@ export default function DataDirectoryPanel() {
     setError('')
     try {
       const selected = await storageBackend.chooseDirectory(overview?.pendingDataRoot ?? overview?.dataRoot)
-      if (selected) { setDraft(selected); setMessage('目录已选择，点击“保存目录”后才会写入配置。') }
+      if (selected) { setDraft(selected); setMessage('目录已选择，点击「保存目录」后才会写入配置。') }
     } catch (cause) { setError(backendErrorMessage(cause)) }
     finally { setBusy('') }
   }

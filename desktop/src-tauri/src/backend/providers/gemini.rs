@@ -164,7 +164,7 @@ where
                     let message = error
                         .get("message")
                         .and_then(Value::as_str)
-                        .unwrap_or("模型服务在流内返回错误");
+                        .unwrap_or("供应商在流内返回错误");
                     let code = if status.contains("RESOURCE_EXHAUSTED") {
                         "rate_limited"
                     } else {
@@ -191,7 +191,7 @@ where
                     .and_then(Value::as_str)
                 {
                     return Err(
-                        output.error("content_blocked", &format!("模型服务阻止了请求：{reason}"))
+                        output.error("content_blocked", &format!("供应商阻止了请求：{reason}"))
                     );
                 }
                 let candidates = event
@@ -257,7 +257,7 @@ where
                         done = true;
                         if reason == "SAFETY" {
                             return Err(
-                                output.error("content_blocked", "模型服务因安全策略停止生成")
+                                output.error("content_blocked", "供应商因安全策略停止生成")
                             );
                         }
                     }

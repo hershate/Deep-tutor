@@ -235,7 +235,7 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       await backend.saveStudyNote(plan.id, stageId, note.trim())
       setNote('')
       setNoteOpen(false)
-      notify('批注已保存到原生笔记库，并关联当前阶段')
+      notify('批注已保存到笔记库，并关联当前阶段')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   // 43#2：导出写盘期间复用 busy 通道，行按钮禁用防连点
@@ -273,11 +273,11 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
             {content.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{section.content}</ReactMarkdown></section>)}
             {content.examples.map((example, index) => <div className="worked-example" key={`${example.title}-${index}`}><div className="example-head"><span>例题</span><strong>{example.title}</strong></div><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{example.content}</ReactMarkdown></div>)}
             <div className="article-check"><Check size={20} /><h3>主动检查</h3></div>{content.checkpoints.map((checkpoint, index) => <details className="lecture-checkpoint" key={`${checkpoint.question}-${index}`}><summary>{checkpoint.question}</summary><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{checkpoint.answer}</ReactMarkdown></details>)}
-            <div className="lecture-citations"><h3>原文引用</h3>{content.citations.map((citation, index) => <button key={`${citation.materialId}-${index}`} onClick={() => { setNote(citation.quote); setNoteOpen(true) }}><Quote size={16} /><span>“{citation.quote}”</span><small>资料 #{citation.materialId} · 引用到批注</small></button>)}</div>
+            <div className="lecture-citations"><h3>原文引用</h3>{content.citations.map((citation, index) => <button key={`${citation.materialId}-${index}`} onClick={() => { setNote(citation.quote); setNoteOpen(true) }}><Quote size={16} /><span>「{citation.quote}」</span><small>资料 #{citation.materialId} · 引用到批注</small></button>)}</div>
           </> : <>
             <h1>{currentNode?.title || stage.title}</h1><p className="article-lead">尚未生成这一单元的讲义。以下只展示已保存的节点摘要与原文引用，不用模板正文替代。</p>
             <div className="article-summary"><span>节点摘要</span><p>{currentNode?.summary}</p></div>
-            {currentNode?.citations.map((citation, index) => <div className="term-grid" key={`${citation.materialId}-${index}`}><div><span>资料 #{citation.materialId}</span><p>“{citation.quote}”</p><button onClick={() => { setNote(citation.quote); setNoteOpen(true) }}><Highlighter size={16} />引用到批注</button></div></div>)}
+            {currentNode?.citations.map((citation, index) => <div className="term-grid" key={`${citation.materialId}-${index}`}><div><span>资料 #{citation.materialId}</span><p>「{citation.quote}」</p><button onClick={() => { setNote(citation.quote); setNoteOpen(true) }}><Highlighter size={16} />引用到批注</button></div></div>)}
             {lecture?.error && <div className="form-error">{lecture.error.code}：{lecture.error.message}</div>}
           </>}
           <div className="article-footer"><Button variant="secondary" disabled={unitIndex === 0} onClick={() => setUnitIndex(Math.max(0, unitIndex - 1))}><ArrowLeft size={16} />上一单元</Button><span>{lecture ? `讲义 v${lecture.version} · ${lectureStatus[lecture.status]}` : '尚未读取讲义'}</span><Button disabled={unitIndex >= nodes.length - 1} onClick={() => setUnitIndex(Math.min(nodes.length - 1, unitIndex + 1))}>下一单元<ArrowRight size={16} /></Button></div>

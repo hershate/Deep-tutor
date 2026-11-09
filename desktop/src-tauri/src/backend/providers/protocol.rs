@@ -272,15 +272,15 @@ where
     let mut response = match tokio::time::timeout(policy.request_timeout, request.send()).await {
         Ok(Ok(response)) => response,
         Ok(Err(error)) if error.is_timeout() => {
-            return Err(ChatError::new("provider_timeout", "模型服务响应超时"));
+            return Err(ChatError::new("provider_timeout", "供应商响应超时"));
         }
         Ok(Err(_)) => {
             return Err(ChatError::new(
                 "endpoint_unreachable",
-                "无法连接模型服务端点",
+                "无法连接供应商端点",
             ));
         }
-        Err(_) => return Err(ChatError::new("provider_timeout", "模型服务响应头等待超时")),
+        Err(_) => return Err(ChatError::new("provider_timeout", "供应商响应头等待超时")),
     };
     let status = response.status().as_u16();
     if status != 200 {
@@ -519,7 +519,7 @@ fn model_ids(body: &Value, collection: &str, field: &str, prefix: &str) -> Resul
     if ids.is_empty() {
         return Err(BackendError::new(
             "invalid_response",
-            "模型服务没有返回可用模型",
+            "供应商没有返回可用模型",
         ));
     }
     Ok(ids)
@@ -552,7 +552,7 @@ pub fn list_models(
                 )
                 .header("anthropic-version", "2023-06-01")
                 .send()
-                .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接模型服务端点"))?;
+                .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接供应商端点"))?;
             model_ids(&openai::read_json(response)?, "data", "id", "")
         }
         "Gemini Native" => {
@@ -564,7 +564,7 @@ pub fn list_models(
                     key.as_ref().map(|key| key.as_str()).unwrap_or(""),
                 )
                 .send()
-                .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接模型服务端点"))?;
+                .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接供应商端点"))?;
             model_ids(&openai::read_json(response)?, "models", "name", "models/")
         }
         _ => Err(BackendError::new(

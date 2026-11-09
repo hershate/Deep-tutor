@@ -183,12 +183,12 @@ fn socket_addresses(
 ) -> Result<Vec<std::net::SocketAddr>> {
     let addresses = (host, port)
         .to_socket_addrs()
-        .map_err(|_| BackendError::new("endpoint_unreachable", "无法解析模型服务地址"))?
+        .map_err(|_| BackendError::new("endpoint_unreachable", "无法解析供应商地址"))?
         .collect::<Vec<_>>();
     if addresses.is_empty() {
         return Err(BackendError::new(
             "endpoint_unreachable",
-            "模型服务地址没有可用 IP",
+            "供应商地址没有可用 IP",
         ));
     }
     if scope == EndpointScope::LocalHttp
@@ -245,7 +245,7 @@ pub(crate) fn endpoint(base_url: &str, kind: &str, suffix: &str) -> Result<reqwe
     if kind != "本地模型" && url.scheme() != "https" {
         return Err(BackendError::new(
             "insecure_endpoint",
-            "远程模型服务必须使用 HTTPS",
+            "远程供应商必须使用 HTTPS",
         ));
     }
     let _ = socket_addresses(host, port, endpoint_scope(&url, kind))?;
@@ -325,7 +325,7 @@ pub(crate) fn read_json(response: reqwest::blocking::Response) -> Result<Value> 
         let _ = response
             .take(4096)
             .read_to_end(&mut bytes)
-            .map_err(|_| BackendError::new("invalid_response", "模型服务响应读取失败"))?;
+            .map_err(|_| BackendError::new("invalid_response", "供应商响应读取失败"))?;
         let base = http_error(status);
         if let Ok(body) = serde_json::from_slice::<Value>(&bytes) {
             if let Some(message) = body.pointer("/error/message").and_then(Value::as_str) {
@@ -359,28 +359,28 @@ pub(crate) fn read_json(response: reqwest::blocking::Response) -> Result<Value> 
     response
         .take((MAX_RESPONSE_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
-        .map_err(|_| BackendError::new("invalid_response", "模型服务响应读取失败"))?;
+        .map_err(|_| BackendError::new("invalid_response", "供应商响应读取失败"))?;
     if bytes.len() > MAX_RESPONSE_BYTES {
         return Err(BackendError::new(
             "response_too_large",
-            "模型服务响应超过 1 MB 上限",
+            "供应商响应超过 1 MB 上限",
         ));
     }
     serde_json::from_slice(&bytes)
-        .map_err(|_| BackendError::new("invalid_response", "模型服务返回的不是有效 JSON"))
+        .map_err(|_| BackendError::new("invalid_response", "供应商返回的不是有效 JSON"))
 }
 
 pub(crate) fn http_error(status: u16) -> BackendError {
     match status {
         401 | 403 => BackendError::new(
             "authentication_failed",
-            "模型服务拒绝了凭据，请检查 API Key",
+            "供应商拒绝了凭据，请检查 API Key",
         ),
-        404 => BackendError::new("endpoint_not_found", "模型服务不存在该 API 端点"),
-        408 => BackendError::new("provider_timeout", "模型服务请求超时"),
-        429 => BackendError::new("rate_limited", "模型服务触发了速率限制"),
-        500..=599 => BackendError::new("provider_unavailable", "模型服务暂时不可用"),
-        _ => BackendError::new("provider_error", "模型服务返回了不可用的响应"),
+        404 => BackendError::new("endpoint_not_found", "供应商不存在该 API 端点"),
+        408 => BackendError::new("provider_timeout", "供应商请求超时"),
+        429 => BackendError::new("rate_limited", "供应商触发了速率限制"),
+        500..=599 => BackendError::new("provider_unavailable", "供应商暂时不可用"),
+        _ => BackendError::new("provider_error", "供应商返回了不可用的响应"),
     }
 }
 
@@ -407,7 +407,7 @@ pub fn list_models(
     let response = authorize(client(&url, &profile.kind)?.get(url), &key)
         .header("Accept", "application/json")
         .send()
-        .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接模型服务端点"))?;
+        .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接供应商端点"))?;
     let body = read_json(response)?;
     let models = body
         .get("data")
@@ -424,7 +424,7 @@ pub fn list_models(
     if result.is_empty() {
         return Err(BackendError::new(
             "invalid_response",
-            "模型服务没有返回可用模型",
+            "供应商没有返回可用模型",
         ));
     }
     Ok(result)
@@ -496,11 +496,11 @@ fn completion(body: &Value) -> Result<(String, String, Option<String>, Vec<ToolC
         let message = error
             .get("message")
             .and_then(Value::as_str)
-            .unwrap_or("模型服务返回了错误");
+            .unwrap_or("供应商返回了错误");
         return Err(BackendError::new(
             "provider_error",
             &format!(
-                "模型服务返回了错误：{}",
+                "供应商返回了错误：{}",
                 message.chars().take(200).collect::<String>()
             ),
         ));
@@ -594,7 +594,7 @@ pub fn chat_once_with_tools(
     let response = authorize(client(&url, &profile.kind)?.post(url), &key)
         .json(&body)
         .send()
-        .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接模型服务端点"))?;
+        .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接供应商端点"))?;
     let body = read_json(response)?;
     let (text, reasoning, finish_reason, mut tool_calls) = completion(&body)?;
     for call in tool_calls.iter_mut() {
@@ -982,7 +982,7 @@ where
     // 55#2：兼容网关在正常 chunk 里回显 "error": null——对 Some(Value::Null)
     // 判真会误杀整条流（该供应商所有流式请求 100% 失败），与 Gemini 同口径
     if body.get("error").is_some_and(|error| !error.is_null()) {
-        return Err(output.error("provider_error", "模型服务在流式响应中返回了错误"));
+        return Err(output.error("provider_error", "供应商在流式响应中返回了错误"));
     }
     if let Some(model) = body.get("model").and_then(Value::as_str) {
         output.model = model.to_string();
@@ -1151,15 +1151,15 @@ where
     let mut response = match tokio::time::timeout(policy.request_timeout, request.send()).await {
         Ok(Ok(response)) => response,
         Ok(Err(error)) if error.is_timeout() => {
-            return Err(ChatError::new("provider_timeout", "模型服务响应超时"))
+            return Err(ChatError::new("provider_timeout", "供应商响应超时"))
         }
         Ok(Err(_)) => {
             return Err(ChatError::new(
                 "endpoint_unreachable",
-                "无法连接模型服务端点",
+                "无法连接供应商端点",
             ))
         }
-        Err(_) => return Err(ChatError::new("provider_timeout", "模型服务响应头等待超时")),
+        Err(_) => return Err(ChatError::new("provider_timeout", "供应商响应头等待超时")),
     };
     let status = response.status().as_u16();
     if status != 200 {
@@ -1271,7 +1271,7 @@ where
                     return Err(output.error(
                         "provider_timeout",
                         &format!(
-                            "模型服务超过 {} 秒没有发送数据",
+                            "供应商超过 {} 秒没有发送数据",
                             policy.chunk_timeout.as_secs()
                         ),
                     ));

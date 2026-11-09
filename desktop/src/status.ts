@@ -8,7 +8,7 @@ export const taskStatusNames: Record<string, string> = {
   generating: '生成中',
   grading: '评分中',
   running: '进行中',
-  cancelling: '取消中',
+  cancelling: '正在取消',
   done: '已完成',
   completed: '已完成',
   degraded: '部分完成',

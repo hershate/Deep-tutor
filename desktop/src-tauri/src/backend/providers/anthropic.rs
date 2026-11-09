@@ -289,7 +289,7 @@ where
                         let message = error
                             .get("message")
                             .and_then(Value::as_str)
-                            .unwrap_or("模型服务返回错误");
+                            .unwrap_or("供应商返回错误");
                         let code = if error.get("type").and_then(Value::as_str)
                             == Some("overloaded_error")
                         {

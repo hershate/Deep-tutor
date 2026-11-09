@@ -5,7 +5,7 @@ import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../b
 import { syncBackend } from '../backend/sync'
 import type { SyncConfigInput, SyncJob, SyncOverview, SyncVersion } from '../backend/sync'
 
-const statusNames: Record<string, string> = { running: '进行中', cancelling: '取消中', done: '已完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' }
+const statusNames: Record<string, string> = { running: '进行中', cancelling: '正在取消', done: '已完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' }
 const jobNames: Record<string, string> = { check: '连接检测', upload: '上传配置', download: '下载配置', import: '下载并导入', restore: '恢复历史版本' }
 
 // 67#4：远端时间串（WebDAV RFC1123 / S3 ISO8601 原样透传）解析失败时

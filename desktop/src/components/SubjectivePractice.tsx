@@ -153,7 +153,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
         {answer.feedback.hint && <p>{answer.feedback.hint}</p>}
         {(answer.feedback.citations ?? question.citations).map((citation, citationIndex) => <small key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</small>)}
       </div>}
-      <div className="practice-citations"><strong>题目资料依据</strong>{question.citations.map((citation, citationIndex) => <p key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</p>)}</div>
+      <div className="practice-citations"><strong>资料依据</strong>{question.citations.map((citation, citationIndex) => <p key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</p>)}</div>
     </div>
     <div className="question-actions"><Button variant="ghost" onClick={() => setHint(!hint)} disabled={recorded}><Lightbulb size={16} />{hint ? '收起提示' : '查看提示'}</Button>{!recorded ? <Button onClick={() => void submit()} disabled={busy || !draft.trim()}>提交并真实评分<ArrowRight size={16} /></Button> : <Button onClick={() => setIndex(Math.min(index + 1, questions.length - 1))} disabled={index === questions.length - 1}>下一题<ArrowRight size={16} /></Button>}</div>
   </> : <div className="practice-result"><span className="result-mark"><PenLine size={32} /></span><h2>从真实资料生成主观题</h2><p>{plans.length ? '每次生成 2 道主观题，默认简答与论述各 1 道（以模型实际生成为准）。作答由后端按题目保存的评分要点逐项判分。' : '请先创建并采用一份包含资料的学习方案。'}</p>{plans.length > 0 && <Button onClick={() => setSetupOpen(true)}>生成主观题<ArrowRight size={17} /></Button>}</div>

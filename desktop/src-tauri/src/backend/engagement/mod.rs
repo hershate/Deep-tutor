@@ -680,7 +680,7 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 "report",
                 "本周学习复盘已准备好",
                 &format!(
-                    "真实记录：{} 秒有效学习，{} 道主动练习。",
+                    "真实记录：{} 秒有效学习，{} 题主动练习。",
                     report.metrics.focus_seconds, report.metrics.practice_count
                 ),
                 "reports",

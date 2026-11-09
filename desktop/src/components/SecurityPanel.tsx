@@ -6,7 +6,7 @@ import { securityBackend } from '../backend/security'
 import type { CreatedToken, LocalUser, SecurityOverview } from '../backend/security'
 import { clampToBytes } from '../limits'
 
-const quotaNames: Record<string, string> = { sessions: 'Agent 会话', notes: '笔记', materials: 'KB 文档', threads: '社区讨论', agent_memory: 'Agent 记忆' } // 66#1：后端恒返 5 资源，缺键英文直显
+const quotaNames: Record<string, string> = { sessions: 'Agent 会话', notes: '笔记', materials: '资料', threads: '社区讨论', agent_memory: 'Agent 记忆' } // 66#1：后端恒返 5 资源，缺键英文直显
 
 export default function SecurityPanel({ notify }: { notify: (message: string) => void }) {
   const [data, setData] = useState<SecurityOverview | null>(null)
