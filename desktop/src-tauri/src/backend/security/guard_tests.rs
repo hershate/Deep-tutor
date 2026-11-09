@@ -280,3 +280,87 @@ fn async_commands_derive_principal_from_session_not_thread_local() {
         "user2 视角的列表必须包含其档案"
     );
 }
+
+// 64#5：命令在途与用户切换并发——写线程持续导入资料，主线程高频切换
+// 本地用户制造「命令在途」窗口；每条命令按其执行时刻的 principal 落库，
+// 两用户工作区各只含本会话写入（无跨用户串写、无死锁、无失败）
+#[test]
+fn concurrent_imports_during_user_switches_stay_isolated() {
+    let (app, learning) = setup();
+    ipc(&app, "bootstrap", json!({})).unwrap();
+    ipc(
+        &app,
+        "create_local_user",
+        json!({"name":"切换并发用户","role":"成员"}),
+    )
+    .unwrap();
+    let user_root = learning.workspace_path().parent().unwrap().to_path_buf();
+    let handle = app.handle().clone();
+    let total = 30usize;
+    let written = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || {
+            let window = handle.get_webview_window("main").unwrap();
+            let mut ok = 0usize;
+            for index in 0..total {
+                let response = tauri::test::get_ipc_response(
+                    &window,
+                    InvokeRequest {
+                        cmd: "import_material_text".into(),
+                        callback: CallbackFn(0),
+                        error: CallbackFn(1),
+                        url: "http://tauri.localhost".parse().unwrap(),
+                        body: InvokeBody::Json(json!({
+                            "title": format!("切换{index}.txt"),
+                            "content": format!("切换正文{index}")
+                        })),
+                        headers: Default::default(),
+                        invoke_key: tauri::test::INVOKE_KEY.into(),
+                    },
+                );
+                if response
+                    .map(|body| body.deserialize::<Value>().is_ok())
+                    .unwrap_or(false)
+                {
+                    ok += 1;
+                }
+            }
+            ok
+        });
+        let mut user = 1;
+        while !writer.is_finished() {
+            ipc(&app, "login_local_user", json!({"userId": user})).unwrap();
+            user = if user == 1 { 2 } else { 1 };
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        writer.join().unwrap()
+    });
+    assert_eq!(written, total, "切换窗口期间导入不得失败");
+    ipc(&app, "login_local_user", json!({"userId": 1})).unwrap();
+    let first = ipc(&app, "list_materials", json!({}))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .len();
+    ipc(&app, "login_local_user", json!({"userId": 2})).unwrap();
+    let second = ipc(&app, "list_materials", json!({}))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .len();
+    assert_eq!(first + second, total, "资料行必须全部落库且互不重复");
+    assert!(
+        first > 0 && second > 0,
+        "切换窗口必须实际覆盖两个用户：{first}/{second}"
+    );
+    let originals = |user: i64| user_root.join(format!("users/{user}/materials/originals"));
+    let file_count = |user: i64| {
+        std::fs::read_dir(originals(user))
+            .map(|entries| entries.count())
+            .unwrap_or(0)
+    };
+    assert_eq!(
+        file_count(1) + file_count(2),
+        total,
+        "原件文件同样按用户隔离"
+    );
+}

@@ -740,3 +740,123 @@ fn repeat_import_with_quota_rows_skips_by_composite_key() {
         "重复导入不得复制请求行"
     );
 }
+
+// 64#6：导入后 events id 续接与 payload 内嵌 eventId 重映射——导入事件
+// id 全部高于导入前最大值（游标不重叠），导入后新事件 AUTOINCREMENT 接续
+// 不回退，payload 里引用的源事件 id 改写为目标 id（插件去重/前端游标
+// 续接的前提）
+#[test]
+fn imported_events_continue_ids_and_remap_payload_references() {
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    seed_source(&source_app, &source);
+    // 一对带引用的事件：referencing.payload.eventId 指向 referenced
+    let source_store = source.store().unwrap();
+    let referenced = crate::backend::store::Store::event(
+        &source_store.conn,
+        "plugin.ping",
+        json!({"marker": "referenced"}),
+    )
+    .unwrap();
+    let referencing = crate::backend::store::Store::event(
+        &source_store.conn,
+        "plugin.ping",
+        json!({"marker": "referencing", "eventId": referenced.id}),
+    )
+    .unwrap();
+    assert!(referencing.id > referenced.id);
+    drop(source_store);
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("events.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let target = LearningState::for_tests().unwrap();
+    let target_app = setup(&target);
+    seed_target(&target_app, &target);
+    let pre_max: i64 = target
+        .store()
+        .unwrap()
+        .conn
+        .query_row("SELECT COALESCE(MAX(id), 0) FROM events", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(pre_max > 0, "目标库导入前须已有事件");
+    ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let imported: i64 = target
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE id > ?1",
+            params![pre_max],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(imported > 0, "导入必须带入源库事件");
+    // payload 内嵌 eventId 已改写为目标库中被引用事件的新 id
+    let remapped: (i64, Value) = target
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT id, payload FROM events WHERE kind = 'plugin.ping' AND json_extract(payload, '$.marker') = 'referencing'",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    serde_json::from_str::<Value>(&row.get::<_, String>(1)?)
+                        .expect("事件载荷必须是 JSON"),
+                ))
+            },
+        )
+        .unwrap();
+    let referenced_target: i64 = target
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT id FROM events WHERE kind = 'plugin.ping' AND json_extract(payload, '$.marker') = 'referenced'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(remapped.1["eventId"].as_i64(), Some(referenced_target));
+    assert_ne!(
+        remapped.1["eventId"].as_i64(),
+        Some(referenced.id),
+        "不得残留源库字面 id"
+    );
+    // 导入后新事件 AUTOINCREMENT 接续（前端 lastEventId 游标不回退的前提）
+    let max_after: i64 = target
+        .store()
+        .unwrap()
+        .conn
+        .query_row("SELECT COALESCE(MAX(id), 0) FROM events", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let target_store = target.store().unwrap();
+    let fresh = crate::backend::store::Store::event(
+        &target_store.conn,
+        "plugin.ping",
+        json!({"marker": "post-import"}),
+    )
+    .unwrap();
+    assert!(
+        fresh.id > max_after,
+        "AUTOINCREMENT 必须接续导入后的最大 id"
+    );
+}

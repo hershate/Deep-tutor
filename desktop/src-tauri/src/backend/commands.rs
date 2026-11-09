@@ -161,9 +161,12 @@ mod tests {
                 crate::backend::materials::commands::read_material_media_chunk,
                 crate::backend::materials::commands::verify_material_media,
                 crate::backend::materials::commands::enqueue_material_parse,
+                crate::backend::materials::commands::cancel_material_parse,
                 crate::backend::materials::commands::delete_material,
                 crate::backend::materials::commands::export_material_original,
                 crate::backend::materials::commands::export_material_text,
+                crate::backend::engagement::commands::get_learning_profile,
+                crate::backend::engagement::commands::save_learning_profile,
                 crate::backend::providers::commands::export_usage_csv_file,
                 crate::backend::plugins::commands::save_plugin_asset,
             ])
@@ -372,6 +375,117 @@ mod tests {
         .unwrap();
     }
 
+    // 64#1：取消解析的 IPC 全链——queued 态取消立即转 cancelled，队列恢复
+    // 后不复活；无任务时类型化拒绝
+    #[test]
+    fn cancel_material_parse_ipc_handles_queued_and_idle_states() {
+        let app = test_app();
+        let created = ipc(
+            &app,
+            "import_material_text",
+            json!({"title": "待取消.txt", "content": "取消正文"}),
+        )
+        .unwrap();
+        let id = created["material"]["id"].as_i64().unwrap();
+        {
+            let state = app.state::<BackendState>();
+            crate::backend::materials::pause_queue_for_tests(&state.materials, true);
+        }
+        ipc(&app, "enqueue_material_parse", json!({"id": id})).unwrap();
+        let cancelling = ipc(&app, "cancel_material_parse", json!({"id": id})).unwrap();
+        // 任务已注册运行旗标（worker 暂停在 pause 上）——取消先落 cancelling，
+        // 由 worker 恢复执行时确认旗标并转终态
+        assert_eq!(cancelling["status"], "cancelling");
+        {
+            let state = app.state::<BackendState>();
+            crate::backend::materials::pause_queue_for_tests(&state.materials, false);
+        }
+        crate::backend::materials::wait_for_idle(&app.state::<BackendState>().materials).unwrap();
+        let detail = ipc(&app, "get_material", json!({"id": id})).unwrap();
+        assert_eq!(detail["status"], "cancelled");
+        let error = ipc(&app, "cancel_material_parse", json!({"id": id})).unwrap_err();
+        assert_eq!(error["code"], "no_active_job");
+    }
+
+    // 64#2：原件导出 IPC 链——回执与落盘一致、目的地遏制、原件被同长度
+    // 篡改后哈希复核拒绝
+    #[test]
+    fn export_material_original_ipc_checks_destination_and_hash() {
+        let app = test_app();
+        let created = ipc(
+            &app,
+            "import_material_text",
+            json!({"title": "原件导出.txt", "content": "原件证据"}),
+        )
+        .unwrap();
+        let id = created["material"]["id"].as_i64().unwrap();
+        let sha = created["material"]["sha256"].as_str().unwrap().to_string();
+        let guard = tempfile::tempdir().unwrap();
+        let destination = guard.path().join("original.txt");
+        let receipt = ipc(
+            &app,
+            "export_material_original",
+            json!({"id": id, "destination": destination.to_string_lossy()}),
+        )
+        .unwrap();
+        let written = std::fs::read(&destination).unwrap();
+        assert_eq!(written, "原件证据".as_bytes());
+        assert_eq!(receipt["bytes"], json!(written.len()));
+        assert_eq!(receipt["sha256"], json!(sha));
+        // 二道遏制：数据根内拒绝（guard 尚未管理 StartupState 时首段已验证直通）
+        let data_root = tempfile::tempdir().unwrap();
+        let default_root = tempfile::tempdir().unwrap();
+        app.manage(crate::startup::StartupState::for_tests(
+            data_root.path(),
+            default_root.path(),
+        ));
+        let error = ipc(
+            &app,
+            "export_material_original",
+            json!({"id": id, "destination": data_root.path().join("copy.txt").to_string_lossy()}),
+        )
+        .unwrap_err();
+        assert_eq!(error["code"], "unsafe_export_destination");
+        // 原件篡改（同长度）→ SHA-256 复核拒绝导出
+        let original = app
+            .state::<BackendState>()
+            .materials
+            .test_database_path()
+            .parent()
+            .unwrap()
+            .join("materials")
+            .join("originals")
+            .join(format!("{sha}.txt"));
+        std::fs::write(&original, "原件篡改!").unwrap();
+        let error = ipc(
+            &app,
+            "export_material_original",
+            json!({"id": id, "destination": guard.path().join("copy2.txt").to_string_lossy()}),
+        )
+        .unwrap_err();
+        assert_eq!(error["code"], "original_changed");
+    }
+
+    // 64#3：档案保存-读取 IPC 往返——原先 save 有测而 get 零断言，字段
+    // 增删/序列化默认值破坏将在此暴露
+    #[test]
+    fn learning_profile_save_and_get_round_trip() {
+        let app = test_app();
+        let initial = ipc(&app, "get_learning_profile", json!({})).unwrap();
+        assert!(initial["language"].is_string(), "默认档案必须完整可读");
+        let input = json!({
+            "name": "往返测试者", "role": "自学者", "goal": "往返目标",
+            "language": "zh-CN", "weeklyHours": 8,
+            "learningStyle": "案例与练习结合", "explanationStyle": "先追问，再针对讲解",
+            "quietStart": "23:58", "quietEnd": "23:59", "quietEnabled": true,
+            "diagnosticStartedAt": null
+        });
+        let saved = ipc(&app, "save_learning_profile", json!({"input": input})).unwrap();
+        assert_eq!(saved["name"], "往返测试者");
+        let reread = ipc(&app, "get_learning_profile", json!({})).unwrap();
+        assert_eq!(reread, saved, "读取必须与保存回执逐字段一致");
+    }
+
     #[test]
     fn blob_export_commands_write_to_chosen_destination() {
         // 37#5：原前端 Blob 静默下载的内容改由原生后端写盘——回执字节数与
@@ -567,6 +681,32 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+        // 64#7：拒绝路径——同长度字节替换绕过文件名，verify 必须按哈希
+        // 拒绝（media_integrity_failed），篡改内容不得以旧身份进预览
+        let original = app
+            .state::<BackendState>()
+            .materials
+            .test_database_path()
+            .parent()
+            .unwrap()
+            .join("materials")
+            .join("originals")
+            .join(format!(
+                "{}.mp4",
+                imported[0]["material"]["sha256"].as_str().unwrap()
+            ));
+        let tampered: Vec<u8> = data.iter().map(|byte| byte.wrapping_add(1)).collect();
+        std::fs::write(&original, &tampered).unwrap();
+        assert_eq!(
+            ipc(&app, "verify_material_media", json!({"id":id})).unwrap_err()["code"],
+            "media_integrity_failed"
+        );
+        // info 在传输前流式校验——同样拒绝（chunk 本体只做范围检查，
+        // 完整性由 info/verify 两端把守）
+        assert_eq!(
+            ipc(&app, "get_material_media_info", json!({"id":id})).unwrap_err()["code"],
+            "media_integrity_failed"
         );
     }
 

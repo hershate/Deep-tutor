@@ -1439,6 +1439,13 @@ pub fn wait_for_idle(state: &MaterialState) -> Result<()> {
     wait_idle(&state.active)
 }
 
+// 64#1：IPC 级取消测试需要把队列挂起在 queued 态——域外测试模块（根
+// commands.rs）无法访问私有 pause 字段，经此测试钩子暴露
+#[cfg(test)]
+pub fn pause_queue_for_tests(state: &MaterialState, paused: bool) {
+    state.pause.store(paused, Ordering::Release);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

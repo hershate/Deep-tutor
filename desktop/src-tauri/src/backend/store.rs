@@ -1259,6 +1259,74 @@ mod tests {
         assert_eq!(store.latest_event_id().unwrap(), 1);
     }
 
+    // 64#4：并发写实际并发性只有多连接才真实（生产在途命令与登录换库各持
+    // 连接，前端 inflight 串行化不是后端防线）——两连接并发提交，
+    // IMMEDIATE+busy_timeout 下无死锁，revision 严格递增、无丢失更新
+    #[test]
+    fn concurrent_replace_collection_across_connections_serializes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("concurrent.db").to_path_buf();
+        let boot = Store::new(&path).unwrap();
+        boot.bootstrap().unwrap();
+        drop(boot);
+        let workers = 2;
+        let per_worker = 25;
+        let appended = std::thread::scope(|scope| {
+            let handles = (0..workers)
+                .map(|worker| {
+                    let path = path.clone();
+                    scope.spawn(move || {
+                        let store = Store::new(&path).unwrap();
+                        store.bootstrap().unwrap();
+                        let mut succeeded = 0usize;
+                        for index in 0..per_worker {
+                            loop {
+                                let current = store.collection("tasks").unwrap();
+                                let mut next =
+                                    current.value.as_array().cloned().unwrap_or_default();
+                                next.push(task(((worker + 1) * 1000 + index) as i64));
+                                match store.replace_collection(
+                                    "tasks",
+                                    current.revision,
+                                    &Value::Array(next),
+                                ) {
+                                    Ok(_) => {
+                                        succeeded += 1;
+                                        break;
+                                    }
+                                    Err(error) if error.code == "revision_conflict" => continue,
+                                    Err(error) => panic!("并发提交出现意外错误：{error:?}"),
+                                }
+                            }
+                        }
+                        succeeded
+                    })
+                })
+                .collect::<Vec<_>>();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .sum::<usize>()
+        });
+        assert_eq!(appended, workers * per_worker);
+        let final_store = Store::new(&path).unwrap();
+        let tasks = final_store.collection("tasks").unwrap();
+        let items = tasks.value.as_array().unwrap();
+        assert_eq!(items.len(), workers * per_worker);
+        assert_eq!(tasks.revision, (workers * per_worker) as i64);
+        let mut ids = items
+            .iter()
+            .map(|item| item["id"].as_i64().unwrap())
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(
+            ids.len(),
+            workers * per_worker,
+            "并发追加不得丢失或重复任务"
+        );
+    }
+
     #[test]
     fn drafts_round_trip_individually_and_missing_is_null() {
         let store = Store::in_memory().unwrap();
