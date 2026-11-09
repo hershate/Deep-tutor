@@ -7,7 +7,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
 import { execFileSync } from 'node:child_process'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // 15#7：以脚本自身位置定位仓库根，不依赖 process.cwd()——CI 的 job 级
@@ -119,11 +119,13 @@ if (!existsSync(modules)) {
       ? readdirSync(scopeDir, { withFileTypes: true }).filter(child => child.isDirectory()).map(child => join(scopeDir, child.name))
       : [join(modules, entry.name)]
     // 79#3：嵌套 node_modules 递归一层——npm 因版本冲突未提升的嵌套包
-    // 原先不收录不计缺失，同依赖双版本进 vite 产物时许可静默缺失；
-    // 嵌套副本输出名带 nested_ 前缀，与顶层同名包互不覆盖
+    // 原先不收录不计缺失，同依赖双版本进 vite 产物时许可静默缺失
+    // 84#2：嵌套副本输出名真正带 nested_ 前缀——79#3 注释声称前缀但实现
+    // 仍取顶层包名，Windows 大小写不敏感文件系统上与顶层同名包互覆
+    // （实测 parse-entities 的许可曾被嵌套 @types/unist 的覆盖）
     const expanded = []
     for (const top of candidates) {
-      expanded.push(top)
+      expanded.push({ dir: top, nested: false })
       const nestedRoot = join(top, 'node_modules')
       if (!existsSync(nestedRoot)) continue
       for (const nested of readdirSync(nestedRoot, { withFileTypes: true })) {
@@ -131,16 +133,18 @@ if (!existsSync(modules)) {
         if (nested.name.startsWith('@')) {
           const nestedScope = join(nestedRoot, nested.name)
           for (const child of readdirSync(nestedScope, { withFileTypes: true })) {
-            if (child.isDirectory()) expanded.push(join(nestedScope, child.name))
+            if (child.isDirectory()) expanded.push({ dir: join(nestedScope, child.name), nested: true })
           }
         } else {
-          expanded.push(join(nestedRoot, nested.name))
+          expanded.push({ dir: join(nestedRoot, nested.name), nested: true })
         }
       }
     }
-    for (const dir of expanded) {
+    for (const { dir, nested } of expanded) {
       if (devOnly) {
-        const rel = scopeDir ? `${entry.name}/${basename(dir)}` : basename(dir)
+        // 84#2：dev 匹配改完整相对路径——basename 匹配使嵌套运行时包与
+        // 顶层 dev 包同名时被误排除
+        const rel = relative(modules, dir).replace(/\\/g, '/')
         if (devOnly.has(rel)) {
           npmDevSkipped += 1
           continue
@@ -150,7 +154,7 @@ if (!existsSync(modules)) {
       // 49#2：statSync 过滤目录（licenses/ 等目录名同样命中 /^licen[cs]e/i）
       const license = pickFromNames(names, name => statSync(join(dir, name)).isFile())
       if (license) {
-        const name = (scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
+        const name = (nested ? `nested_${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
         copyFileSync(join(dir, license), join(outDir, `npm-${name}-${license}`))
         copied.push(`npm:${name}`)
         continue
@@ -160,7 +164,7 @@ if (!existsSync(modules)) {
         const meta = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
         const notice = generatedNotice(meta)
         if (notice) {
-          const name = (scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
+          const name = (nested ? `nested_${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
           writeFileSync(join(outDir, `npm-${name}-LICENSE.generated.txt`), notice.text)
           copied.push(`npm:${name}`)
           if (notice.spdx.toUpperCase() !== 'MIT') npmMissing += 1
@@ -178,6 +182,8 @@ if (!existsSync(modules)) {
 // 2) Rust 依赖（cargo metadata → 本地源码目录；未解包时回退 .crate 归档直读）
 let cargoSkipped = false
 let cargoMissing = 0
+// 88#2：缺失许可的 Rust 依赖名单（写入 COLLECTED.md 供事后核验）
+const missingCrates = []
 
 // 30#2：cargo metadata/fetch 都不解包 registry src（实测确认），冷缓存单独
 // 跑 make build 时源码目录为空。从 registry/cache 的 .crate（gzip tar）里
@@ -249,15 +255,26 @@ try {
         writeFileSync(join(outDir, `cargo-${name}-${archived.base}`), archived.bytes)
         copied.push(`cargo:${pkg.name}`)
       } else {
+        // 88#2：记录名单与 crate 声明的许可元数据——原先只给总数，
+        // 38 个缺口无法事后核验
+        missingCrates.push(`${pkg.name}@${pkg.version}（crate 声明：${pkg.license || '未声明'}）`)
         cargoMissing += 1
       }
     } catch {
       // 单个依赖源码未解包且归档不可读：跳过并计数
+      missingCrates.push(`${pkg.name}@${pkg.version}（归档不可读）`)
       cargoMissing += 1
     }
   }
 } catch {
   cargoSkipped = true
+}
+
+// 88#1：仓库自身的披露文件随包分发——NOTICE 自述「分发本仓库或构建产物
+// 时，必须同时保留本文件及适用的许可全文」，原先安装包内只有依赖许可
+const disclosureFiles = ['NOTICE', 'LICENSE', 'LICENSE-REASONIX']
+for (const file of disclosureFiles) {
+  copyFileSync(join(root, file), join(outDir, file))
 }
 
 const npmNotes = [
@@ -268,7 +285,9 @@ const npmNotes = [
 writeFileSync(join(outDir, 'COLLECTED.md'), `# 本次构建收录清单
 
 本清单由 scripts/collect-licenses.mjs 在构建时生成，随安装包分发；README.md 为入库占位说明。
-已收录 ${copied.length} 个依赖的许可/声明文件${cargoSkipped ? '（Rust 部分因 cargo 不可用被跳过，请在可运行 cargo 的环境重新构建）' : cargoMissing ? `（另有 ${cargoMissing} 个 Rust 依赖在本地源码与 .crate 归档中均未找到许可文件，许可以 Cargo.lock 记录的上游仓库为准）` : ''}${npmNotes ? `；npm 侧：${npmNotes}` : ''}。
+已收录 ${copied.length} 个依赖的许可/声明文件${cargoSkipped ? '（Rust 部分因 cargo 不可用被跳过，请在可运行 cargo 的环境重新构建）' : cargoMissing ? `（另有 ${cargoMissing} 个 Rust 依赖在本地源码与 .crate 归档中均未找到许可文件，名单如下，许可以 Cargo.lock 记录的上游仓库为准）` : ''}${npmNotes ? `；npm 侧：${npmNotes}` : ''}。
+本仓库自有部分的许可与披露见同目录 NOTICE、LICENSE（Apache-2.0）、LICENSE-REASONIX（历史上游 MIT）。
+${cargoMissing && missingCrates.length ? `\n## 缺失许可文件的 Rust 依赖（${missingCrates.length} 个）\n\n${missingCrates.map(item => `- ${item}`).join('\n')}\n` : ''}
 完整依赖版本清单见安装包同仓库的 Cargo.lock 与 package-lock.json。
 `)
 console.log(`collect-licenses: ${copied.length} 个依赖许可已汇总${cargoSkipped ? '（Rust 部分跳过）' : ''}${npmMissing ? `（npm 缺失 ${npmMissing}）` : ''}${npmDevSkipped ? `（开发依赖排除 ${npmDevSkipped}）` : ''}`)

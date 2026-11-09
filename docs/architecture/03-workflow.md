@@ -6,24 +6,27 @@
 
 | 入口 | 命令 | 实际动作 |
 |---|---|---|
-| Makefile:23 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 五处版本校验 + `npm run build`（tsc -b && vite build） |
+| Makefile:23 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 六处版本校验 + `npm run build`（tsc -b && vite build） |
 | Makefile:28 | `make test` | `cargo test --release --locked -- --test-threads=1`（desktop/src-tauri） |
 | Makefile:32 | `make check` | lint + test |
 | Makefile:18 | `make build` | `collect-licenses.mjs` 收集第三方许可 → `npm run tauri build -- -- --locked`（`--locked` 透传 cargo，Cargo.lock 不一致即失败）→ tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
 | Makefile:34 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
 
-本地 Rust 工具链按 `rust-toolchain.toml` 钉 1.99.1 msvc（安装于默认 rustup 目录，CI 同版本）；crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`（AGENTS.md 约定）。
+本地 Rust 工具链按 `rust-toolchain.toml` 钉 1.99.1（本机解析为 gnu 目标，经 winlibs 的 dlltool 链接，`RUSTUP_HOME=F:\DevCache
+ustup`）；CI 为同版本 msvc（windows-latest）；crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`（AGENTS.md 约定）。
 
-CI（.github/workflows/ci.yml）：push:main + PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → `cargo fmt --check` → 原生测试（同 --test-threads=1）→ check-versions → collect-licenses → NSIS 安装包（前端 tsc/vite 构建在该步骤的 beforeBuildCommand 内执行）→ 上传构件 `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
+CI（.github/workflows/ci.yml）：push:main + PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → 前端类型检查（`npx tsc --noEmit`，先于数十分钟 Rust 测试暴露类型错误）→ `cargo fmt --check` → 原生测试（同 --test-threads=1）→ check-versions → collect-licenses → NSIS 安装包（完整前端构建在该步骤的 beforeBuildCommand 内执行）→ 对产物实跑 `--verify-native` 契约自检 → 上传构件（含 .sha256） `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
 
 ```mermaid
 flowchart LR
     A[push:main / PR / 手动触发] --> B[npm ci Node 24]
-    B --> C[cargo fmt --check]
+    B --> T[npx tsc --noEmit 前端类型检查]
+    T --> C[cargo fmt --check]
     C --> D[cargo test --release --locked 串行]
     D --> E[check-versions + collect-licenses]
     E --> F[npm run tauri build NSIS 内含前端构建]
-    F --> G[上传安装包构件 缺失即失败]
+    F --> V[产物实跑 --verify-native 契约自检]
+    V --> G[上传安装包与 .sha256 缺失即失败]
     H[pre-push hook] --> I[make check = lint + test]
 ```
 
@@ -31,7 +34,7 @@ flowchart LR
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，214 个测试串行全绿。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，216 个测试串行全绿。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:630-692 `mock_app/ipc` 辅助函数）。
@@ -271,4 +274,4 @@ flowchart LR
 
 ## 8. 命令与事件契约一致性
 
-前端 25 个客户端文件调用的命令名与 main.rs:168-367 注册表（189 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 38#2 起保留给 IPC 级测试作事件断言通道。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:460）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。
+前端 25 个客户端文件调用的命令名与 main.rs:168-368 注册表（190 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 38#2 起保留给 IPC 级测试作事件断言通道。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:460）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。

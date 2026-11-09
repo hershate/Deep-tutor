@@ -14,7 +14,7 @@ graph TD
     end
     subgraph Rust 进程
         IP --> GH[security::guard_handler 命令守卫]
-        GH --> CMD[189 个 tauri::command]
+        GH --> CMD[190 个 tauri::command]
         CMD --> DOM[21 个域模块 backend/*]
         DOM --> ST[store.rs SQLite + 事件 outbox]
         DOM --> FS[应用数据目录文件区]
@@ -26,7 +26,7 @@ graph TD
 
 分层判定依据：
 - 表现层：`src/pages/*.tsx`、`src/components/*.tsx`，无业务规则，仅调用客户端函数（`src/pages/Practice.tsx:13`）。
-- 业务逻辑层：`src-tauri/src/backend/*` 21 个域模块（另有 backend 根的 commands/store/error/random），每个模块 `commands.rs`（IPC 边界）+ `mod.rs`（实现）+ `tests.rs`。
+- 业务逻辑层：`src-tauri/src/backend/*` 21 个域模块（另有 backend 根的 commands/store/error/random/reveal），每个模块 `commands.rs`（IPC 边界）+ `mod.rs`（实现）+ `tests.rs`。
 - 数据访问层：`store.rs`（kv/meta/revisions/events 通用表）与各模块 `migrate()` 建立的领域表，全部经 rusqlite 直连。
 - 横切层：`error.rs`（类型化错误）、`security/guard.rs`（鉴权与用户工作区切换）、`plugins/mod.rs:689`（事件订阅分发）、`random.rs`（安全随机数）。
 
@@ -37,7 +37,7 @@ graph TD
 
 ## 2. 进程与运行时形态
 
-- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 189 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:142`）。
+- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 190 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:142`）。
 - `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:272-274`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:62-80`）。
 - 单实例防护（`main.rs:83-146`，46#1）：`CreateMutexW` 命名互斥体（`DeepTutor-SingleInstance-7f3a9c2e`，句柄泄漏给进程生命周期保管）；`GetLastError()==ERROR_ALREADY_EXISTS` 时 `FindWindowW` 按窗口标题定位既有主窗口，`ShowWindow(SW_RESTORE)`+`SetForegroundWindow` 前置后新进程直接退出，找不到窗口时静默退出。kernel32/user32 纯 FFI，零新依赖；verify 通道无窗口且按目录隔离，不占全局互斥体。
 - 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:309-331`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
@@ -46,7 +46,7 @@ graph TD
 
 | 模块 | 文件/行数 | 职责 | 关键状态结构 |
 |---|---|---|---|
-| backend（根） | 5 / 2336 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:87`：store Mutex + 10 个域 State） |
+| backend（根） | 6 / 2870 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:87`：store Mutex + 10 个域 State） |
 | startup | 1 / 765 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
 | store | 1 / 1427 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:63`） |
 | security | 6 / 2670 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:228`） |
@@ -174,7 +174,7 @@ sequenceDiagram
     G->>B: 实际用户与目标不同则回滚 store
     G->>S: 重启 sync 调度线程
 ```
-- 工作区路径：`user_workspace_path(root,user_id) = root.parent()/users/{user_id}/<db名>`（`security/mod.rs:112`）；thread-local `PRINCIPAL`（:34）由 `with_user` 设置，`ScopedBuilder::spawn`（:85-98）把 principal 继承到后台线程；`Store::new` 读它决定 owner，无 principal 时返回 `store_unavailable`（生产 fail-closed，测试环境回退根库语义，`store.rs:74-88`）。tauri 把 async 命令体 spawn 到 tokio worker（`respond_async`），thread-local 到不了那里——10 个 `#[tauri::command(async)]`（providers 4 + backup 3 + materials 2 + knowledge 1，44#1/2 重 IO 命令移出主线程）改经 `session_principal`（`security/mod.rs:76`）从会话派生当前用户（与 guard `current()` 同源）再显式传播进 `spawn_blocking`。
+- 工作区路径：`user_workspace_path(root,user_id) = root.parent()/users/{user_id}/<db名>`（`security/mod.rs:112`）；thread-local `PRINCIPAL`（:34）由 `with_user` 设置，`ScopedBuilder::spawn`（:85-98）把 principal 继承到后台线程；`Store::new` 读它决定 owner，无 principal 时返回 `store_unavailable`（生产 fail-closed，测试环境回退根库语义，`store.rs:74-88`）。tauri 把 async 命令体 spawn 到 tokio worker（`respond_async`），thread-local 到不了那里——18 个 `#[tauri::command(async)]`（providers 4、backup 3、materials 3、maintenance 3、knowledge 1、根 commands 1、engagement 1、sync 1、web 1；44#1/2 与 73 号批次重 IO 命令移出主线程，81#3 deep link 导入同款）改经 `session_principal`（`security/mod.rs:76`）从会话派生当前用户（与 guard `current()` 同源）再显式传播进 `spawn_blocking`。
 - 会话：JWT HS256 手写实现（签名 `security/mod.rs:506`，签发 `jwt()` :545，验证 `verify` :591 常量时间比对 :605），secret 与 session token 存系统密钥库（`session-{id}`，:578）；7 天有效期（`SESSION_SECONDS` :31）。单活动会话：`issue()`（:643）签发前撤销全部仍活跃会话并清理其凭据槽，`logout`（:969）撤销该用户全部会话——切换用户后登出不会回退到上一位用户的会话。
 - PAT：`random::token("dtp_")` 47 字符（`random.rs:68`，BCryptGenRandom），库中仅存 SHA-256（`mod.rs:1170`），明文只在创建响应出现一次；`authenticate_access_token` 验证通过后经 `issue()` 建立会话（前端 SecurityPanel 的 PAT 登录入口调用）。
 - 表（根库，`migrate` `mod.rs:392`）：`local_users`(role CHECK 管理员/成员)、`auth_sessions`、`access_tokens(token_hash UNIQUE)`、`security_quotas(PK(user_id,resource))`、`share_index`。
@@ -263,13 +263,13 @@ graph TD
 - 客户端层 25 个文件：`client.ts` 聚合 invoke 并维护 `isCancelRace` 竞态错误码表（client.ts:460）；领域客户端 practice/review/knowledge/community/… 一一对应命令组；`materialImport.ts` 收敛文件选择器与窗口拖放的共享导入通道（37#3）、`shell.ts` 收敛 opener 定位与外链（37#4/37#8）；事件统一走 `onBackendEvent`（client.ts:410）。
 - 状态：`useBackendState`（:16）持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标（:33-43）；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次不弹错（:96）；`security.session_started` 触发 generation+1 全量重载（:162）；`replaceCollection`（:217）提交更新函数语义并按命名空间排队串行提交（inflight 队列 :27），消除一帧窗口的丢写竞态。
 - 流式：`useAgent.ts:129-171` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId；快照合并带 deltaEpoch 世代号，旧周期快照不得覆盖已拼接增量。
-- 样式：单文件 styles.css 1880 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63，状态 Badge 深底亮字保留色调通道）；断点 640/700/1024/1080/1100/1180/1240/1280/1320（:281-:1023 各处）；Esc 经 UI.tsx `MODAL_STACK`（:87）栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 规则覆盖 smooth scroll，系统偏好经 matchMedia 跟随（App.tsx:251）。
+- 样式：单文件 styles.css 约 1890 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63，状态 Badge 深底亮字保留色调通道）；断点 640/700/1024/1080/1100/1180/1240/1280/1320（:281-:1023 各处）；Esc 经 UI.tsx `MODAL_STACK`（:87）栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 规则覆盖 smooth scroll，系统偏好经 matchMedia 跟随（App.tsx:251）。
 
-## 8. 命令注册总览（`main.rs:168-367`，共 189 个）
+## 8. 命令注册总览（`main.rs:168-368`，共 190 个）
 
 | 分组 | 数量 | 代表命令 |
 |---|---|---|
-| 启动/存储 | 14 | startup 5 + 通用命令 9：bootstrap、events_since、replace_collection、reset_application |
+| 启动/存储 | 15 | startup 5 + 通用命令 10：bootstrap、events_since、replace_collection、reset_application |
 | 安全 | 10 | login_local_user、create_access_token、set_security_quota |
 | 供应商/路由/用量 | 21 | route_provider_chat（含工具调用）、stream_provider_chat、export_usage_csv_file（对话框版；内存版 export_usage_csv 已随 61 号删除） |
 | 材料/笔记 | 15 | import_material_archive、read_material_media_chunk（二进制 ipc::Response）、verify_material_media、import_notes |

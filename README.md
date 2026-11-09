@@ -37,7 +37,7 @@ make build
 ```bash
 cd desktop
 npm ci
-npm run tauri build
+npm run tauri build -- -- --locked
 ```
 
 `make build` 执行 TypeScript/Vite 构建、Rust release 构建和 NSIS 打包。最终安装包统一输出到仓库根目录，并在复制后校验 SHA-256：
@@ -70,7 +70,7 @@ Deep-tutor/
 ├── scripts/                 # 版本校验与第三方许可收集（lint/build 各步骤）
 ├── Makefile                 # 构建与检查入口
 ├── rust-toolchain.toml      # 钉住 Rust 1.99.1（CI 与本地一致）
-├── LICENSE / LICENSE-REASONIX # 本仓库 MIT 与历史上游 MIT 许可全文
+├── LICENSE / LICENSE-REASONIX # 本仓库 Apache-2.0 与历史上游 MIT 许可全文
 ├── NOTICE                   # 来源与许可披露
 └── REF/                     # 用户提供的参考源，非交付目录
 ```
@@ -80,7 +80,7 @@ Deep-tutor/
 ## 验证
 
 ```bash
-make lint                         # Rust 格式、五处版本校验与 TypeScript/Vite 构建
+make lint                         # Rust 格式、六处版本校验与 TypeScript/Vite 构建
 make test                         # 原生后端全量测试，串行执行
 make check                        # 上述全部检查
 make build                        # Tauri 2 NSIS 安装包
