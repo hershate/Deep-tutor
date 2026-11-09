@@ -233,7 +233,7 @@ fn metadata(conn: &Connection, id: i64) -> Result<(ShareMetadata, String)> {
         |row| {
             Ok((
                 row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)? as u32,
+                row.get::<_, i64>(1)?.max(0) as u32,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,

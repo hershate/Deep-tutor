@@ -67,6 +67,9 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   const [checkOpen, setCheckOpen] = useState(false)
   const draftWrite = useRef<Promise<unknown>>(Promise.resolve())
   const draftBlocked = useRef(false)
+  // 75#4：草稿期望版本——双窗口并发保存时后到方收到 revision_conflict，
+  // 不再静默覆盖先保存内容；保存成功后从快照 versions.drafts 同步
+  const draftRevisionRef = useRef<number | null>(null)
   const [saving, setSaving] = useState(false)
   const noteTags = useMemo(() => Array.from(new Set([...notes.map(note => note.tag), noteTag].filter(Boolean))), [notes, noteTag])
   const filteredNotes = useMemo(() => notes.filter(n => (filter === '全部' || n.tag === filter) && `${n.title}${n.excerpt}${n.content}`.toLowerCase().includes(query.toLowerCase())), [notes, query, filter])
@@ -75,7 +78,14 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
 
   const enqueueDraft = (force = false) => {
     if (draftBlocked.current && !force) return draftWrite.current
-    const write = draftWrite.current.catch(() => {}).then(() => backend.saveDraft(draftKey, { title: noteTitle, content: noteContent, tag: noteTag, savedAt: Date.now() }))
+    const write = draftWrite.current.catch(() => {}).then(() => backend.saveDraft(draftKey, { title: noteTitle, content: noteContent, tag: noteTag, savedAt: Date.now() }, draftRevisionRef.current ?? undefined)).then(snapshot => {
+      if (typeof snapshot?.versions?.drafts === 'number') draftRevisionRef.current = snapshot.versions.drafts
+    }).catch(error => {
+      // 75#4：并发冲突停止后续自动保存（防 350ms 循环反复报错），
+      // 错误经 reportBackendError 提示用户；重开笔记时重置期望版本
+      if (typeof error === 'object' && error !== null && (error as { code?: string }).code === 'revision_conflict') draftBlocked.current = true
+      throw error
+    })
     draftWrite.current = write
     return write
   }
@@ -205,7 +215,8 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   const openNote = (note?: Note) => {
     const ticket = ++openingNoteSeq.current
     const key = `deep-tutor-draft-${note?.id || 'new'}`
-    backend.getDraft<{ title: string; content: string; tag: string }>(key).then(({ value: draft }) => {
+    backend.getDraft<{ title: string; content: string; tag: string }>(key).then(({ value: draft, revision }) => {
+      draftRevisionRef.current = revision
       if (ticket !== openingNoteSeq.current) return
       setActiveNote(note || null); setDraftRestored(Boolean(draft))
       if (draft) { setNoteTitle(draft.title); setNoteContent(draft.content); setNoteTag(draft.tag); setDirty(true) }

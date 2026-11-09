@@ -88,6 +88,7 @@ fn seed_source(
         .put_draft(
             "deep-tutor-draft-new",
             &json!({"title": "源草稿", "content": "保留源草稿", "tag": "复盘", "savedAt": 1}),
+            None,
         )
         .unwrap();
     store.replace_collection("tasks", 0, &json!([{"id": 1, "title": "源任务", "subject": "数学", "duration": 20, "done": false, "kind": "学习"}])).unwrap();
@@ -160,6 +161,7 @@ fn seed_target(app: &tauri::App<tauri::test::MockRuntime>, state: &LearningState
         .put_draft(
             "deep-tutor-draft-new",
             &json!({"title": "目标草稿", "content": "保留目标草稿", "tag": "复盘", "savedAt": 1}),
+            None,
         )
         .unwrap();
     store.replace_collection("notes", 0, &json!([{"id": 1, "title": "目标已有笔记", "excerpt": "保留", "tag": "复盘", "updated": "now", "content": "不得覆盖"}])).unwrap();

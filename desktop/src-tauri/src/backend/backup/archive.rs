@@ -247,18 +247,22 @@ fn file_entry(path: String, source: &Path) -> Result<FileEntry> {
 /// 内容漂移（文件实际哈希 ≠ 库内记录，zip 内 stem 将与 entry.sha 错位、
 /// 导入侧强制 stem==sha 必然拒收）同样按缺失处理。
 /// 返回 (实际存在的条目, 缺失的相对路径, 内容漂移的相对路径)。
-fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>, Vec<String>)> {
+// 75#2：行清单改从快照连接读取（T1 一致性）——原先在活连接重查，快照后
+// 并发清理删行会使文件既不进 files 也不进 missing_files，恢复方得到无
+// 披露的「有行无文件」库；快照连接对材料/插件/产物行与打包内容同源
+fn collect_files(
+    state: &LearningState,
+    snapshot_conn: &Connection,
+) -> Result<(Vec<FileEntry>, Vec<String>, Vec<String>)> {
     let root = state
         .workspace_path()
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
-    let store = state.store()?;
     let mut entries = Vec::new();
     let mut missing = Vec::new();
     let mut drifted = Vec::new();
-    let mut statement = store
-        .conn
+    let mut statement = snapshot_conn
         .prepare("SELECT sha256, kind FROM materials WHERE sha256 IS NOT NULL ORDER BY id")?;
     let materials = statement
         .query_map([], |row| {
@@ -297,7 +301,7 @@ fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>, 
             Err(error) => return Err(error.into()),
         }
     }
-    let mut statement = store.conn.prepare("SELECT id FROM plugins ORDER BY id")?;
+    let mut statement = snapshot_conn.prepare("SELECT id FROM plugins ORDER BY id")?;
     let ids = statement
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -323,9 +327,8 @@ fn collect_files(state: &LearningState) -> Result<(Vec<FileEntry>, Vec<String>, 
         }
         entries.push(file_entry(relative, &source)?);
     }
-    let mut statement = store
-        .conn
-        .prepare("SELECT session_id, path FROM agent_artifacts ORDER BY id")?;
+    let mut statement =
+        snapshot_conn.prepare("SELECT session_id, path FROM agent_artifacts ORDER BY id")?;
     let artifacts = statement
         .query_map([], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
@@ -446,8 +449,8 @@ pub fn export<R: Runtime>(
         sha256: format!("{:x}", Sha256::digest(&database_bytes)),
         bytes: database_bytes.len() as u64,
     };
-    let (files, missing_files, drifted_files) = collect_files(state)?;
     let snapshot = Connection::open_with_flags(&snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let (files, missing_files, drifted_files) = collect_files(state, &snapshot)?;
     let mut tables = BTreeMap::new();
     for table in TABLES {
         let count = snapshot.query_row(&format!("SELECT COUNT(*) FROM \"{table}\""), [], |row| {

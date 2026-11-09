@@ -1050,7 +1050,7 @@ pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
                 options: serde_json::from_str(&options).unwrap_or_default(),
                 bookmarked: bookmarks.contains(&question_id),
                 hint: hint.clone(),
-                difficulty: row.get::<_, i64>(6)? as u8,
+                difficulty: row.get::<_, i64>(6)?.max(0) as u8,
                 citations: serde_json::from_str(&citations).unwrap_or_default(),
                 node_ids: serde_json::from_str(&nodes).unwrap_or_default(),
                 rubric: serde_json::from_str(&rubric).unwrap_or_default(),

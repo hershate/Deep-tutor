@@ -512,8 +512,17 @@ impl Store {
         let mut stmt = conn.prepare("SELECT data FROM kv WHERE namespace = ?1 ORDER BY rowid")?;
         let rows = stmt.query_map(params![namespace], |row| row.get::<_, String>(0))?;
         let mut items = Vec::new();
+        let mut skipped = 0u64;
         for row in rows {
-            items.push(serde_json::from_str::<Value>(&row?)?);
+            // 75#3：单行坏 JSON 只跳过该行——原先直穿 ? 使 app_state/bootstrap
+            // 整体失败，一行外部篡改放大为整域不可用
+            match serde_json::from_str::<Value>(&row?) {
+                Ok(value) => items.push(value),
+                Err(_) => skipped += 1,
+            }
+        }
+        if skipped > 0 {
+            eprintln!("kv namespace {namespace}: {skipped} 行损坏已跳过");
         }
         Ok(if namespace == "preferences" {
             items.into_iter().next().unwrap_or_else(Self::defaults)
@@ -713,12 +722,28 @@ impl Store {
         })
     }
 
-    pub fn put_draft(&self, id: &str, value: &Value) -> Result<Mutation> {
+    pub fn put_draft(
+        &self,
+        id: &str,
+        value: &Value,
+        expected_revision: Option<i64>,
+    ) -> Result<Mutation> {
         Self::validate_draft_id(id)?;
         validate_draft(value)?;
         // A-11：草稿保存与流式 delta 自动提交并发频繁，读改写用 IMMEDIATE
         //（07#11 同指引）——DEFERRED 读快照过期后升级写锁会得 BUSY_SNAPSHOT
         let tx = self.write_transaction()?;
+        // 75#4：可选 revision 守卫——双编辑面并发时后到静默覆盖前值（LWW）；
+        // 传入期望版本的调用方与 replace_collection 同口径得到 revision_conflict
+        if let Some(expected) = expected_revision {
+            let current = Self::revision(&tx, "drafts")?;
+            if current != expected {
+                return Err(BackendError::new(
+                    "revision_conflict",
+                    "草稿已在其他窗口更新，请重新读取后再保存",
+                ));
+            }
+        }
         let revision = Self::next_revision(&tx, "drafts")?;
         Self::insert_json(&tx, "drafts", id, value)?;
         let event = Self::event(&tx, "draft.saved", json!({"id": id, "revision": revision}))?;
@@ -862,10 +887,19 @@ impl Store {
         let mut events = Vec::new();
         for row in rows {
             let (id, kind, payload, created_at) = row?;
+            // 75#3：坏 payload 行跳过——原先直穿使事件轮询分页全失败，
+            // 前端从此永远拿不到该页之后的任何事件
+            let payload = match serde_json::from_str(&payload) {
+                Ok(value) => value,
+                Err(_) => {
+                    eprintln!("event #{id} payload 损坏已跳过");
+                    continue;
+                }
+            };
             events.push(BackendEvent {
                 id,
                 kind,
-                payload: serde_json::from_str(&payload)?,
+                payload,
                 created_at,
             });
         }
@@ -1355,12 +1389,14 @@ mod tests {
             .put_draft(
                 "deep-tutor-draft-new",
                 &json!({"title": "一", "content": "甲", "tag": "复盘", "savedAt": 1}),
+                None,
             )
             .unwrap();
         store
             .put_draft(
                 "deep-tutor-draft-1",
                 &json!({"title": "二", "content": "乙", "tag": "复盘", "savedAt": 2}),
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -1378,7 +1414,11 @@ mod tests {
             Value::Null
         );
         assert!(store
-            .put_draft("bad", &json!({"title": "", "content": "", "tag": "复盘"}))
+            .put_draft(
+                "bad",
+                &json!({"title": "", "content": "", "tag": "复盘"}),
+                None
+            )
             .is_err());
     }
 
@@ -1393,6 +1433,7 @@ mod tests {
                 .put_draft(
                     "deep-tutor-draft-new",
                     &json!({"title": index.to_string(), "content": "draft", "tag": "复盘"}),
+                    None,
                 )
                 .unwrap();
         }

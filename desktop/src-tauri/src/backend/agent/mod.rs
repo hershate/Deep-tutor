@@ -358,7 +358,7 @@ pub fn new_session<R: Runtime>(
 pub fn get(state: &AgentState, id: &str) -> Result<AgentSession> {
     let id = numeric_id(id)?;
     let store = state.store()?;
-    let (title, plan_id, provider_id, budget_tokens, status, updated_at) = store.conn.query_row("SELECT title, plan_id, provider_id, budget_tokens, status, updated_at FROM agent_sessions WHERE id = ?1", params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)? as u64, row.get::<_, String>(4)?, row.get::<_, String>(5)?))).optional()?.ok_or_else(|| BackendError::new("not_found", "Agent 会话不存在"))?;
+    let (title, plan_id, provider_id, budget_tokens, status, updated_at) = store.conn.query_row("SELECT title, plan_id, provider_id, budget_tokens, status, updated_at FROM agent_sessions WHERE id = ?1", params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?.max(0) as u64, row.get::<_, String>(4)?, row.get::<_, String>(5)?))).optional()?.ok_or_else(|| BackendError::new("not_found", "Agent 会话不存在"))?;
     let mut statement = store.conn.prepare("SELECT id, role, content, reasoning, tool_calls_json, tool_call_id, name, step_index, partial, created_at FROM agent_messages WHERE session_id = ?1 ORDER BY id DESC LIMIT 100")?;
     let rows = statement.query_map(params![id], |row| {
         let calls: Option<String> = row.get(4)?;
@@ -390,8 +390,8 @@ pub fn get(state: &AgentState, id: &str) -> Result<AgentSession> {
                 id: row.get(0)?,
                 status: row.get(1)?,
                 steps: row.get::<_, i64>(2)? as u32,
-                input_tokens: row.get::<_, i64>(3)? as u64,
-                output_tokens: row.get::<_, i64>(4)? as u64,
+                input_tokens: row.get::<_, i64>(3)?.max(0) as u64,
+                output_tokens: row.get::<_, i64>(4)?.max(0) as u64,
                 current_request_id: row.get(5)?,
                 error: code.map(|code| {
                     BackendError::new(&code, message.as_deref().unwrap_or("Agent 运行失败"))
@@ -412,13 +412,9 @@ pub fn get(state: &AgentState, id: &str) -> Result<AgentSession> {
                 stage_id: row.get(3)?,
                 unit_index: row.get::<_, i64>(4)? as usize,
                 status: row.get(5)?,
-                content: serde_json::from_str(&content).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        6,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?,
+                // 75#3：坏 content_json 降级为 null——原先直穿使整个会话
+                // 视图失败；content 为 null 时产物详情按空处理，行本身保留
+                content: serde_json::from_str(&content).unwrap_or(serde_json::Value::Null),
                 created_at: row.get(7)?,
                 expires_at: row.get(8)?,
             })
@@ -654,7 +650,7 @@ fn get_run(state: &AgentState, id: i64) -> Result<AgentRun> {
     store.conn.query_row("SELECT id, status, steps, input_tokens, output_tokens, current_request_id, error_code, error_message, created_at, updated_at FROM agent_runs WHERE id = ?1", params![id], |row| {
         let code: Option<String> = row.get(6)?;
         let message: Option<String> = row.get(7)?;
-        Ok(AgentRun { id: row.get(0)?, status: row.get(1)?, steps: row.get::<_, i64>(2)? as u32, input_tokens: row.get::<_, i64>(3)? as u64, output_tokens: row.get::<_, i64>(4)? as u64, current_request_id: row.get(5)?, error: code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("Agent 运行失败"))), created_at: row.get(8)?, updated_at: row.get(9)? })
+        Ok(AgentRun { id: row.get(0)?, status: row.get(1)?, steps: row.get::<_, i64>(2)?.max(0) as u32, input_tokens: row.get::<_, i64>(3)?.max(0) as u64, output_tokens: row.get::<_, i64>(4)?.max(0) as u64, current_request_id: row.get(5)?, error: code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("Agent 运行失败"))), created_at: row.get(8)?, updated_at: row.get(9)? })
     }).optional()?.ok_or_else(|| BackendError::new("not_found", "Agent 运行不存在"))
 }
 

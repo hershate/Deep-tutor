@@ -84,8 +84,9 @@ pub fn save_draft<R: Runtime>(
     state: State<'_, BackendState>,
     id: String,
     value: Value,
+    expected_revision: Option<i64>,
 ) -> Result<Value> {
-    let mutation = store(&state)?.put_draft(&id, &value)?;
+    let mutation = store(&state)?.put_draft(&id, &value, expected_revision)?;
     finish(&app, mutation)
 }
 

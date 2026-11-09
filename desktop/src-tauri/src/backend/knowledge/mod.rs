@@ -281,7 +281,9 @@ fn session_row(conn: &Connection, id: i64) -> Result<KnowledgeSession> {
         question,
         answer,
         sufficient,
-        citations: serde_json::from_str(&citations)?,
+        // 75#3：坏 citations_json 行降级为空引用——原先直穿使 Wiki 会话列表
+        // 全空（list 逐行 session_row 任一失败即整页失败）
+        citations: serde_json::from_str(&citations).unwrap_or_default(),
         sources,
         status,
         provider_id,

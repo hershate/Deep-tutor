@@ -266,7 +266,9 @@ fn entry(row: &rusqlite::Row<'_>) -> Result<UsageEntry> {
     let model: String = row.get(2)?;
     let raw_usage: Option<String> = row.get(4)?;
     let usage: Option<TokenUsage> = match raw_usage {
-        Some(value) => serde_json::from_str(&value)?,
+        // 75#3：坏 usage_json 计为无用量行（进 unpriced 统计）——原先直穿
+        // 使用量总览与 CSV 导出全失败
+        Some(value) => serde_json::from_str(&value).unwrap_or(None),
         None => None,
     };
     let rate: Option<(f64, f64)> = match (

@@ -856,6 +856,8 @@ pub fn vacuum<R: Runtime>(
         // 73#12：路由审计行随每次模型请求单调增长且此前无任何裁剪——
         // 整理时保留最近 1000 条 run（界面日志视图只读最近 100 条）；
         // attempts 经 FK ON DELETE CASCADE 连带清理
+        // 75#5：事件 90 天裁剪同理——plugin_deliveries.event_id 的 FK CASCADE
+        // 使投递审计随事件裁剪连带消失，此为既定语义（非泄漏）
         store.conn.execute(
             "DELETE FROM provider_route_runs WHERE request_id NOT IN (
                 SELECT request_id FROM provider_route_runs ORDER BY created_at DESC, rowid DESC LIMIT 1000

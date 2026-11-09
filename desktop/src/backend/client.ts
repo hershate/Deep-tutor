@@ -356,7 +356,8 @@ export const backend = {
   getAppState: () => invoke<AppSnapshot>('get_app_state'),
   getCollection: <T>(namespace: CollectionNamespace) => invoke<{ value: T; revision: number }>('get_collection', { namespace }),
   replaceCollection: <T>(namespace: CollectionNamespace, expectedRevision: number, value: T) => invoke<AppSnapshot>('replace_collection', { namespace, expectedRevision, value }),
-  saveDraft: (id: string, value: unknown) => invoke<AppSnapshot>('save_draft', { id, value }),
+  // 75#4：可选期望版本——并发编辑面得到 revision_conflict 而非静默覆盖
+  saveDraft: (id: string, value: unknown, expectedRevision?: number) => invoke<AppSnapshot>('save_draft', { id, value, expectedRevision }),
   getDraft: <T>(id: string) => invoke<{ value: T | null; revision: number }>('get_draft', { id }),
   deleteDraft: (id: string) => invoke<AppSnapshot>('delete_draft', { id }),
   resetApplication: () => invoke<AppSnapshot>('reset_application'),

@@ -623,8 +623,20 @@ pub(crate) fn list_with(store: &super::store::Store) -> Result<Vec<Plan>> {
         .prepare("SELECT id FROM learning_plans ORDER BY id DESC LIMIT 100")?;
     let rows = statement.query_map([], |row| row.get::<_, i64>(0))?;
     let mut plans = Vec::new();
+    let mut skipped = 0u64;
     for row in rows {
-        plans.push(get_with(store, &format!("plan-{}", row?))?);
+        // 75#3：坏方案行（任一 JSON 列损坏）只跳过——原先直穿使方案列表/
+        // dashboard/报告整页失败；单方案 get_with 仍返回类型化错误可定位
+        match get_with(store, &format!("plan-{}", row?)) {
+            Ok(plan) => plans.push(plan),
+            Err(error) => {
+                skipped += 1;
+                eprintln!("learning plan row unreadable, skipped: {}", error.code);
+            }
+        }
+    }
+    if skipped > 0 {
+        eprintln!("learning plans: {skipped} 行损坏已跳过");
     }
     Ok(plans)
 }

@@ -394,7 +394,11 @@ pub fn search(state: &EngagementState, query: String) -> Result<Vec<SearchResult
     })?;
     for row in rows {
         let (namespace, id, data) = row?;
-        let data: Value = serde_json::from_str(&data)?;
+        // 75#3：坏 kv 行跳过——原先直穿使全局搜索整体失败
+        let data: Value = match serde_json::from_str(&data) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
         let title = text(&data, "title", &id).to_string();
         match namespace.as_str() {
             "notes" => results.push(result(

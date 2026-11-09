@@ -165,8 +165,12 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         .optional()?
         .unwrap_or(false);
     if legacy {
+        // 75#1：四步重建原先各自 autocommit——RENAME 后崩溃会让谓词（旧列
+        // notnull）翻转为 false，重建永不重跑，历史滞留 _legacy 表且从
+        // 备份面（TABLES 白名单不含 _legacy）消失。整批包进 IMMEDIATE 事务
         conn.execute_batch(
-            "ALTER TABLE provider_route_attempts RENAME TO provider_route_attempts_legacy;
+            "BEGIN IMMEDIATE;
+            ALTER TABLE provider_route_attempts RENAME TO provider_route_attempts_legacy;
             CREATE TABLE provider_route_attempts (
                 request_id TEXT NOT NULL REFERENCES provider_route_runs(request_id) ON DELETE CASCADE,
                 attempt INTEGER NOT NULL,
@@ -181,7 +185,28 @@ pub fn migrate(conn: &Connection) -> Result<()> {
                 PRIMARY KEY(request_id, attempt)
             );
             INSERT INTO provider_route_attempts SELECT * FROM provider_route_attempts_legacy;
-            DROP TABLE provider_route_attempts_legacy;",
+            DROP TABLE provider_route_attempts_legacy;
+            COMMIT;",
+        )?;
+    }
+    // 75#1：残留检测——1.1.2 及之前在旧窗口内崩溃的库会留下 _legacy 表
+    // （新表可能已建或仍空）。新表为空则回吸收旧行，已填充则只清理残留
+    let residual = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_route_attempts_legacy'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_some();
+    if residual {
+        conn.execute_batch(
+            "BEGIN IMMEDIATE;
+            INSERT INTO provider_route_attempts
+                SELECT * FROM provider_route_attempts_legacy
+                WHERE NOT EXISTS (SELECT 1 FROM provider_route_attempts);
+            DROP TABLE provider_route_attempts_legacy;
+            COMMIT;",
         )?;
     }
     Ok(())
@@ -866,7 +891,7 @@ pub fn latest_chat(state: &ProviderState, request_id: &str) -> Result<ProviderRe
         usage: None,
         finish_reason: None,
         error,
-        attempts: attempts as u8,
+        attempts: attempts.max(0) as u8,
         latency_ms: None,
         created_at,
         updated_at,
