@@ -1,14 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗口权限：后端事件收发、原生文件对话框、资源管理器定位与 https 外链走系统浏览器（37#4/37#8）。",
+  "description": "主窗口权限：后端事件收发、原生文件对话框与 https 外链走系统浏览器（37#4/37#8）。资源管理器定位经后端 reveal_path 命令白名单校验（72#2），不再授予前端 reveal 权限。",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "dialog:allow-open",
     "dialog:allow-save",
-    "opener:allow-reveal-item-in-dir",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "https://**" }]

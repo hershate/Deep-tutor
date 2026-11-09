@@ -180,6 +180,7 @@ fn main() {
             commands::delete_draft,
             commands::reset_application,
             commands::events_since,
+            commands::reveal_path,
             backup::commands::export_full_backup,
             backup::commands::preview_full_backup,
             backup::commands::import_full_backup,

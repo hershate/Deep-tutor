@@ -36,6 +36,10 @@ pub async fn export_full_backup<R: Runtime>(
                     .map_err(|_| BackendError::new("store_unavailable", "本地数据层暂不可用"))?;
                 super::export(&app, &store, &learning, std::path::Path::new(&destination))
             };
+            if result.is_ok() {
+                // 72#2：导出回执登记（reveal_path 白名单）
+                super::super::reveal::register(std::path::Path::new(&destination));
+            }
             super::super::sync::scheduler::start_scheduler(app.clone());
             result
         })

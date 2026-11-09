@@ -17,6 +17,7 @@ pub mod projects;
 pub mod providers;
 pub(crate) mod random;
 pub mod reports;
+pub mod reveal;
 pub mod review;
 pub mod security;
 pub mod sharing;
@@ -65,7 +66,7 @@ pub(crate) fn reject_data_root_destination<R: tauri::Runtime>(
 
 /// 词法绝对化：清除 `.`/`..` 组件但不解析符号链接，用于路径尚不存在、
 /// canonicalize 不可用时的守卫比较（A-12）。
-fn lexical_absolute(path: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn lexical_absolute(path: &std::path::Path) -> std::path::PathBuf {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -99,6 +100,8 @@ pub(crate) fn write_export_bytes<R: tauri::Runtime>(
     let path = std::path::Path::new(destination);
     reject_data_root_destination(app, path)?;
     materials::atomic_export(path, bytes)?;
+    // 72#2：落盘成功即登记导出回执——reveal_path 仅放行数据根与本表内路径
+    reveal::register(path);
     Ok(serde_json::json!({
         "bytes": bytes.len(),
         "sha256": format!("{:x}", Sha256::digest(bytes)),

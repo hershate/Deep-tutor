@@ -91,7 +91,12 @@ pub fn export_material_original<R: Runtime>(
     destination: String,
 ) -> Result<Value> {
     super::super::reject_data_root_destination(&app, Path::new(&destination))?;
-    export_original(&state.materials, id, Path::new(&destination))
+    let result = export_original(&state.materials, id, Path::new(&destination));
+    if result.is_ok() {
+        // 72#2：导出回执登记（reveal_path 白名单）
+        super::super::reveal::register(Path::new(&destination));
+    }
+    result
 }
 
 #[tauri::command]
@@ -102,7 +107,12 @@ pub fn export_material_text<R: Runtime>(
     destination: String,
 ) -> Result<Value> {
     super::super::reject_data_root_destination(&app, Path::new(&destination))?;
-    super::export_text(&state.materials, id, Path::new(&destination))
+    let result = super::export_text(&state.materials, id, Path::new(&destination));
+    if result.is_ok() {
+        // 72#2：导出回执登记（reveal_path 白名单）
+        super::super::reveal::register(Path::new(&destination));
+    }
+    result
 }
 
 #[tauri::command]

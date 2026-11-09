@@ -1,9 +1,28 @@
 import { useEffect, useId, useRef } from 'react'
-import type { ButtonHTMLAttributes, ReactNode, RefObject } from 'react'
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, RefObject } from 'react'
 import { X, Inbox } from 'lucide-react'
+import { openExternalUrl } from '../backend/shell'
+import { reportBackendError } from '../backend/client'
 
 export function Button({ children, variant = 'primary', size = 'md', className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'light'; size?: 'sm' | 'md' | 'lg' }) {
   return <button className={`btn btn-${variant} btn-${size} ${className}`} {...props}>{children}</button>
+}
+
+// 72#1：Markdown 渲染的链接拦截——ReactMarkdown 默认渲染裸 <a href>，点击触发
+// WebView 顶层导航且 Tauri 默认放行，无地址栏窗口可被讲义/笔记里的外域链接
+// 整窗替换（钓鱼窗）。非锚点 href 一律 preventDefault 后走系统浏览器打开；
+// capabilities 的 https scope 是强制层，非 https 链接在此报类型化错误
+export function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  return (
+    <a
+      href={href}
+      {...props}
+      onClick={event => {
+        event.preventDefault()
+        if (href && !href.startsWith('#')) openExternalUrl(href).catch(reportBackendError)
+      }}
+    >{children}</a>
+  )
 }
 
 export function IconButton({ label, children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: ReactNode }) {

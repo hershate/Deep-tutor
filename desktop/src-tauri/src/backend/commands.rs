@@ -25,6 +25,30 @@ pub(crate) fn emit<R: Runtime>(app: &AppHandle<R>, event: &BackendEvent) {
     }
 }
 
+// 72#2：资源管理器定位从前端插件权限收回后端——原先 WebView 持有
+// opener:allow-reveal-item-in-dir（无 scope），被注入脚本可定位本机任意
+// 路径。现仅放行两类目标：当前工作区数据根（设置页入口）与本进程近期
+// 真实写出过的导出回执（reveal::TTL 24h/上限 64 条）
+#[tauri::command]
+pub fn reveal_path<R: Runtime>(
+    app: AppHandle<R>,
+    startup: State<'_, crate::startup::StartupState>,
+    path: String,
+) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let target = super::lexical_absolute(std::path::Path::new(&path));
+    let data_root = super::lexical_absolute(startup.data_root());
+    if !super::reveal::is_known(&target) && target != data_root {
+        return Err(super::error::BackendError::invalid(
+            "reveal_not_allowed",
+            "只能定位数据目录或本应用刚导出的文件",
+        ));
+    }
+    app.opener()
+        .reveal_item_in_dir(&target)
+        .map_err(|_| super::error::BackendError::new("reveal_failed", "资源管理器定位失败"))
+}
+
 #[tauri::command]
 pub fn bootstrap(state: State<'_, BackendState>) -> Result<Value> {
     store(&state)?.bootstrap()

@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import type { PageId } from '../data'
-import { Badge, Button, IconButton, Modal, ProgressBar } from '../components/UI'
+import { Badge, Button, IconButton, MarkdownLink, Modal, ProgressBar } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
 import type { Lecture, LearningPlan, Material, ProviderRequest, ReadingProgress } from '../backend/client'
 import { mediaBackend } from '../backend/media'
@@ -260,10 +260,10 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
         {tab === '阅读' && <article className="reading-article" style={{ fontSize: `${fontScale}rem` }}>
           <div className="article-kicker"><Badge tone="green">{stage.title}</Badge><span>难度 {stage.difficulty}/5 · 单元 {Math.min(unitIndex + 1, nodes.length)} / {nodes.length}</span></div>
           {content ? <>
-            <h1>{content.title}</h1><div className="article-lead"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{content.overview}</ReactMarkdown></div>
-            {content.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{section.content}</ReactMarkdown></section>)}
-            {content.examples.map((example, index) => <div className="worked-example" key={`${example.title}-${index}`}><div className="example-head"><span>例题</span><strong>{example.title}</strong></div><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{example.content}</ReactMarkdown></div>)}
-            <div className="article-check"><Check size={20} /><h3>主动检查</h3></div>{content.checkpoints.map((checkpoint, index) => <details className="lecture-checkpoint" key={`${checkpoint.question}-${index}`}><summary>{checkpoint.question}</summary><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{checkpoint.answer}</ReactMarkdown></details>)}
+            <h1>{content.title}</h1><div className="article-lead"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{content.overview}</ReactMarkdown></div>
+            {content.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{section.content}</ReactMarkdown></section>)}
+            {content.examples.map((example, index) => <div className="worked-example" key={`${example.title}-${index}`}><div className="example-head"><span>例题</span><strong>{example.title}</strong></div><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{example.content}</ReactMarkdown></div>)}
+            <div className="article-check"><Check size={20} /><h3>主动检查</h3></div>{content.checkpoints.map((checkpoint, index) => <details className="lecture-checkpoint" key={`${checkpoint.question}-${index}`}><summary>{checkpoint.question}</summary><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{checkpoint.answer}</ReactMarkdown></details>)}
             <div className="lecture-citations"><h3>原文引用</h3>{content.citations.map((citation, index) => <button key={`${citation.materialId}-${index}`} onClick={() => { setNote(citation.quote); setNoteOpen(true) }}><Quote size={16} /><span>“{citation.quote}”</span><small>资料 #{citation.materialId} · 引用到批注</small></button>)}</div>
           </> : <>
             <h1>{currentNode?.title || stage.title}</h1><p className="article-lead">尚未生成这一单元的讲义。以下只展示已保存的节点摘要与原文引用，不用模板正文替代。</p>
