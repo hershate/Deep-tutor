@@ -50,11 +50,30 @@ impl StartupState {
         &self.root
     }
 
+    /// 默认数据根目录（未迁移时的位置）：迁移后旧默认目录仍存历史数据，
+    /// 导出遏制须同时拦截（65#5）
+    pub fn default_data_root(&self) -> &std::path::Path {
+        &self.default_root
+    }
+
     fn failure(&self) -> Result<Option<BackendError>> {
         self.failure
             .lock()
             .map(|failure| failure.clone())
             .map_err(|_| BackendError::new("startup_unavailable", "无法读取本地后端初始化状态"))
+    }
+
+    // 65#5 测试：直接构造指定 root/default_root 的状态，不触发目录装配
+    #[cfg(test)]
+    pub(crate) fn for_tests(root: &Path, default_root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            default_root: default_root.to_path_buf(),
+            pointer: root.join("storage-location.json"),
+            pending_root: Mutex::new(None),
+            failure: Mutex::new(None),
+            running: std::sync::atomic::AtomicBool::new(false),
+        }
     }
 
     fn set_failure(&self, next: Option<BackendError>) {

@@ -42,6 +42,9 @@ pub struct OrphanReport {
     pub scratch: Vec<FileItem>,
     pub plugins: Vec<FileItem>,
     pub tempdirs: Vec<FileItem>,
+    /// 65#3：sync 目录的存量 json（超出最近 10 份）与崩溃遗留的
+    /// .download-/.previous- 临时件
+    pub sync: Vec<FileItem>,
     pub missing_originals: Vec<String>,
     pub issues: Vec<BackendError>,
 }
@@ -207,6 +210,12 @@ fn walk(
 /// 超过宽限期（任务已崩溃遗留）才作为孤儿处理。
 const IN_FLIGHT_GRACE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
+/// 14#20：单次清理上限 500 项，避免孤儿量大时长时间占库锁；剩余项下次
+/// 清理继续。B-12：配额只按成功删除计——失败项（symlink/占用/拒绝）
+/// 不占批次，否则 ≥500 个持续失败项会占满配额，其后可删除项永远轮不到，
+/// 清理功能对该工作区失效
+const CLEANUP_BATCH: usize = 500;
+
 // 31#3：测试注入的宽限覆盖——Some(d) 时以 d 判定，用于把刚写入的临时件
 // 立即移出宽限，避免测试操纵文件 mtime（std 无稳定写 mtime API）
 #[cfg(test)]
@@ -290,18 +299,25 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
-            if name.contains(".upload-") && modified_recently(&path) {
+            // 65#7：补写原件的 .restore-{pid}-{n} 临时件与 .upload- 同为
+            // 进行中写入，共享宽限——原先只匹配后者，前者被误报为孤儿
+            if (name.contains(".upload-") || name.contains(".restore-")) && modified_recently(&path)
+            {
                 continue;
             }
             originals.push(item);
         }
     }
     let mut expected_scratch = BTreeSet::new();
+    // 65#1：过期产物（expires_at 已过）不再视为「期望存在」——其文件在
+    // 扫描报告中按孤儿呈现，清理命令先物理回收行再统一收文件
+    let now =
+        time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?;
     let mut statement = store
         .conn
-        .prepare("SELECT session_id, path FROM agent_artifacts")?;
+        .prepare("SELECT session_id, path FROM agent_artifacts WHERE expires_at >= ?1")?;
     let artifacts = statement
-        .query_map([], |row| {
+        .query_map(params![now], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -434,14 +450,163 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
             }
         }
     }
+    // 65#4：prepare_reset 的中间目录 materials.reset-{n} 在提交后清理失败
+    // 或进程于 rename 与 finish 间崩溃时残留于用户目录根层，原先任何扫描
+    // 面都看不见——宽限期内可能正处于 reset 进行中，不报告
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(suffix) = name.strip_prefix("materials.reset-") else {
+            continue;
+        };
+        if entry.file_type()?.is_dir()
+            && !suffix.is_empty()
+            && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            && !modified_recently(&entry.path())
+        {
+            let files = walk_files(&entry.path(), &mut issues)?;
+            tempdirs.push(FileItem {
+                path: entry
+                    .path()
+                    .strip_prefix(&root)
+                    .map_err(|_| BackendError::new("unsafe_path", "运维临时目录超出应用目录"))?
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                bytes: files
+                    .iter()
+                    .map(|path| fs::metadata(path).map(|meta| meta.len()).unwrap_or(0))
+                    .sum(),
+            });
+        }
+    }
+    // 65#7：首次迁移旧根库的 staging 文件 {db}.migration-tmp 在复制与改名
+    // 两步间崩溃时残留（进程内错误路径已自回收）——含全部账户数据副本，
+    // 须对运维可见；宽限覆盖迁移刚发生的窗口
+    let staged = root.join(format!(
+        "{}.migration-tmp",
+        service
+            .learning
+            .workspace_path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("deep-tutor.db")
+    ));
+    if staged.is_file() && !modified_recently(&staged) {
+        tempdirs.push(file_item(&root, &staged)?);
+    }
+    // 65#3：sync 目录的自剪枝只在新下载任务时触发——下载中途崩溃的临时件
+    // 与 reset 后的存量不进任何清理面。对齐 sync 模块自身的保留语义：
+    // 只碰 sync- 前缀且段全为数字的本应用产物；.json 保留最近 10 份，
+    // .download-/.previous- 临时件（with_extension 丢失 .json 扩展名，
+    // 不满足自剪枝过滤）按宽限判定
+    let mut sync = Vec::new();
+    let sync_root = root.join("sync");
+    if sync_root.exists() {
+        let mut retained: Vec<(std::time::SystemTime, FileItem)> = Vec::new();
+        for entry in fs::read_dir(&sync_root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(rest) = name.strip_prefix("sync-") else {
+                continue;
+            };
+            let path = entry.path();
+            if let Some(stem) = rest.strip_suffix(".json") {
+                if stem.split('-').count() == 2
+                    && stem.split('-').all(|part| part.parse::<u64>().is_ok())
+                {
+                    if let Ok(modified) = fs::metadata(&path).and_then(|meta| meta.modified()) {
+                        retained.push((modified, file_item(&root, &path)?));
+                    }
+                }
+                continue;
+            }
+            for marker in [".download-", ".previous-"] {
+                let Some((stem, tail)) = rest.split_once(marker) else {
+                    continue;
+                };
+                if tail.bytes().all(|byte| byte.is_ascii_digit())
+                    && !tail.is_empty()
+                    && stem.split('-').count() == 2
+                    && stem.split('-').all(|part| part.parse::<u64>().is_ok())
+                    && !modified_recently(&path)
+                {
+                    sync.push(file_item(&root, &path)?);
+                }
+                break;
+            }
+        }
+        if retained.len() > 10 {
+            retained.sort_by_key(|(modified, _)| *modified);
+            let excess = retained.len() - 10;
+            sync.extend(retained.into_iter().take(excess).map(|(_, item)| item));
+        }
+    }
     Ok(OrphanReport {
         originals,
         scratch,
         plugins,
         tempdirs,
+        sync,
         missing_originals,
         issues,
     })
+}
+
+/// 65#1：agent_artifacts 的 expires_at 过期后行与 scratch 文件原先永存
+/// （唯一出口是提升时的惰性置 status='expired'），磁盘与备份体积随
+/// Agent 使用单调增长——清理命令先物理回收：IMMEDIATE 事务内选定并删除
+/// 过期行（防与并发同路径重提交竞态），提交后删文件；文件删除失败或
+/// 超出批次配额的残留由随后的孤儿扫描按「无行引用」收走。
+/// 返回（已删文件数, 释放字节数）。
+fn purge_expired_artifacts(service: &MaintenanceService) -> Result<(usize, u64)> {
+    let mut store = service.store()?;
+    let now =
+        time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?;
+    let tx = store
+        .conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let expired = tx
+        .prepare("SELECT session_id, path FROM agent_artifacts WHERE expires_at < ?1")?
+        .query_map(params![now], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    tx.execute(
+        "DELETE FROM agent_artifacts WHERE expires_at < ?1",
+        params![now],
+    )?;
+    tx.commit()?;
+    drop(store);
+    let root = service.root();
+    let mut removed = 0usize;
+    let mut bytes = 0u64;
+    for (session, path) in &expired {
+        if removed >= CLEANUP_BATCH {
+            break;
+        }
+        let relative = format!("agent-workspaces/{session}/scratch/{path}");
+        let file = root.join(&relative);
+        let Ok(metadata) = fs::metadata(&file) else {
+            continue;
+        };
+        if !metadata.is_file() || modified_recently(&file) {
+            // 刚重写的文件可能正被并发的同路径重提交引用（新行尚未落入
+            // 本轮 SELECT），留给下一轮；缺失则行已删、无需处理
+            continue;
+        }
+        let item = FileItem {
+            path: relative,
+            bytes: metadata.len(),
+        };
+        if remove_file(&root, &item).is_ok() {
+            removed += 1;
+            bytes += item.bytes;
+        }
+    }
+    Ok((removed, bytes))
 }
 
 fn emit_result<R: Runtime, T: Serialize>(
@@ -540,20 +705,18 @@ pub fn cleanup<R: Runtime>(
 ) -> Result<CleanupResult> {
     let result = (|| {
         let _ = health(service)?;
+        // 65#1：先物理回收过期 agent 产物（删行+删文件）再扫描——过期行
+        // 不再进 scratch 期望集，文件删除失败或超额的残留由扫描收走
+        let (purged_files, purged_bytes) = purge_expired_artifacts(service)?;
         let orphans = scan_orphans(service)?;
-        let mut deleted_files = 0;
+        let mut deleted_files = purged_files as u64;
         let mut deleted_temp_items = 0;
-        let mut freed_bytes = 0;
+        let mut freed_bytes = purged_bytes;
         // 14#20：failures 只承载“删除失败”；扫描期的提示性跳过（清单无效、
         // 符号链接等）保留在 issues，不再混入失败列表同图标警示
         let mut failures = Vec::new();
         let root = service.root();
-        // 14#20：单次清理上限 500 项，避免孤儿量大时长时间占库锁；
-        // 剩余项下次清理继续。B-12：配额只按成功删除计——失败项（symlink/
-        // 占用/拒绝）不占批次，否则 ≥500 个持续失败项会占满配额，其后
-        // 可删除项永远轮不到，清理功能对该工作区失效
-        const CLEANUP_BATCH: usize = 500;
-        let mut batch = 0usize;
+        let mut batch = purged_files;
         // 34#18：宽限跳过项不计入 remaining——原先「还有 N 项未处理」把 24h
         // 内清不掉的项也算进去，用户按提示重跑得到同样数字，提示空转
         let mut deferred = 0usize;
@@ -566,6 +729,25 @@ pub fn cleanup<R: Runtime>(
             // 写入的 mtime，命中宽限即跳过，下一轮扫描再收
             if modified_recently(&root.join(&item.path)) {
                 deferred += 1;
+                continue;
+            }
+            match remove_file(&root, item) {
+                Ok(bytes) => {
+                    batch += 1;
+                    deleted_files += 1;
+                    freed_bytes += bytes;
+                }
+                Err(error) => failures.push(error),
+            }
+        }
+        // 65#3：sync 类别在扫描期已完成宽限（临时件）与保留数（json）判定，
+        // 不适用 31#32 的 mtime 复查——超量 json 是完成态写入，mtime 恒新；
+        // 扫描后并发任务已转正的临时件按已消失处理
+        for item in &orphans.sync {
+            if batch >= CLEANUP_BATCH {
+                break;
+            }
+            if !root.join(&item.path).exists() {
                 continue;
             }
             match remove_file(&root, item) {
@@ -627,12 +809,15 @@ pub fn cleanup<R: Runtime>(
                 Err(error) => failures.push(error),
             }
         }
-        // B-12：截断对用户可见——报告未轮到的剩余项数
+        // B-12：截断对用户可见——报告未轮到的剩余项数。purge 的计数不在
+        // 本轮孤儿总数内（扫描前已移除），从已处理量中扣除
         let remaining = (orphans.originals.len()
             + orphans.scratch.len()
+            + orphans.sync.len()
             + orphans.plugins.len()
             + orphans.tempdirs.len())
-        .saturating_sub(batch + failures.len() + deferred) as u64;
+        .saturating_sub(batch - purged_files + failures.len() + deferred)
+            as u64;
         Ok(CleanupResult {
             deleted_files,
             deleted_temp_items,

@@ -1272,14 +1272,16 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     let store = state.store()?;
     let material = get(&store.conn, &state.root(), id)?;
     let in_use: bool = store.conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM learning_plan_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM knowledge_session_materials WHERE material_id = ?1)",
+        "SELECT EXISTS(SELECT 1 FROM learning_plan_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM knowledge_session_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM project_versions WHERE material_id = ?1)",
         params![id],
         |row| row.get(0),
     )?;
     if in_use {
+        // 65#6：project_versions.material_id 是 SET NULL——被项目版本引用时
+        // 原先静默断链，与 learning/knowledge 两域的友好拒绝口径对齐
         return Err(BackendError::new(
             "material_in_use",
-            "该资料已被学习方案或 Wiki 问答引用，不能删除其原文证据",
+            "该资料已被学习方案、Wiki 问答或项目版本引用，不能删除其原文证据",
         ));
     }
     let tx = store.conn.unchecked_transaction()?;

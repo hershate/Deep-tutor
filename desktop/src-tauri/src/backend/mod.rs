@@ -40,6 +40,12 @@ pub(crate) fn reject_data_root_destination<R: tauri::Runtime>(
     let root = root
         .canonicalize()
         .unwrap_or_else(|_| lexical_absolute(root));
+    // 65#5：迁移数据目录后，旧默认目录仍存有历史库与原件——导出目的地
+    // 选在旧默认目录内同样拒绝，防止覆盖历史数据
+    let default_root = state.default_data_root();
+    let default_root = default_root
+        .canonicalize()
+        .unwrap_or_else(|_| lexical_absolute(default_root));
     // 目标可能尚不存在：优先规范化已存在的父目录；不存在时词法绝对化
     let candidate = match destination
         .parent()
@@ -48,7 +54,7 @@ pub(crate) fn reject_data_root_destination<R: tauri::Runtime>(
         Some(parent) => parent.join(destination.file_name().unwrap_or_default()),
         None => lexical_absolute(destination),
     };
-    if candidate.starts_with(&root) {
+    if candidate.starts_with(&root) || candidate.starts_with(&default_root) {
         return Err(error::BackendError::new(
             "unsafe_export_destination",
             "导出目的地不能位于应用数据目录内",

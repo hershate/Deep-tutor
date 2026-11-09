@@ -100,6 +100,13 @@ pub fn reset_application<R: Runtime>(
             file_result?;
             credential_result?;
             super::plugins::reset_files(&state.plugins)?;
+            // 65#2：reset 清空了 agent/sync 两域表行，但两目录的文件原先
+            // 不在任何清理面——「数据已清空」后 scratch 产物与同步副本仍
+            // 在盘上。成功路径尽力删除两目录；失败的残留由孤儿扫描兜底
+            if let Some(user_root) = state.learning.workspace_path().parent() {
+                let _ = std::fs::remove_dir_all(user_root.join("agent-workspaces"));
+                let _ = std::fs::remove_dir_all(user_root.join("sync"));
+            }
             finish(&app, mutation)
         }
         Err(error) => {
@@ -282,6 +289,87 @@ mod tests {
         assert_eq!(reset["tasks"], json!([]));
         assert_eq!(reset["lastEventId"], 2);
         assert_eq!(received.lock().unwrap().len(), 2);
+    }
+
+    // 65#2：reset 成功后 agent-workspaces 与 sync 目录的文件证据一并清除
+    #[test]
+    fn reset_application_clears_agent_and_sync_directories() {
+        let app = test_app();
+        let user_root = app
+            .state::<BackendState>()
+            .learning
+            .workspace_path()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        std::fs::create_dir_all(user_root.join("agent-workspaces/9/scratch")).unwrap();
+        std::fs::write(user_root.join("agent-workspaces/9/scratch/a.json"), "{}").unwrap();
+        std::fs::create_dir_all(user_root.join("sync")).unwrap();
+        std::fs::write(user_root.join("sync/sync-1-0.json"), "{}").unwrap();
+        ipc(&app, "reset_application", json!({})).unwrap();
+        assert!(!user_root.join("agent-workspaces").exists());
+        assert!(!user_root.join("sync").exists());
+    }
+
+    // 65#6：被项目版本引用的资料删除须友好拒绝，不得静默 SET NULL 断链
+    #[test]
+    fn delete_material_referenced_by_project_version_is_rejected() {
+        let app = test_app();
+        let created = ipc(
+            &app,
+            "import_material_text",
+            json!({"title": "被项目引用", "content": "版本证据"}),
+        )
+        .unwrap();
+        let id = created["material"]["id"].as_i64().unwrap();
+        {
+            let state = app.state::<BackendState>();
+            let store = state.store.lock().unwrap();
+            store
+                .conn
+                .execute(
+                    "INSERT INTO project_versions (project_id, version_number, content, material_id, status, attempt, provider_id, created_at, updated_at) VALUES (1, 1, '版本', ?1, 'ready', 1, 'p1', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                    rusqlite::params![id],
+                )
+                .unwrap();
+        }
+        let error = ipc(&app, "delete_material", json!({"id": id})).unwrap_err();
+        assert_eq!(error["code"], "material_in_use");
+        assert!(error["message"].as_str().unwrap().contains("项目版本"));
+    }
+
+    // 65#5：导出目的地位于当前数据根或旧默认目录内均拒绝（迁移后旧默认
+    // 目录仍存历史库与原件）
+    #[test]
+    fn export_destination_inside_default_root_is_rejected() {
+        let app = test_app();
+        let data_root = tempfile::tempdir().unwrap();
+        let default_root = tempfile::tempdir().unwrap();
+        app.manage(crate::startup::StartupState::for_tests(
+            data_root.path(),
+            default_root.path(),
+        ));
+        let error = ipc(
+            &app,
+            "export_usage_csv_file",
+            json!({"destination": data_root.path().join("usage.csv").to_string_lossy()}),
+        )
+        .unwrap_err();
+        assert_eq!(error["code"], "unsafe_export_destination");
+        let error = ipc(
+            &app,
+            "export_usage_csv_file",
+            json!({"destination": default_root.path().join("usage.csv").to_string_lossy()}),
+        )
+        .unwrap_err();
+        assert_eq!(error["code"], "unsafe_export_destination");
+        let outside = tempfile::tempdir().unwrap();
+        ipc(
+            &app,
+            "export_usage_csv_file",
+            json!({"destination": outside.path().join("usage.csv").to_string_lossy()}),
+        )
+        .unwrap();
     }
 
     #[test]

@@ -19,6 +19,7 @@ export type MaintenanceReport = {
     scratch: FileItem[]
     plugins: FileItem[]
     tempdirs: FileItem[]
+    sync: FileItem[]
     missingOriginals: string[]
     issues: BackendError[]
   }
