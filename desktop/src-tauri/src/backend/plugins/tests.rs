@@ -306,7 +306,10 @@ fn event_namespaces_cover_whitelist() {
         }
     }
     // 提取器自检：已知事件缺失说明扫描失效（如调用形态变化），测试不得静默通过
-    assert!(emitted.contains("plan.adopted"), "源码扫描未提取到已知事件，提取器失效：{emitted:?}");
+    assert!(
+        emitted.contains("plan.adopted"),
+        "源码扫描未提取到已知事件，提取器失效：{emitted:?}"
+    );
     let prefixes: std::collections::BTreeSet<&str> = emitted
         .iter()
         .map(|name| name.split('.').next().unwrap())

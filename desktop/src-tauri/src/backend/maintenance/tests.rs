@@ -438,8 +438,14 @@ fn install_window_manifest_and_dir_get_grace() {
         .iter()
         .map(|item| item["path"].as_str().unwrap())
         .collect();
-    assert!(paths.contains(&"plugins/fresh.events/manifest.json"), "{paths:?}");
-    assert!(paths.contains(&"plugins/broken.events/manifest.json"), "{paths:?}");
+    assert!(
+        paths.contains(&"plugins/fresh.events/manifest.json"),
+        "{paths:?}"
+    );
+    assert!(
+        paths.contains(&"plugins/broken.events/manifest.json"),
+        "{paths:?}"
+    );
     let cleaned = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
     assert_eq!(cleaned["deletedFiles"], 2);
     assert!(!root.join("plugins/fresh.events").exists());
@@ -465,7 +471,11 @@ fn installed_plugin_missing_manifest_is_reported() {
         ).unwrap();
     }
     // zombie.events：整目录不存在；half.events：目录在、manifest.json 缺失
-    write(root, "plugins/half.events/keep.txt", "安装态目录不被孤儿清理触碰");
+    write(
+        root,
+        "plugins/half.events/keep.txt",
+        "安装态目录不被孤儿清理触碰",
+    );
     let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
     let missing: Vec<&str> = report["orphans"]["issues"]
         .as_array()
@@ -475,8 +485,12 @@ fn installed_plugin_missing_manifest_is_reported() {
         .map(|issue| issue["message"].as_str().unwrap())
         .collect();
     assert_eq!(missing.len(), 2, "{missing:?}");
-    assert!(missing.iter().any(|message| message.contains("zombie.events")));
-    assert!(missing.iter().any(|message| message.contains("half.events")));
+    assert!(missing
+        .iter()
+        .any(|message| message.contains("zombie.events")));
+    assert!(missing
+        .iter()
+        .any(|message| message.contains("half.events")));
     let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
     assert_eq!(cleanup["deletedFiles"], 0, "安装态目录不得被孤儿清理触碰");
     assert!(root.join("plugins/half.events/keep.txt").is_file());
@@ -496,7 +510,11 @@ fn cleanup_accounts_directory_bytes() {
         "plugins/gone.events/manifest.json",
         &json!({"id": "gone.events", "name": "孤儿", "version": "1.0.0", "description": "整目录回收", "kind": "events", "subscriptions": []}).to_string(),
     );
-    write(root, "plugins/gone.events/assets/payload.bin", &"x".repeat(8192));
+    write(
+        root,
+        "plugins/gone.events/assets/payload.bin",
+        &"x".repeat(8192),
+    );
     let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
     assert_eq!(report["orphans"]["plugins"].as_array().unwrap().len(), 1);
     let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();

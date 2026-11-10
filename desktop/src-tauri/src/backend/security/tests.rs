@@ -642,7 +642,10 @@ fn restart_after_logout_does_not_silently_relogin() {
         .build()
         .unwrap();
     let after_restart = ipc(&app2, "get_security_overview", json!({})).unwrap();
-    assert_eq!(after_restart["requiresLogin"], true, "重启后不得自动恢复会话");
+    assert_eq!(
+        after_restart["requiresLogin"], true,
+        "重启后不得自动恢复会话"
+    );
     assert_eq!(after_restart["currentUser"], Value::Null);
     let rows: i64 = restarted
         .store()
@@ -650,7 +653,10 @@ fn restart_after_logout_does_not_silently_relogin() {
         .conn
         .query_row("SELECT COUNT(*) FROM auth_sessions", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(rows, 1, "重启后不得插入新会话行（既有一行为登出留下的已撤销行）");
+    assert_eq!(
+        rows, 1,
+        "重启后不得插入新会话行（既有一行为登出留下的已撤销行）"
+    );
     // 显式登录仍可恢复
     let renewed = ipc(&app2, "login_local_user", json!({"userId":1})).unwrap();
     assert_eq!(renewed["currentUser"]["role"], "管理员");

@@ -34,7 +34,7 @@ flowchart LR
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，229 个测试串行全绿。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，239 个测试串行全绿。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:630-692 `mock_app/ipc` 辅助函数）。

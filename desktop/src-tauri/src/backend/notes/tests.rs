@@ -526,9 +526,8 @@ fn declared_size_lies_are_capped_by_real_total() {
 
 fn patch_declared_uncompressed_sizes(raw: &mut [u8], value: u32) {
     let le_u16 = |raw: &[u8], at: usize| u16::from_le_bytes([raw[at], raw[at + 1]]) as usize;
-    let le_u32 = |raw: &[u8], at: usize| {
-        u32::from_le_bytes(raw[at..at + 4].try_into().unwrap()) as usize
-    };
+    let le_u32 =
+        |raw: &[u8], at: usize| u32::from_le_bytes(raw[at..at + 4].try_into().unwrap()) as usize;
     let eocd = raw
         .windows(4)
         .rposition(|window| window == b"PK\x05\x06")

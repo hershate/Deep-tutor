@@ -1149,10 +1149,13 @@ fn lecture_terminal_respects_late_cancellation() {
             "INSERT OR REPLACE INTO learning_lectures (plan_id, stage_id, version, status, current_unit, updated_at) VALUES (?1, 'stage-1', 1, ?2, 2, ?3)",
             params![plan_id, status, timestamp],
         ).unwrap();
-        store.conn.execute(
-            "DELETE FROM learning_lecture_versions WHERE plan_id = ?1 AND stage_id = 'stage-1'",
-            params![plan_id],
-        ).unwrap();
+        store
+            .conn
+            .execute(
+                "DELETE FROM learning_lecture_versions WHERE plan_id = ?1 AND stage_id = 'stage-1'",
+                params![plan_id],
+            )
+            .unwrap();
         store.conn.execute(
             "DELETE FROM events WHERE kind LIKE 'lecture.%' AND json_extract(payload, '$.planId') = ?1",
             params![format!("plan-{plan_id}")],
@@ -1175,6 +1178,10 @@ fn lecture_terminal_respects_late_cancellation() {
         params![plan_id, format!("plan-{plan_id}")],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).unwrap();
-    assert_eq!((status.as_str(), versions, completed), ("cancelled", 0, 0), "取消不得被覆写为 done");
+    assert_eq!(
+        (status.as_str(), versions, completed),
+        ("cancelled", 0, 0),
+        "取消不得被覆写为 done"
+    );
     assert_eq!(cancelled_rows, 1, "取消终态应有 cancelled 事件");
 }

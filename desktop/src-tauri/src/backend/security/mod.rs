@@ -816,9 +816,7 @@ fn initialize<R: Runtime>(
             let ever_issued: i64 =
                 store
                     .conn
-                    .query_row("SELECT COUNT(*) FROM auth_sessions", [], |row| {
-                        row.get(0)
-                    })?;
+                    .query_row("SELECT COUNT(*) FROM auth_sessions", [], |row| row.get(0))?;
             if ever_issued > 0 {
                 return Err(error);
             }

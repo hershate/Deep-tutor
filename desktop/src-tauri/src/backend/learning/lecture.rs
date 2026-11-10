@@ -721,14 +721,7 @@ fn run<R: Runtime>(
         let content = unit(app, state, &plan, stage_id, version, index, &sources)?;
         complete_unit(app, state, id, stage_id, version, index, &content)?;
     }
-    finish_lecture(
-        app,
-        state,
-        id,
-        stage_id,
-        version,
-        stage.node_ids.len(),
-    )
+    finish_lecture(app, state, id, stage_id, version, stage.node_ids.len())
 }
 
 /// 119#2：整段完成落库收敛为独立函数（供回归测试直调）——终态 UPDATE
