@@ -716,8 +716,21 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
             )?;
         }
     }
+    // 95#1：保留窗口——每日 2-4 条新行且原先只增不减（53#11 自认「表只增
+    // 不减」），一年约 800 行沉淀且全部进备份；删除已读且超过 30 天的行
+    //（未读不删，避免删掉角标仍在数的条目）
+    let retention_floor = timestamp(
+        (super::store::now_local() - Duration::days(30)).to_offset(time::UtcOffset::UTC),
+    )?;
+    store.conn.execute(
+        "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?1",
+        params![retention_floor],
+    )?;
+    // 95#1：unreadCount 收敛为可见 50 条内的未读数——原先全表计数，列表
+    // LIMIT 50 之外的更早未读不可见也无法单条已读，角标 63 与列表 50 条
+    // 打架；「全部已读」仍能一键清零
     let unread_count: i64 = store.conn.query_row(
-        "SELECT COUNT(*) FROM notifications WHERE read_at IS NULL",
+        "SELECT COUNT(*) FROM (SELECT read_at FROM notifications ORDER BY created_at DESC, id DESC LIMIT 50) WHERE read_at IS NULL",
         [],
         |row| row.get(0),
     )?;

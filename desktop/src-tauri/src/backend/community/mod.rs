@@ -243,7 +243,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     )?;
     // 31#33：25#15 只改写入路径，存量 '+08:00' 行与 Z 串做字典序比较会错序
     // 8 小时（claim 提前/推迟触发、rooms ORDER BY start_at 混排）——回填
-    // Z 形态；无法解析的行保持原样（到期判定走 parse_time 不受影响）
+    // Z 形态；无法解析的行保持原样。95#5 口径澄清：claim 的到期判定
+    // （remind_at <= now 的 Z 串）是纯字典序比较、不走 parse_time，毒行
+    // 的排序任意（偏晚或永不触发），但毒行本身无有效投递语义
     {
         let rooms: Vec<(i64, String)> = {
             let mut statement = conn
@@ -840,8 +842,13 @@ pub fn reserve<R: Runtime>(
     id: i64,
 ) -> Result<RoomView> {
     let store = state.store()?;
-    let (group_id, start_at, duration, status): (Option<i64>, String, i64, String) = store
-        .conn
+    // 34#11：IMMEDIATE——31#35 只把 create_room 挪进写事务，预约的重叠检查
+    // 仍在 DEFERRED 读快照上做（注释与实现不符）。
+    // 95#2：房间状态/开始时间读取一并移入事务——原先快照读在事务外，
+    // cancel_room 在 t1 提交后，reserve 在 t2 拿到写锁仍按旧快照插入预约
+    // 与提醒，已取消房间残留 active 预约（TOCTOU，与 31#35/34#11 同型）
+    let tx = store.write_transaction()?;
+    let (group_id, start_at, duration, status): (Option<i64>, String, i64, String) = tx
         .query_row(
             "SELECT group_id, start_at, duration_minutes, status FROM community_rooms WHERE id = ?1",
             params![id],
@@ -849,15 +856,17 @@ pub fn reserve<R: Runtime>(
         )
         .optional()?
         .ok_or_else(|| BackendError::new("not_found", "学习预约不存在"))?;
-    if status != "scheduled" || parse_time(&start_at)? <= OffsetDateTime::now_utc() {
+    // 95#2 附带：毒行 start_at（34#19 场景）按不可预约处理，与 create_room
+    // 跳毒行的策略对齐，不再整体报存储错误
+    let started = parse_time(&start_at)
+        .map(|start| start <= OffsetDateTime::now_utc())
+        .unwrap_or(true);
+    if status != "scheduled" || started {
         return Err(BackendError::new(
             "room_not_available",
             "已取消或过期的时间不能预约",
         ));
     }
-    // 34#11：IMMEDIATE——31#35 只把 create_room 挪进写事务，预约的重叠检查
-    // 仍在 DEFERRED 读快照上做（注释与实现不符）
-    let tx = store.write_transaction()?;
     let existing: Option<Option<String>> = tx
         .query_row(
             "SELECT cancelled_at FROM community_reservations WHERE room_id = ?1",
@@ -975,7 +984,10 @@ pub fn claim_due_reminders<R: Runtime>(
 ) -> Result<Vec<ReminderView>> {
     let store = state.store()?;
     let timestamp = now()?;
-    let tx = store.conn.unchecked_transaction()?;
+    // 95#3：IMMEDIATE + delivered_at 守卫——原先 DEFERRED 快照读 + 无守卫
+    // 盲写，两个并发领取（60s 轮询与 visibilitychange 立即领取互不等待）
+    // 会重复投递同一批提醒（前端重复弹层、事件流重复行）
+    let tx = store.write_transaction()?;
     let mut statement = tx.prepare("SELECT r.id, r.room_id, rooms.title, rooms.start_at, r.remind_at FROM community_reminders r JOIN community_rooms rooms ON rooms.id = r.room_id JOIN community_reservations reservations ON reservations.room_id = r.room_id AND reservations.cancelled_at IS NULL WHERE r.remind_at <= ?1 AND r.delivered_at IS NULL AND rooms.status = 'scheduled' ORDER BY r.id")?;
     let rows = statement
         .query_map(params![timestamp], |row| {
@@ -992,10 +1004,15 @@ pub fn claim_due_reminders<R: Runtime>(
     let mut events = Vec::new();
     let mut reminders = Vec::new();
     for (id, room_id, title, start_at, remind_at) in rows {
-        tx.execute(
-            "UPDATE community_reminders SET delivered_at = ?1 WHERE id = ?2",
+        // 95#3：守卫更新——changed==0 说明并发领取已交付，跳过该行的事件
+        // 发送（与 25#18/31#35 的「写路径一律条件守卫」模式一致）
+        let changed = tx.execute(
+            "UPDATE community_reminders SET delivered_at = ?1 WHERE id = ?2 AND delivered_at IS NULL",
             params![timestamp, id],
         )?;
+        if changed == 0 {
+            continue;
+        }
         events.push(Store::event(
             &tx,
             "community.reminder_due",
@@ -1043,10 +1060,13 @@ pub fn overview(
             likes: count(&store.conn, "community_reactions", "kind = 'like'")?,
             bookmarks: count(&store.conn, "community_reactions", "kind = 'bookmark'")?,
             joined_groups: count(&store.conn, "community_group_members", "left_at IS NULL")?,
+            // 95#4：房间无「已结束」终态，cancelled_at IS NULL 会把历史预约
+            // 永久计为进行中；收紧为「未取消且结束时间尚未过去」——
+            // start_at 为 RFC3339 UTC 串，用 datetime() 截到分钟后与 now 比较
             active_reservations: count(
                 &store.conn,
-                "community_reservations",
-                "cancelled_at IS NULL",
+                "community_reservations JOIN community_rooms ON community_rooms.id = community_reservations.room_id",
+                "community_reservations.cancelled_at IS NULL AND datetime(community_rooms.start_at, '+' || community_rooms.duration_minutes || ' minutes') >= datetime('now')",
             )?,
         },
         now: now()?,
