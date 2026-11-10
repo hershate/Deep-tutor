@@ -50,9 +50,17 @@ pub fn list_materials(state: State<'_, BackendState>) -> Result<Vec<Material>> {
     list(&state.materials)
 }
 
-#[tauri::command]
-pub fn get_material(state: State<'_, BackendState>, id: i64) -> Result<MaterialDetail> {
-    detail(&state.materials, id)
+// 90#12：资料详情整篇正文经 IPC 返回（MB 级 JSON 序列化 + material_text
+// 读库），移后台减少详情页打开时主线程占用（契约不变）
+#[tauri::command(async)]
+pub async fn get_material(
+    state: State<'_, BackendState>,
+    id: i64,
+) -> Result<MaterialDetail> {
+    let materials = state.materials.shared();
+    tauri::async_runtime::spawn_blocking(move || detail(&materials, id))
+        .await
+        .map_err(|_| BackendError::new("internal_error", "资料详情读取任务执行异常终止"))?
 }
 
 #[tauri::command]
@@ -108,49 +116,70 @@ pub async fn export_material_original<R: Runtime + 'static>(
     })?
 }
 
-#[tauri::command]
-pub fn export_material_text<R: Runtime>(
+// 90#6：解析文本导出（整篇文本哈希 + 写盘）移后台，随导出族一并收口
+#[tauri::command(async)]
+pub async fn export_material_text<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
     id: i64,
     destination: String,
 ) -> Result<Value> {
+    use tauri::Manager;
     super::super::reject_data_root_destination(&app, Path::new(&destination))?;
-    let result = super::export_text(&state.materials, id, Path::new(&destination));
-    if result.is_ok() {
-        // 72#2：导出回执登记（reveal_path 白名单）
-        super::super::reveal::register(Path::new(&destination));
-    }
-    result
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<BackendState>();
+        let result = super::export_text(&state.materials, id, Path::new(&destination));
+        if result.is_ok() {
+            // 72#2：导出回执登记（reveal_path 白名单）
+            super::super::reveal::register(Path::new(&destination));
+        }
+        result
+    })
+    .await
+    .map_err(|_| BackendError::new("internal_error", "解析文本导出任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn get_material_media_info(
+// 90#6：info 全量流式 SHA-256（≤50MB 原件逐块读+哈希）移后台——
+// E-3 只解决了不整读进内存，未解决线程位置
+#[tauri::command(async)]
+pub async fn get_material_media_info(
     state: State<'_, BackendState>,
     id: i64,
 ) -> Result<super::media::MediaInfo> {
-    super::media::info(&state.materials, id)
+    let materials = state.materials.shared();
+    tauri::async_runtime::spawn_blocking(move || super::media::info(&materials, id))
+        .await
+        .map_err(|_| BackendError::new("internal_error", "媒体信息读取任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn read_material_media_chunk(
+// 90#12：媒体分块高频读（视频拖动进度条每次数十 ms 文件 IO）移后台，
+// 25#4 分块协议不变
+#[tauri::command(async)]
+pub async fn read_material_media_chunk(
     state: State<'_, BackendState>,
     id: i64,
     offset: u64,
     length: u64,
 ) -> Result<tauri::ipc::Response> {
+    let materials = state.materials.shared();
     // 46#2：二进制应答（数字数组 JSON 通道的 3–4× 内存峰值消除）
-    Ok(tauri::ipc::Response::new(super::media::chunk_bytes(
-        &state.materials,
-        id,
-        offset,
-        length,
-    )?))
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        super::media::chunk_bytes(&materials, id, offset, length)
+    })
+    .await
+    .map_err(|_| BackendError::new("internal_error", "媒体数据读取任务执行异常终止"))??;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
-#[tauri::command]
-pub fn verify_material_media(state: State<'_, BackendState>, id: i64) -> Result<()> {
-    super::media::verify(&state.materials, id)
+// 90#6：完整性校验（≤50MB 原件流式 SHA-256）移后台
+#[tauri::command(async)]
+pub async fn verify_material_media(
+    state: State<'_, BackendState>,
+    id: i64,
+) -> Result<()> {
+    let materials = state.materials.shared();
+    tauri::async_runtime::spawn_blocking(move || super::media::verify(&materials, id))
+        .await
+        .map_err(|_| BackendError::new("internal_error", "媒体校验任务执行异常终止"))?
 }
 
 #[tauri::command(async)]

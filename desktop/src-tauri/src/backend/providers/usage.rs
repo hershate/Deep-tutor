@@ -79,7 +79,7 @@ pub struct UsageSummary {
     pub missing_usage: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageDay {
     pub date: String,
@@ -331,35 +331,45 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
     let entries = entries(&store.conn)?;
     let local = super::super::store::now_local();
     let today = local.date();
-    let mut daily = Vec::new();
-    for offset in (0..days).rev() {
-        let date = today
-            .checked_sub(Duration::days(offset as i64))
-            .ok_or_else(|| BackendError::new("invalid_usage_days", "用量日期无效"))?;
-        let mut day = UsageDay {
+    // 90#4：单遍分桶聚合——原先按天 × 全量 entries 逐条 RFC3339 解析过滤
+    // 为 O(天数×行数)，2 万行 × 31 天即 62 万次解析；每行只解析一次
+    let mut buckets: HashMap<time::Date, UsageDay> = HashMap::new();
+    let mut by_date: HashMap<time::Date, Vec<&UsageEntry>> = HashMap::new();
+    for entry in &entries {
+        let Ok(date) = local_date(&entry.created_at, local.offset()) else {
+            continue;
+        };
+        let day = buckets.entry(date).or_insert_with(|| UsageDay {
             date: date.to_string(),
             cost: 0.0,
             input_tokens: 0,
             output_tokens: 0,
             requests: 0,
             unpriced_requests: 0,
-        };
-        for entry in entries
-            .iter()
-            .filter(|entry| local_date(&entry.created_at, local.offset()).ok() == Some(date))
-        {
-            day.requests += 1;
-            day.cost += entry.cost.unwrap_or(0.0);
-            day.input_tokens += entry.input_tokens.unwrap_or(0);
-            day.output_tokens += entry.output_tokens.unwrap_or(0);
-            day.unpriced_requests += u32::from(entry.cost.is_none());
-        }
-        daily.push(day);
+        });
+        day.requests += 1;
+        day.cost += entry.cost.unwrap_or(0.0);
+        day.input_tokens += entry.input_tokens.unwrap_or(0);
+        day.output_tokens += entry.output_tokens.unwrap_or(0);
+        day.unpriced_requests += u32::from(entry.cost.is_none());
+        by_date.entry(date).or_default().push(entry);
     }
-    let today_entries = entries
-        .iter()
-        .filter(|entry| local_date(&entry.created_at, local.offset()).ok() == Some(today))
-        .collect::<Vec<_>>();
+    let empty_day = |date: time::Date| UsageDay {
+        date: date.to_string(),
+        cost: 0.0,
+        input_tokens: 0,
+        output_tokens: 0,
+        requests: 0,
+        unpriced_requests: 0,
+    };
+    let mut daily = Vec::new();
+    for offset in (0..days).rev() {
+        let date = today
+            .checked_sub(Duration::days(offset as i64))
+            .ok_or_else(|| BackendError::new("invalid_usage_days", "用量日期无效"))?;
+        daily.push(buckets.get(&date).cloned().unwrap_or_else(|| empty_day(date)));
+    }
+    let today_entries: Vec<&UsageEntry> = by_date.get(&today).cloned().unwrap_or_default();
     let summary = UsageSummary {
         today_cost: today_entries.iter().filter_map(|entry| entry.cost).sum(),
         input_tokens: today_entries
@@ -391,20 +401,16 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
     };
     // 77#2：模型明细/份额按所选窗口聚合——原先遍历全部历史 entries，与并排
     // 的「近 N 日已计价成本」趋势图窗口不一致，旧月份的大额成本会把份额
-    // 顶成 100% 造成账单误读
+    // 顶成 100% 造成账单误读；90#4：复用分桶结果不再二次解析
     let window_start = daily
         .first()
         .map(|day| day.date.as_str())
         .unwrap_or_default();
-    let windowed: Vec<&UsageEntry> = entries
+    let windowed: Vec<&UsageEntry> = by_date
         .iter()
-        .filter(|entry| {
-            local_date(&entry.created_at, local.offset())
-                .ok()
-                .and_then(|date| Some(date.to_string()))
-                .map(|date| date >= window_start.to_string())
-                .unwrap_or(false)
-        })
+        .filter(|(date, _)| date.to_string().as_str() >= window_start)
+        .flat_map(|(_, list)| list.iter())
+        .copied()
         .collect();
     let mut models: HashMap<(String, String), ModelUsage> = HashMap::new();
     for entry in &windowed {

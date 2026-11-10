@@ -227,12 +227,23 @@ pub async fn route_provider_chat<R: Runtime>(
     })?
 }
 
-#[tauri::command]
-pub fn get_usage_overview(
-    state: State<'_, BackendState>,
+// 90#4：用量总览对 provider_requests（库中最大表，86#1 裁剪后仍至多
+// 2 万行）做五表 JOIN 全量物化 + 聚合，原先同步命令在主线程执行，行数
+// 多时秒级冻结；移后台（73#8 范式）
+#[tauri::command(async)]
+pub async fn get_usage_overview<R: Runtime + 'static>(
+    app: AppHandle<R>,
     days: Option<u32>,
 ) -> Result<super::usage::UsageOverview> {
-    super::usage::overview(&state.providers, days)
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<BackendState>();
+        super::usage::overview(&state.providers, days)
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "用量统计任务执行异常终止")
+    })?
 }
 
 #[tauri::command]
@@ -254,13 +265,21 @@ pub fn upsert_usage_rate<R: Runtime>(
 }
 
 /// 37#5：用量 CSV 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）；
-/// 61 号：内存版 export_usage_csv 命令已删（前端零调用）
-#[tauri::command]
-pub fn export_usage_csv_file<R: Runtime>(
+/// 61 号：内存版 export_usage_csv 命令已删（前端零调用）。
+/// 90#4：CSV 走同一条五表 JOIN 全量物化，移后台与 get_usage_overview 同族
+#[tauri::command(async)]
+pub async fn export_usage_csv_file<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
     destination: String,
 ) -> Result<Value> {
-    let content = super::usage::export_csv(&state.providers)?;
-    super::super::write_export_bytes(&app, &destination, content.as_bytes())
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<BackendState>();
+        let content = super::usage::export_csv(&state.providers)?;
+        super::super::write_export_bytes(&app, &destination, content.as_bytes())
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "用量导出任务执行异常终止")
+    })?
 }
