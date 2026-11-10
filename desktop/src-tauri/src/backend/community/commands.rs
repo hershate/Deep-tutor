@@ -1,17 +1,29 @@
-use super::super::{error::Result, BackendState};
+use super::super::{
+    error::{BackendError, Result},
+    BackendState,
+};
 use super::{
     CommunityOverview, GroupInput, GroupView, PostInput, PostView, ReminderView, ReplyView,
     RoomInput, RoomView,
 };
 use tauri::{AppHandle, Runtime, State};
 
-#[tauri::command]
-pub fn get_community_overview(
+// 124#3：社区概览是重读命令（500 帖 + 回复 + 100 组 + 100 房间），原先
+// 主线程同步执行——帖子量增长后窗口冻结面线性放大（engagement/sync/
+// sharing 均已移后台，此处是最后缺口）；数据为单机本地（作者恒「本机
+// 用户」），无 principal 依赖
+#[tauri::command(async)]
+pub async fn get_community_overview(
     state: State<'_, BackendState>,
     kind: Option<String>,
     query: Option<String>,
 ) -> Result<CommunityOverview> {
-    super::overview(&state.community, kind.as_deref(), query.as_deref())
+    let community = state.community.shared();
+    tauri::async_runtime::spawn_blocking(move || {
+        super::overview(&community, kind.as_deref(), query.as_deref())
+    })
+    .await
+    .map_err(|_| BackendError::new("internal_error", "社区概览读取异常终止"))?
 }
 
 #[tauri::command]

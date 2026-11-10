@@ -481,7 +481,7 @@ fn upload_anchor_uses_rowid_order_not_text_id_lexicographic_order() {
     insert("sync-9999-1", "2026-01-01T00:00:00Z");
     insert("sync-1000-5", "2026-06-01T00:00:00Z");
     let (anchor, status) = scheduler::upload_anchor(&store.conn).unwrap().unwrap();
-    assert_eq!(anchor, "2026-06-01T00:00:00Z");
+    assert_eq!(anchor.as_deref(), Some("2026-06-01T00:00:00Z"));
     assert_eq!(status.as_deref(), Some("done"));
     // download/kind 行不参与 upload 锚点
     store
@@ -493,7 +493,20 @@ fn upload_anchor_uses_rowid_order_not_text_id_lexicographic_order() {
         )
         .unwrap();
     let (anchor, _) = scheduler::upload_anchor(&store.conn).unwrap().unwrap();
-    assert_eq!(anchor, "2026-06-01T00:00:00Z");
+    assert_eq!(anchor.as_deref(), Some("2026-06-01T00:00:00Z"));
+    // 124#4：最新 upload 行 finished_at 为 NULL（进行中）——按 Option 读出
+    // 不再抛 InvalidColumnType，调度层按「本轮跳过」处理
+    store
+        .conn
+        .execute(
+            "INSERT INTO sync_jobs (id, kind, status, config_json, remote_path, created_at, updated_at, finished_at)
+             VALUES ('sync-1000-7', 'upload', 'running', '{}', 'p', '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z', NULL)",
+            [],
+        )
+        .unwrap();
+    let (anchor, status) = scheduler::upload_anchor(&store.conn).unwrap().unwrap();
+    assert_eq!(anchor, None);
+    assert_eq!(status.as_deref(), Some("running"));
 }
 
 #[test]

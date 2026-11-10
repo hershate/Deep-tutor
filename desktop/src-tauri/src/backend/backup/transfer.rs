@@ -325,6 +325,27 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                     transfer.reused.insert(reuse_key.clone());
                 }
             }
+            if *table == "local_users" {
+                // 124#2：同机重复导入/导出者自恢复原先按主键冲突 MAX+1
+                // 重映射插入——账号列表（deleted_at IS NULL ORDER BY id）长出
+                // 同名自己，每轮导入 +1 行；按 display_name+role 复用已有行
+                //（镜像 23#5 quotas 的按原键跳过语义），行内容保留目标侧
+                let display = row.get("display_name").and_then(Value::as_str);
+                let role = row.get("role").and_then(Value::as_str);
+                if let (Some(display), Some(role)) = (display, role) {
+                    if let Some(id) = target
+                        .query_row(
+                            "SELECT id FROM local_users WHERE display_name = ?1 AND role = ?2 ORDER BY id LIMIT 1",
+                            params![display, role],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .optional()?
+                    {
+                        mapped = Value::from(id);
+                        transfer.reused.insert(reuse_key.clone());
+                    }
+                }
+            }
             if *table == "materials" {
                 if let Some(hash) = row.get("sha256").and_then(Value::as_str) {
                     if let Some(id) = target
@@ -1210,6 +1231,13 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
             .and_then(Value::as_str)
             .ok_or_else(invalid_record)?;
         return exists(tx, table, "request_id", &Value::String(request.into()));
+    }
+    // 124#2：prepare_ids 按 display_name+role 把备份账号映射到既有行——
+    // 映射后主键即目标已有 id，按主键跳过插入；未命中的行已被重映射到
+    // 空闲 id，此处恒 false 正常插入（镜像 23#5 的按原键跳过语义）
+    if table == "local_users" {
+        let id = row.get("id").ok_or_else(invalid_record)?;
+        return exists(tx, table, "id", id);
     }
     let key = match table {
         "meta" | "provider_meta" => "key",

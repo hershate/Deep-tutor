@@ -35,6 +35,15 @@ impl CommunityState {
         })
     }
 
+    /// 124#3：重读命令移后台用——路径克隆即可，tempdir 守卫由托管原件持有
+    pub fn shared(&self) -> Self {
+        Self {
+            database_path: self.database_path.clone(),
+            #[cfg(test)]
+            _guard: None,
+        }
+    }
+
     pub fn store(&self) -> Result<Store> {
         Store::new(self.database_path.clone())
     }
@@ -373,18 +382,23 @@ fn posts(conn: &Connection, kind: Option<&str>, query: Option<&str>) -> Result<V
             return Err(BackendError::invalid("invalid_post_kind", "讨论类型无效"));
         }
     }
-    let query = query.unwrap_or("").trim().to_lowercase();
+    // 124#8：长度先于 lowercase 判定（对齐 engagement 口径）——İ 等字符
+    // lowercase 后字节膨胀，先转换再判会让前端已放行的 200 字节输入被拒
+    let query = query.unwrap_or("").trim();
     if query.len() > 200 {
         return Err(BackendError::invalid(
             "invalid_search_query",
             "搜索词不能超过 200 字节",
         ));
     }
+    let query = query.to_lowercase();
     // 13#13：关键词下推 SQL LIKE（配额量级 500），不再“先 LIMIT 200 再内存
     // 过滤”——否则第 201 条以后的旧帖即使完全匹配也永远搜不到
     // B-10：转义须先处理 ~ 自身（ESAPE 字符），否则含 ~ 的查询把 ~x 当
     // 字面 x 永远匹配不到原文；大小写比较用注册的 uni_lower（SQL 内建
     // lower 仅覆盖 ASCII，非 ASCII 字母变体检索由不敏感变回敏感）
+    // 124#3：列表聚合单查询——原先逐帖 post_row（每帖 4 查询 + 逐回复 1
+    // 查询），500 帖上限时单次 overview 2000+ 次查询
     let pattern = if query.is_empty() {
         String::new()
     } else {
@@ -397,18 +411,68 @@ fn posts(conn: &Connection, kind: Option<&str>, query: Option<&str>) -> Result<V
         )
     };
     let mut statement = conn.prepare(
-        "SELECT id FROM community_posts
-         WHERE (?1 IS NULL OR kind = ?1)
-           AND (?2 = '' OR uni_lower(title || ' ' || body) LIKE uni_lower(?2) ESCAPE '~')
-         ORDER BY id DESC LIMIT 500",
+        "SELECT p.id, p.title, p.body, p.kind, p.project_id, p.project_title, p.created_at, p.updated_at,
+            (SELECT COUNT(*) FROM community_reactions r WHERE r.post_id = p.id AND r.kind = 'like') AS likes,
+            EXISTS(SELECT 1 FROM community_reactions l WHERE l.post_id = p.id AND l.kind = 'like') AS liked,
+            EXISTS(SELECT 1 FROM community_reactions b WHERE b.post_id = p.id AND b.kind = 'bookmark') AS bookmarked
+         FROM community_posts p
+         WHERE (?1 IS NULL OR p.kind = ?1)
+           AND (?2 = '' OR uni_lower(p.title || ' ' || p.body) LIKE uni_lower(?2) ESCAPE '~')
+         ORDER BY p.id DESC LIMIT 500",
     )?;
-    let ids = statement
-        .query_map(params![kind, pattern], |row| row.get::<_, i64>(0))?
+    let mut result = statement
+        .query_map(params![kind, pattern], |row| {
+            Ok(PostView {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                body: row.get(2)?,
+                kind: row.get(3)?,
+                project_id: row.get(4)?,
+                project_title: row.get(5)?,
+                author: "本机用户".into(),
+                likes: row.get(8)?,
+                liked: row.get(9)?,
+                bookmarked: row.get(10)?,
+                replies: Vec::new(),
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
-    let mut result = Vec::new();
-    for id in ids {
-        result.push(post_row(conn, id)?);
+    if !result.is_empty() {
+        let placeholders = vec!["?"; result.len()].join(",");
+        let sql = format!(
+            "SELECT id, post_id, body, accepted, created_at FROM community_replies
+             WHERE post_id IN ({placeholders}) ORDER BY id"
+        );
+        let mut statement = conn.prepare(&sql)?;
+        let mut by_post: std::collections::HashMap<i64, Vec<ReplyView>> =
+            std::collections::HashMap::new();
+        let rows = statement
+            .query_map(
+                rusqlite::params_from_iter(result.iter().map(|post| post.id)),
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(1)?,
+                        ReplyView {
+                            id: row.get(0)?,
+                            post_id: row.get(1)?,
+                            body: row.get(2)?,
+                            author: "本机用户".into(),
+                            accepted: row.get(3)?,
+                            created_at: row.get(4)?,
+                        },
+                    ))
+                },
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for (post_id, reply) in rows {
+            by_post.entry(post_id).or_default().push(reply);
+        }
+        for post in &mut result {
+            post.replies = by_post.remove(&post.id).unwrap_or_default();
+        }
     }
     Ok(result)
 }
@@ -624,13 +688,27 @@ fn group_row(conn: &Connection, id: i64) -> Result<GroupView> {
 }
 
 fn groups(conn: &Connection) -> Result<Vec<GroupView>> {
-    let mut statement =
-        conn.prepare("SELECT id FROM community_groups ORDER BY id DESC LIMIT 100")?;
-    let ids = statement
-        .query_map([], |row| row.get::<_, i64>(0))?
+    // 124#3：聚合单查询——原先逐组 group_row 3 次查询（100 组 300 次）
+    let mut statement = conn.prepare(
+        "SELECT g.id, g.name, g.topic, g.schedule, g.created_at,
+            EXISTS(SELECT 1 FROM community_group_members m WHERE m.group_id = g.id AND m.left_at IS NULL) AS joined,
+            (SELECT COUNT(*) FROM community_group_members c WHERE c.group_id = g.id AND c.left_at IS NULL) AS member_count
+         FROM community_groups g ORDER BY g.id DESC LIMIT 100",
+    )?;
+    let result = statement
+        .query_map([], |row| {
+            Ok(GroupView {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                topic: row.get(2)?,
+                schedule: row.get(3)?,
+                joined: row.get(5)?,
+                member_count: row.get(6)?,
+                created_at: row.get(4)?,
+            })
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    drop(statement);
-    ids.into_iter().map(|id| group_row(conn, id)).collect()
+    Ok(result)
 }
 
 pub fn create_group<R: Runtime>(
@@ -735,13 +813,32 @@ fn room_row(conn: &Connection, id: i64) -> Result<RoomView> {
 }
 
 fn rooms(conn: &Connection) -> Result<Vec<RoomView>> {
-    let mut statement =
-        conn.prepare("SELECT id FROM community_rooms ORDER BY start_at DESC LIMIT 100")?;
-    let ids = statement
-        .query_map([], |row| row.get::<_, i64>(0))?
+    // 124#3：聚合单查询——原先逐房间 room_row 4 次查询（100 房间 400 次）
+    let mut statement = conn.prepare(
+        "SELECT r.id, r.group_id, r.title, r.topic, r.start_at, r.duration_minutes, r.status, r.created_at,
+            EXISTS(SELECT 1 FROM community_reservations v WHERE v.room_id = r.id AND v.cancelled_at IS NULL) AS reserved,
+            (SELECT COUNT(*) FROM community_reservations c WHERE c.room_id = r.id AND c.cancelled_at IS NULL) AS reservation_count,
+            (SELECT m.remind_at FROM community_reminders m WHERE m.room_id = r.id LIMIT 1) AS reminder_at
+         FROM community_rooms r ORDER BY r.start_at DESC LIMIT 100",
+    )?;
+    let result = statement
+        .query_map([], |row| {
+            Ok(RoomView {
+                id: row.get(0)?,
+                group_id: row.get(1)?,
+                title: row.get(2)?,
+                topic: row.get(3)?,
+                start_at: row.get(4)?,
+                duration_minutes: row.get(5)?,
+                status: row.get(6)?,
+                reserved: row.get(8)?,
+                reservation_count: row.get(9)?,
+                reminder_at: row.get(10)?,
+                created_at: row.get(7)?,
+            })
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    drop(statement);
-    ids.into_iter().map(|id| room_row(conn, id)).collect()
+    Ok(result)
 }
 
 /// 03#13-12：[start, end) 与现有排期重叠时拒绝——同一时段只保留一个学习预约
@@ -995,7 +1092,9 @@ pub fn claim_due_reminders<R: Runtime>(
     // 114#7：补结束时间上界——原先只查 remind_at<=now 且未投递，房间已结束
     // （无终态、status 仍 scheduled）后重开应用会领取过期提醒，弹「即将
     // 开始」指向一场已结束的学习；口径与 95#4 的 active_reservations 同公式
-    let mut statement = tx.prepare("SELECT r.id, r.room_id, rooms.title, rooms.start_at, r.remind_at FROM community_reminders r JOIN community_rooms rooms ON rooms.id = r.room_id JOIN community_reservations reservations ON reservations.room_id = r.room_id AND reservations.cancelled_at IS NULL WHERE r.remind_at <= ?1 AND r.delivered_at IS NULL AND rooms.status = 'scheduled' AND datetime(rooms.start_at, '+' || rooms.duration_minutes || ' minutes') > datetime('now') ORDER BY r.id")?;
+    // 124#6：上界统一为 >=——原先 claim 用 > 而统计用 >=，结束时刻与轮询
+    // 秒精确重合时「计入进行中却不可领取」分叉一瞬
+    let mut statement = tx.prepare("SELECT r.id, r.room_id, rooms.title, rooms.start_at, r.remind_at FROM community_reminders r JOIN community_rooms rooms ON rooms.id = r.room_id JOIN community_reservations reservations ON reservations.room_id = r.room_id AND reservations.cancelled_at IS NULL WHERE r.remind_at <= ?1 AND r.delivered_at IS NULL AND rooms.status = 'scheduled' AND datetime(rooms.start_at, '+' || rooms.duration_minutes || ' minutes') >= datetime('now') ORDER BY r.id")?;
     let rows = statement
         .query_map(params![timestamp], |row| {
             Ok((

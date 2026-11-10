@@ -27,21 +27,32 @@ pub async fn export_full_backup<R: Runtime>(
     tauri::async_runtime::spawn_blocking(move || {
         with_principal(principal, || {
             let backend = app.state::<BackendState>();
-            super::super::sync::stop(&super::super::sync::SyncService::new(&learning))?;
-            super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
-            let result = {
-                let store = backend
-                    .store
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                super::export(&app, &store, &learning, std::path::Path::new(&destination))
-            };
-            if result.is_ok() {
-                // 72#2：导出回执登记（reveal_path 白名单）
-                super::super::reveal::register(std::path::Path::new(&destination));
-            }
+            // 124#1：sync::stop 首行即 join 掉调度线程；其后任何 `?` 早退
+            //（sync 超时/数据根拒绝/导出失败）原先直接返回，start_scheduler
+            // 永不执行——auto_sync 静默停摆到偶然重启点。改 defer 型出口：
+            // 停机后所有出口统一先重启调度器再透传结果（未启用时调度循环
+            // 首行配置检查即空转，无副作用）
+            let outcome = (|| -> Result<BackupResult> {
+                super::super::sync::stop(&super::super::sync::SyncService::new(&learning))?;
+                super::super::reject_data_root_destination(
+                    &app,
+                    std::path::Path::new(&destination),
+                )?;
+                let result = {
+                    let store = backend
+                        .store
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    super::export(&app, &store, &learning, std::path::Path::new(&destination))
+                };
+                if result.is_ok() {
+                    // 72#2：导出回执登记（reveal_path 白名单）
+                    super::super::reveal::register(std::path::Path::new(&destination));
+                }
+                result
+            })();
             super::super::sync::scheduler::start_scheduler(app.clone());
-            result
+            outcome
         })
     })
     .await
@@ -82,17 +93,22 @@ pub async fn import_full_backup<R: Runtime>(
         with_principal(principal, || {
             let backend = app.state::<BackendState>();
             // 56#2：与登出/切换/清理共用逐域独立停并汇总错误的停机集合
-            //（原先此处另串行停六域，agent 超时会短路且不停 focus）
-            super::super::security::guard::stop_all(&backend)?;
-            let result = {
-                let store = backend
-                    .store
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                super::import(&app, &store, &learning, std::path::Path::new(&path))
-            };
+            //（原先此处另串行停六域，agent 超时会短路且不停 focus）。
+            // 124#1：stop_all 失败早退原先跳过 start_scheduler——defer 型
+            // 出口统一先重启调度器再透传结果（同 export）
+            let outcome = (|| -> Result<Value> {
+                super::super::security::guard::stop_all(&backend)?;
+                let result = {
+                    let store = backend
+                        .store
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    super::import(&app, &store, &learning, std::path::Path::new(&path))
+                };
+                result
+            })();
             super::super::sync::scheduler::start_scheduler(app.clone());
-            result
+            outcome
         })
     })
     .await

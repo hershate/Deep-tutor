@@ -162,7 +162,9 @@ impl ExportDocument {
 }
 
 /// 31#31：构建阶段按累计字节熔断——原先 64MB 上限在全部内容物化渲染之后
-/// 才检查，大库导出先吃满数百 MB 瞬时内存/CPU 才被拒绝
+/// 才检查，大库导出先吃满数百 MB 瞬时内存/CPU 才被拒绝。
+/// 124#5：五个构建器全部接入（原先仅 knowledge/review 调用，plan/lecture/
+/// schedule 的巨型方案仍全量物化后才被渲染后上限拒绝）
 fn guard_document_size(document: &ExportDocument) -> Result<()> {
     let mut bytes = document.title.len();
     for section in &document.sections {
@@ -183,6 +185,9 @@ fn guard_document_size(document: &ExportDocument) -> Result<()> {
     }
     for card in &document.cards {
         bytes += card.front.len() + card.back.len() + card.tag.len();
+    }
+    for event in &document.events {
+        bytes += event.date.len() + event.title.len() + event.description.len();
     }
     if bytes > MAX_EXPORT_BYTES {
         return Err(BackendError::new(
@@ -272,6 +277,8 @@ fn plan_document(plan: &Plan) -> Result<ExportDocument> {
             date: stage.start_date.clone(),
             minutes: Some(stage.minutes),
         });
+        // 124#5：巨型方案构建期熔断（原先渲染后 64MB 检查才拒绝）
+        guard_document_size(&document)?;
     }
     let mut checks = vec![];
     for (name, check) in [
@@ -319,6 +326,7 @@ fn plan_document(plan: &Plan) -> Result<ExportDocument> {
             node.summary.clone(),
             result.goal.clone(),
         ));
+        guard_document_size(&document)?;
     }
     Ok(document)
 }
@@ -357,6 +365,8 @@ fn lecture_document(state: &LearningState, input: &ExportInput) -> Result<Export
             date: String::new(),
             minutes: None,
         });
+        // 124#5：巨型讲义构建期熔断
+        guard_document_size(&document)?;
     }
     document.sections.push(section(
         "示例".into(),
@@ -544,6 +554,8 @@ fn schedule_document(state: &LearningState, input: &ExportInput) -> Result<Expor
                 Sha256::digest(format!("{}:{}:{}", plan.id, entry.date, entry.stage_id).as_bytes())
             ),
         });
+        // 124#5：巨型日程构建期熔断
+        guard_document_size(&document)?;
     }
     Ok(document)
 }

@@ -27,7 +27,13 @@ pub fn run_due<R: Runtime>(
     let store = service.store()?;
     let (anchor_text, last_status) = match upload_anchor(&store.conn)? {
         Some(row) => row,
-        None => (config.updated_at.clone(), None),
+        None => (Some(config.updated_at.clone()), None),
+    };
+    let Some(anchor_text) = anchor_text else {
+        // 124#4：最新 upload 行 finished_at 为 NULL（任务进行中）——原先
+        // 按非空列解析抛 InvalidColumnType，长上传期间每分钟报错一次；
+        // 进行中按「本轮跳过」处理（上传本身在跑，下一轮任务收尾自愈）
+        return Ok(None);
     };
     let anchor = OffsetDateTime::parse(&anchor_text, &Rfc3339).map_err(|_| {
         super::super::error::BackendError::new("invalid_sync_schedule", "同步调度时间无效")
@@ -50,14 +56,14 @@ pub fn run_due<R: Runtime>(
 /// 即真实写入顺序（sync_jobs 无删除路径，rowid 不会复用）
 pub(crate) fn upload_anchor(
     conn: &rusqlite::Connection,
-) -> Result<Option<(String, Option<String>)>> {
+) -> Result<Option<(Option<String>, Option<String>)>> {
     Ok(conn
         .query_row(
             "SELECT finished_at, status FROM sync_jobs WHERE kind = 'upload' ORDER BY rowid DESC LIMIT 1",
             [],
             |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(0)?,
                     row.get::<_, Option<String>>(1)?,
                 ))
             },
