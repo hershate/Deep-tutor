@@ -390,7 +390,8 @@ fn gemini_streams_thought_tools_and_usage() {
     assert_eq!(result.usage.as_ref().unwrap().input_tokens, Some(6));
     assert_eq!(result.usage.as_ref().unwrap().output_tokens, Some(7));
     assert_eq!(result.usage.as_ref().unwrap().cached_input_tokens, Some(1));
-    assert_eq!(result.finish_reason.as_deref(), Some("STOP"));
+    // 125#5：Gemini STOP 已归一到 OpenAI 的 stop（三协议展示一致）
+    assert_eq!(result.finish_reason.as_deref(), Some("stop"));
 }
 
 #[test]
@@ -478,4 +479,38 @@ fn ipc_dispatches_each_native_protocol_with_real_persistent_output() {
         assert_eq!(stored["output"], expected);
         assert_eq!(server.request_count(), 3);
     }
+}
+
+// 125#1：共享泵空闲预算改产出对比——持续到达的零产出 data 行（合法
+// JSON、未知事件类型、不产生任何 delta）在 1MB 累计后被熔断；原先
+// 「任何 data 行」豁免空闲预算，此类流可无限滞留 worker（chunk 持续
+// 到达又不断刷新 chunk_timeout）
+#[test]
+fn shared_pump_zero_yield_data_stream_hits_idle_budget() {
+    let (app, state) = setup();
+    // 单行 ~60KB（64KB 行上限内）、合法 JSON、Responses 协议不认识的
+    // 事件类型——每行零产出；18 行 > 1MB 空闲预算（17 行恰好不足会在
+    // EOF 走 incomplete_stream 分类而非熔断路径）
+    let padding = "x".repeat(60_000);
+    let mut body = String::new();
+    for index in 0..18 {
+        body.push_str(&format!(
+            "data: {{\"type\":\"response.keepalive\",\"pad\":\"{padding}\",\"i\":{index}}}\n\n"
+        ));
+    }
+    let endpoint = server(move |_request, stream| {
+        start_stream(stream);
+        let _ = std::io::Write::write_all(stream, body.as_bytes());
+        use std::io::Write;
+        let _ = stream.flush();
+    });
+    let profile = make_profile(&app, &state, "OpenAI Responses", &endpoint.url());
+    let result = chat_with_tools(&profile);
+    let error = result.err().expect("零产出流必须被空闲预算熔断");
+    assert_eq!(error.error.code, "invalid_response");
+    assert!(
+        error.error.message.contains("无有效事件"),
+        "{:?}",
+        error.error.message
+    );
 }

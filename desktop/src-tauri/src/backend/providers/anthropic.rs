@@ -40,14 +40,24 @@ fn request_body(
                 }
                 contents.push(json!({"role": "assistant", "content": content}));
             }
-            "tool" => contents.push(json!({
-                "role": "user",
-                "content": [{
+            "tool" => {
+                // 125#10：相邻 tool_result 合并进同一条 user 的 content 数组
+                // ——Anthropic 官方对连续 user 合并为单轮，但严格校验的
+                // 代理/网关按「tool_result 必须与 tool_use 同轮」拒绝拆散
+                // 形态；普通 user 的 content 是字符串（is_array 判别），仅
+                // 连续 tool 之间合并
+                let item = json!({
                     "type": "tool_result",
                     "tool_use_id": message.tool_call_id,
                     "content": message.content,
-                }],
-            })),
+                });
+                match contents.last_mut() {
+                    Some(last) if last["role"] == "user" && last["content"].is_array() => {
+                        last["content"].as_array_mut().unwrap().push(item);
+                    }
+                    _ => contents.push(json!({"role": "user", "content": [item]})),
+                }
+            }
             _ => {}
         }
     }
@@ -130,12 +140,19 @@ where
         let started = Instant::now();
         let mut done = false;
         let secret = key.as_ref().map(|key| key.as_str()).unwrap_or("");
+        // 125#4：本地无 Key 时不发送空值鉴权头——个别网关对空 key 按 401
+        // 拒绝而非按无头放行
+        let mut headers: Vec<(&str, &str)> = Vec::new();
+        if !secret.is_empty() {
+            headers.push(("x-api-key", secret));
+        }
+        headers.push(("anthropic-version", "2023-06-01"));
         let result = tauri::async_runtime::block_on(stream_events(
             url.clone(),
             &profile.kind,
             key.clone(),
             false,
-            &[("x-api-key", secret), ("anthropic-version", "2023-06-01")],
+            &headers,
             body.clone(),
             &cancel,
             &parent_cancel,
@@ -283,6 +300,9 @@ where
                             let normalized = match reason {
                                 "max_tokens" => "length",
                                 "tool_use" => "tool_calls",
+                                // 125#5：end_turn/stop_sequence 与 OpenAI 的
+                                // stop 同义——99#10「展示层三协议一致」收口
+                                "end_turn" | "stop_sequence" => "stop",
                                 other => other,
                             };
                             output.finish_reason = Some(normalized.into());

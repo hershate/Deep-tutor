@@ -165,7 +165,7 @@ flowchart TD
 3. HTTP 客户端（openai.rs:258 / :269）：禁自动重定向 + DNS 解析后固定 IP（防 DNS rebinding）+ `public_address` 拒绝非公网（:103）；`endpoint`（:212）做 SSRF/路径穿越校验。
 4. 流式约束：`validate_messages` 1-64 条/256KB（openai.rs:562）；响应 1MB（read_json :310，4xx 时读 body 末段进错误信息）；增量文本累计 1MB（protocol.rs:23）；SSE 每 chunk 超时窗口前后各检查一次取消（protocol.rs cancel 检查）。
 5. SSE 泵（`stream_once`，55 号专项加固）：游标偏移逐行切分（`position()` 相对偏移加 cursor，消 O(N²) 缓冲 drain）；行终止兼容 CRLF/LF/裸 CR，首行剥 BOM；「空闲字节预算」限制单事件累计无进展字节数防恶意慢流；`data:` 行解析剥 `error:null` 心跳；工具调用 index 上限 256、同 index 异 id fail-closed；干净 FIN 或 EOF 且零事件/零 `data:` 行一律归 `endpoint_unreachable`（不误报成功）。四协议（openai/responses/anthropic/gemini）游标循环同构（protocol.rs stream_events 复用）。
-6. 每个 delta 双写：`Store::event("provider.chat_delta")` 落库 + emit（P/mod.rs:1169 起）——delta 事件同时是恢复重建源（`completed_chat` :978）。
+6. delta 双写：增量先入缓冲，按 4KB/150ms 窗口合并为 `provider.chat_delta` 事件落库 + emit（首个 delta 前沿触发立即可见，流结束含错误路径冲刷余量，P/mod.rs:1272 起 `flush`）；每次冲刷同时把至今累积全文物化到 `provider_requests.output/reasoning`（UPDATE 限 running 行，终态 UPDATE 覆盖为最终值）——运行中请求的 `getProviderChat` 读列短路，不再每次轮询全量重放 events 拼接（P/mod.rs:1027 重放仅作崩溃续读兜底，`completed_chat` :1055）。
 7. 结束 UPDATE status=done/cancelled/failed + 终态事件（P/mod.rs:1209 起）。
 
 取消：`cancel_provider_chat`（P/commands.rs:122）→ 路由层 `cancel_inner`（routing.rs:1148）置 `Arc<AtomicBool>`（Acquire/Release）→ 级联直连层 flag → SSE 泵检测后以 `cancelled` 错误收尾。

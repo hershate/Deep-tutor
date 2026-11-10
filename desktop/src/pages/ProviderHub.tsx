@@ -325,12 +325,26 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
   const confirmImport = async () => {
     if (!importPreview) return
     setBusy('import')
+    // 125#2：逐档案 upsert 失败时回滚本次已导入项——原先前 N-1 条各自
+    // 提交留下「部分新档案」且无撤销入口（94#2 在 sync 恢复路径修掉的
+    // 同型问题）；导入的档案均为新追加（id: None），删除即恢复原状
+    const imported: string[] = []
     try {
-      for (const profile of importPreview) await backend.upsertProviderProfile(profile)
+      for (const profile of importPreview) {
+        const saved = await backend.upsertProviderProfile(profile)
+        if (saved?.id) imported.push(saved.id)
+      }
       setImportPreview(null)
       await refresh()
       notify('脱敏档案已追加导入；密钥字段未读取，请逐档案配置')
-    } catch (error) { notify(backendErrorMessage(error)) } finally { setBusy('') }
+    } catch (error) {
+      let rolledBack = 0
+      for (const id of imported) { try { await backend.deleteProviderProfile(id); rolledBack += 1 } catch { /* 回滚尽力而为：残留项可手动删除 */ } }
+      notify(rolledBack === imported.length
+        ? `导入失败已回滚（${backendErrorMessage(error)}）`
+        : `导入失败，已回滚 ${rolledBack}/${imported.length} 项，其余请手动删除（${backendErrorMessage(error)}）`)
+      await refresh()
+    } finally { setBusy('') }
   }
   const importDeepLink = async () => {
     setBusy('deep-link')

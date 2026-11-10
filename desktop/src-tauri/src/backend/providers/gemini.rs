@@ -145,12 +145,18 @@ where
         let mut done = false;
         let mut tool_index = 0usize;
         let secret = key.as_ref().map(|key| key.as_str()).unwrap_or("");
+        // 125#4：同 anthropic——空 key 不发送空值鉴权头
+        let headers: Vec<(&str, &str)> = if secret.is_empty() {
+            Vec::new()
+        } else {
+            vec![("x-goog-api-key", secret)]
+        };
         let result = tauri::async_runtime::block_on(stream_events(
             url.clone(),
             &profile.kind,
             key.clone(),
             false,
-            &[("x-goog-api-key", secret)],
+            &headers,
             body.clone(),
             &cancel,
             &parent_cancel,
@@ -257,6 +263,9 @@ where
                         // 同口径）——MAX_TOKENS→length，展示层三协议一致
                         let normalized = if reason == "MAX_TOKENS" {
                             "length"
+                        } else if reason == "STOP" {
+                            // 125#5：STOP 与 OpenAI 的 stop 同义——三协议收口
+                            "stop"
                         } else {
                             reason
                         };

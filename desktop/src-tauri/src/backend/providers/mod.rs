@@ -477,15 +477,18 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
             "默认模型不能为空且不能超过 200 字符",
         ));
     }
+    // 125#9：models 列表项与 name/default_model/note 同过 display_safe
+    // （109#11）——原先只查非空+长度，/models 回填或导入可把伪装字符写进
+    // 列表项，经 UI 下拉与请求体原样出现
     if input.models.len() > 200
         || input
             .models
             .iter()
-            .any(|model| model.trim().is_empty() || model.len() > 200)
+            .any(|model| model.trim().is_empty() || model.len() > 200 || !display_safe(model))
     {
         return Err(BackendError::invalid(
             "invalid_model",
-            "模型列表为空项、过长或超过 200 项",
+            "模型列表为空项、含不可显示字符、过长或超过 200 项",
         ));
     }
     if input.note.as_deref().is_some_and(|note| note.len() > 1000) {
@@ -1252,6 +1255,12 @@ pub fn stream_chat_with_policy<R: Runtime>(
             // 错误路径）冲刷余量，崩溃续读的 delta 重建不丢内容
             let mut buffered_text = String::new();
             let mut buffered_reasoning = String::new();
+            // 125#8：流内累积完整文本，随每次 flush 物化到 provider_requests
+            // ——运行中请求的 getProviderChat 原先恒走 events 全量重放拼接
+            //（每次轮询 O(已输出长度)，前端 150ms 节流反复触发）；物化后
+            // output 非空即短路，终态 UPDATE 覆盖为最终值
+            let mut accumulated_text = String::new();
+            let mut accumulated_reasoning = String::new();
             // 前沿触发：首个 delta 立即可见（前沿回拨 1s 使首达即冲刷）；
             // 之后 150ms 窗口内到达的增量合并（对齐前端 deltaThrottle 拉取
             // 节流），窗口外首个 delta 立即冲刷——慢速流即时可见、快速洪泛
@@ -1260,7 +1269,9 @@ pub fn stream_chat_with_policy<R: Runtime>(
                 Instant::now().checked_sub(std::time::Duration::from_secs(1));
             let mut flush = |force: bool,
                              buffered_text: &mut String,
-                             buffered_reasoning: &mut String|
+                             buffered_reasoning: &mut String,
+                             accumulated_text: &str,
+                             accumulated_reasoning: &str|
              -> Result<()> {
                 let due = force
                     || buffered_text.len() + buffered_reasoning.len() >= 4096
@@ -1288,7 +1299,14 @@ pub fn stream_chat_with_policy<R: Runtime>(
                     emit(app, &event);
                     buffered_reasoning.clear();
                 }
+                // 125#8：物化至今的部分输出（UPDATE 限 running 行，终态
+                // UPDATE 覆盖为最终值不受影响）
+                let _ = store.conn.execute(
+                    "UPDATE provider_requests SET output = ?1, reasoning = ?2, updated_at = ?3 WHERE request_id = ?4 AND status = 'running'",
+                    params![accumulated_text, accumulated_reasoning, now()?, request_id],
+                );
                 last_flush = Some(Instant::now());
+                let _ = (accumulated_text, accumulated_reasoning);
                 Ok(())
             };
             let result = protocol::stream_chat_with_policy(
@@ -1303,14 +1321,28 @@ pub fn stream_chat_with_policy<R: Runtime>(
                 |delta| {
                     if delta.reasoning {
                         buffered_reasoning.push_str(&delta.text);
+                        accumulated_reasoning.push_str(&delta.text);
                     } else {
                         buffered_text.push_str(&delta.text);
+                        accumulated_text.push_str(&delta.text);
                     }
-                    flush(false, &mut buffered_text, &mut buffered_reasoning)
+                    flush(
+                        false,
+                        &mut buffered_text,
+                        &mut buffered_reasoning,
+                        &accumulated_text,
+                        &accumulated_reasoning,
+                    )
                 },
                 request_id,
             );
-            let _ = flush(true, &mut buffered_text, &mut buffered_reasoning);
+            let _ = flush(
+                true,
+                &mut buffered_text,
+                &mut buffered_reasoning,
+                &accumulated_text,
+                &accumulated_reasoning,
+            );
             result
         });
     let (status, output, reasoning, tool_calls, usage, finish_reason, error, attempts) =

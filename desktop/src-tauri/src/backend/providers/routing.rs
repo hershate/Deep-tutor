@@ -1007,7 +1007,10 @@ pub fn stream_chat<R: Runtime>(
     let existing = store
         .conn
         .query_row(
-            "SELECT provider_id, model FROM provider_route_attempts WHERE request_id = ?1 AND attempt = 1",
+            // 125#3：筛掉熔断跳过行（upstream_request_id IS NULL 的
+            // circuit_open 行）——全候选熔断后同 id 重试不应命中缓存失败，
+            // 熔断冷却后换回同 id 的重试仍可路由
+            "SELECT provider_id, model FROM provider_route_attempts WHERE request_id = ?1 AND attempt = 1 AND upstream_request_id IS NOT NULL",
             params![request_id],
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
         )

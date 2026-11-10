@@ -281,32 +281,97 @@ pub(crate) fn endpoint(base_url: &str, kind: &str, suffix: &str) -> Result<reqwe
     Ok(url)
 }
 
-pub(crate) fn client(url: &reqwest::Url, kind: &str) -> Result<reqwest::blocking::Client> {
-    let (host, addresses) = pinned_addresses(url, kind)?;
-    reqwest::blocking::Client::builder()
+// 125#7：按 (kind, host, 钉扎地址) 缓存客户端——DNS 钉扎仍每请求解析
+// 校验（安全语义不变），但连接池/TLS 会话原先随 Client 对象一起丢弃，
+// 同供应商高频调用每次完整握手；缓存键含钉扎地址，地址漂移自动换新
+// 客户端；容量超限时整表重建（简单防膨胀）
+fn cache_key(kind: &str, url: &reqwest::Url, addresses: &[std::net::SocketAddr]) -> String {
+    format!(
+        "{kind}|{}|{}",
+        url.host_str().unwrap_or(""),
+        addresses
+            .iter()
+            .map(|address| address.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+const CLIENT_CACHE_CAP: usize = 32;
+
+fn cached_blocking(
+    kind: &str,
+    url: &reqwest::Url,
+    addresses: &[std::net::SocketAddr],
+) -> Result<reqwest::blocking::Client> {
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, reqwest::blocking::Client>>,
+    > = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = cache_key(kind, url, addresses);
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(client) = guard.get(&key) {
+        return Ok(client.clone());
+    }
+    let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
-        .resolve_to_addrs(&host, &addresses)
+        .no_proxy()
+        .resolve_to_addrs(url.host_str().unwrap_or(""), addresses)
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(45))
         .build()
-        .map_err(|_| BackendError::new("http_client_error", "无法初始化原生网络客户端"))
+        .map_err(|_| BackendError::new("http_client_error", "无法初始化原生网络客户端"))?;
+    if guard.len() >= CLIENT_CACHE_CAP {
+        guard.clear();
+    }
+    guard.insert(key, client.clone());
+    Ok(client)
+}
+
+fn cached_streaming(
+    kind: &str,
+    url: &reqwest::Url,
+    addresses: &[std::net::SocketAddr],
+) -> Result<reqwest::Client> {
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, reqwest::Client>>,
+    > = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = cache_key(kind, url, addresses);
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(client) = guard.get(&key) {
+        return Ok(client.clone());
+    }
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .resolve_to_addrs(url.host_str().unwrap_or(""), addresses)
+        .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|_| BackendError::new("http_client_error", "无法初始化原生网络客户端"))?;
+    if guard.len() >= CLIENT_CACHE_CAP {
+        guard.clear();
+    }
+    guard.insert(key, client.clone());
+    Ok(client)
+}
+
+pub(crate) fn client(url: &reqwest::Url, kind: &str) -> Result<reqwest::blocking::Client> {
+    let (_, addresses) = pinned_addresses(url, kind)?;
+    cached_blocking(kind, url, &addresses)
 }
 
 pub(crate) fn streaming_client(url: &reqwest::Url, kind: &str) -> Result<reqwest::Client> {
-    let (host, addresses) = pinned_addresses(url, kind)?;
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .resolve_to_addrs(&host, &addresses)
-        .connect_timeout(Duration::from_secs(5))
-        // 73#11：流式客户端原先无任何读超时（对照阻塞客户端 45s 总超时）——
-        // 停滞流使 worker 永远阻塞在读取上，15s deadline 必到、stop_all 永远
-        // 失败、线程泄漏至连接断开。设 120s 读超时（两次数据之间的间隔上限）：
-        // 正常流式回答的 token 间隔远小于此，停滞流以网络错误显式收尾
-        .read_timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|_| BackendError::new("http_client_error", "无法初始化原生网络客户端"))
+    let (_, addresses) = pinned_addresses(url, kind)?;
+    cached_streaming(kind, url, &addresses)
 }
 
+#[allow(dead_code)]
 fn pinned_addresses(url: &reqwest::Url, kind: &str) -> Result<(String, Vec<std::net::SocketAddr>)> {
     let host = url
         .host_str()
@@ -1185,13 +1250,25 @@ where
         return Err(ChatError::new("cancelled", "模型请求已取消"));
     }
     let names = super::protocol::ToolNames::new(tools);
-    let mut body = json!({
-        "model": profile.default_model,
-        "messages": remote_messages(&names, messages),
-        "max_tokens": max_tokens,
-        "stream": true,
-        "stream_options": {"include_usage": true}
-    });
+    // 125#12：stream_options 仅对远程端点携带——部分严格校验的本地引擎
+    //（llama.cpp/旧 vLLM/兼容网关）按未知字段拒绝 400；本地缺 usage 时
+    // 由 08#7 的 LENGTH/2 保守估算兜底，计量不受损
+    let mut body = if is_local_address(&profile.base_url) {
+        json!({
+            "model": profile.default_model,
+            "messages": remote_messages(&names, messages),
+            "max_tokens": max_tokens,
+            "stream": true
+        })
+    } else {
+        json!({
+            "model": profile.default_model,
+            "messages": remote_messages(&names, messages),
+            "max_tokens": max_tokens,
+            "stream": true,
+            "stream_options": {"include_usage": true}
+        })
+    };
     if !names.definitions.is_empty() {
         body["tools"] = names
             .definitions

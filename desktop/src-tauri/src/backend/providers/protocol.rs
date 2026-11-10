@@ -202,20 +202,6 @@ pub(crate) fn retryable(error: &ChatError, attempt: u8, policy: &StreamPolicy) -
         )
 }
 
-/// 55#1：字节级判定一行是否为携带 data 载荷的事件行（空行/注释/非 data
-/// 前缀/[DONE] 都不算）——洪泛预算在 process 闭包外按此累计
-fn line_is_data_event(line: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(line);
-    let text = text.trim_start_matches('\u{FEFF}').trim();
-    match text.strip_prefix("data:") {
-        Some(data) => {
-            let data = data.trim();
-            !data.is_empty() && data != "[DONE]"
-        }
-        None => false,
-    }
-}
-
 pub(crate) fn success(result: StreamSuccess, started: Instant, attempt: u8) -> ChatResult {
     let (text, reasoning, model, usage, finish_reason, tool_calls) = result;
     ChatResult {
@@ -293,29 +279,33 @@ where
     let mut pending = Vec::new();
     let mut last_chunk = Instant::now();
     let mut done = false;
-    let mut process = |line: &[u8]| -> std::result::Result<bool, ChatError> {
-        let line = std::str::from_utf8(line)
-            .map_err(|_| output.error("invalid_response", "流式事件包含无效 UTF-8"))?
-            .trim_end_matches(['\r', '\n']);
-        // 55#7：剥流首 UTF-8 BOM，否则首行 data: 前缀匹配失败被静默跳过
-        let line = line.strip_prefix('\u{FEFF}').unwrap_or(line);
-        if line.is_empty() || line.starts_with(':') {
-            return Ok(false);
-        }
-        let Some(data) = line.strip_prefix("data:") else {
-            return Ok(false);
+    // 125#1：闭包不再捕获 &mut output——空闲判定需要闭包外读
+    // produced_bytes() 做产出对比（镜像 openai 私有泵口径），借用冲突由
+    // 参数传递消解
+    let mut process =
+        |output: &mut StreamOutput, line: &[u8]| -> std::result::Result<bool, ChatError> {
+            let line = std::str::from_utf8(line)
+                .map_err(|_| output.error("invalid_response", "流式事件包含无效 UTF-8"))?
+                .trim_end_matches(['\r', '\n']);
+            // 55#7：剥流首 UTF-8 BOM，否则首行 data: 前缀匹配失败被静默跳过
+            let line = line.strip_prefix('\u{FEFF}').unwrap_or(line);
+            if line.is_empty() || line.starts_with(':') {
+                return Ok(false);
+            }
+            let Some(data) = line.strip_prefix("data:") else {
+                return Ok(false);
+            };
+            let data = data.trim();
+            if data.is_empty() {
+                return Ok(false);
+            }
+            if data == "[DONE]" {
+                return Ok(true);
+            }
+            let event: Value = serde_json::from_str(data)
+                .map_err(|_| output.error("invalid_response", "流式事件不是有效 JSON"))?;
+            on_event(event, output)
         };
-        let data = data.trim();
-        if data.is_empty() {
-            return Ok(false);
-        }
-        if data == "[DONE]" {
-            return Ok(true);
-        }
-        let event: Value = serde_json::from_str(data)
-            .map_err(|_| output.error("invalid_response", "流式事件不是有效 JSON"))?;
-        on_event(event, &mut output)
-    };
     // 55#1：无产出字节的累计预算（换行/注释洪泛封顶）与已消费行数（区分
     // 「零事件即断」的网络毛刺与流中途断开）——process 闭包独占 output
     // 借用，空闲判定在闭包外按「是否携带 data 载荷行」字节级启发式累计
@@ -332,11 +322,15 @@ where
         match next {
             Ok(Ok(Some(chunk))) => {
                 last_chunk = Instant::now();
+                // 125#1：空闲判定改产出对比（镜像 openai 私有泵口径）——原先
+                // 「任何 data: 行」豁免空闲预算，故障/恶意端点持续发送零产出
+                // data 行（如 data:{} 心跳）可无限滞留 worker，chunk 持续到达
+                // 又不断刷新 chunk_timeout
+                let produced_before = output.produced_bytes();
                 pending.extend_from_slice(&chunk);
                 // 55#1：游标偏移替代逐行头部 drain（O(N²) memmove 消除）；
                 // 55#6：行终止按 SSE 规范接受 CRLF / LF / 裸 CR
                 let mut cursor = 0usize;
-                let mut has_event_line = false;
                 while let Some(offset) = pending[cursor..]
                     .iter()
                     .position(|byte| *byte == b'\n' || *byte == b'\r')
@@ -356,8 +350,7 @@ where
                         } else {
                             1
                         };
-                    has_event_line = has_event_line || line_is_data_event(&pending[cursor..end]);
-                    done = process(&pending[cursor..end])? || done;
+                    done = process(&mut output, &pending[cursor..end])? || done;
                     cursor = end + terminator;
                     processed_lines += 1;
                     if done {
@@ -368,7 +361,9 @@ where
                     break;
                 }
                 pending.drain(..cursor);
-                if !has_event_line {
+                // 125#1：process 解析出有效 delta/usage/tool 才算产出——零产出
+                // chunk（心跳/空 JSON/注释行）累计入 1MB 空闲预算
+                if output.produced_bytes() == produced_before {
                     idle_bytes += chunk.len();
                     if idle_bytes > MAX_SSE_LINE_BYTES * 16 {
                         return Err(
@@ -388,7 +383,7 @@ where
                 // data 行后关连接时，该行滞留 pending、误报 endpoint_unreachable
                 //（「未收到任何事件」），尾行被丢弃
                 if !pending.is_empty() {
-                    done = process(&pending)? || done;
+                    done = process(&mut output, &pending)? || done;
                     processed_lines += 1;
                 }
                 // 55#5：零事件的 EOF 同样是连接中断（干净 FIN 不走 Err 分支）——
@@ -552,12 +547,13 @@ pub fn list_models(
                 "v1/models"
             };
             let url = openai::endpoint(&profile.base_url, &profile.kind, suffix)?;
-            let response = openai::client(&url, &profile.kind)?
-                .get(url)
-                .header(
-                    "x-api-key",
-                    key.as_ref().map(|key| key.as_str()).unwrap_or(""),
-                )
+            let secret = key.as_ref().map(|key| key.as_str()).unwrap_or("");
+            // 125#4：空 key 不发送空值鉴权头
+            let mut request = openai::client(&url, &profile.kind)?.get(url);
+            if !secret.is_empty() {
+                request = request.header("x-api-key", secret);
+            }
+            let response = request
                 .header("anthropic-version", "2023-06-01")
                 .send()
                 .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接供应商端点"))?;
@@ -565,12 +561,12 @@ pub fn list_models(
         }
         "Gemini Native" => {
             let url = openai::endpoint(&profile.base_url, &profile.kind, "models")?;
-            let response = openai::client(&url, &profile.kind)?
-                .get(url)
-                .header(
-                    "x-goog-api-key",
-                    key.as_ref().map(|key| key.as_str()).unwrap_or(""),
-                )
+            let secret = key.as_ref().map(|key| key.as_str()).unwrap_or("");
+            let mut request = openai::client(&url, &profile.kind)?.get(url);
+            if !secret.is_empty() {
+                request = request.header("x-goog-api-key", secret);
+            }
+            let response = request
                 .send()
                 .map_err(|_| BackendError::new("endpoint_unreachable", "无法连接供应商端点"))?;
             model_ids(&openai::read_json(response)?, "models", "name", "models/")
