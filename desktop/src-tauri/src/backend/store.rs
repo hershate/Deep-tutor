@@ -746,22 +746,23 @@ impl Store {
         } else {
             validate_collection(namespace, value)?;
         }
-        // 25#18：notes 配额的增量先算好，计数检查放进下方写事务内执行
-        let notes_quota = if namespace == "notes" {
-            let next = value.as_array().map_or(0, Vec::len);
-            let current = self
-                .collection("notes")?
-                .value
-                .as_array()
-                .map_or(0, Vec::len);
-            Some(next.saturating_sub(current) as u64)
-        } else {
-            None
-        };
-        // IMMEDIATE 事务：与流式 delta 写入并发时不再触发 BUSY_SNAPSHOT
+        // IMMEDIATE 事务：与流式 delta 写入并发时不再触发 BUSY_SNAPSHOT。
+        // 25#18：notes 配额的计数检查放进写事务内执行。
+        // 127#3/#6：增量基准改用事务内 COUNT——原先事务外把整个 notes
+        // 集合全量读出反序列化只为 len()（万行级 IO 放大），且 autocommit
+        // 快照与事务内计数在并发删除交叠时使 next-used 被低估、可超限；
+        // 事务内读后 IMMEDIATE 串行化，增量恒正确
         let tx = self.write_transaction()?;
-        if let Some(additional) = notes_quota {
-            self.ensure_quota_in_tx(&tx, "notes", additional)?;
+        if namespace == "notes" {
+            let next = value.as_array().map_or(0, Vec::len) as i64;
+            let used: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM kv WHERE namespace = 'notes'",
+                [],
+                |row| row.get(0),
+            )?;
+            if next > used {
+                self.ensure_quota_in_tx(&tx, "notes", (next - used) as u64)?;
+            }
         }
         let revision = Self::next_revision(&tx, namespace)?;
         if revision - 1 != expected_revision {

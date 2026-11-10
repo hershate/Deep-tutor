@@ -244,6 +244,10 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL,
             PRIMARY KEY (plugin_id, event_id)
         );
+        -- 129#2：投递日志列表 ORDER BY event_id DESC LIMIT 100 的全量分支
+        --（overview 恒走 plugin_id IS NULL）PK 前导不命中——全表扫+临时排序
+        CREATE INDEX IF NOT EXISTS plugin_deliveries_event
+            ON plugin_deliveries(event_id DESC);
         CREATE TABLE IF NOT EXISTS plugin_reloads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             plugin_id TEXT NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,

@@ -593,13 +593,26 @@ pub mod commands {
         overview(&app)
     }
 
-    #[tauri::command]
-    pub fn reset_storage_location<R: Runtime>(app: AppHandle<R>) -> Result<StartupOverview> {
-        let state = app.state::<StartupState>();
-        reset_location(&state.pointer)?;
-        let pending = (state.root != state.default_root).then(|| state.default_root.clone());
-        state.set_pending(pending)?;
-        overview(&app)
+    // 127#4：移后台——reset_location 抢 LOCATION_LOCK，与 106#4 移后台的
+    // save_location 是同一把锁（持锁方做 prepare_directory + Store::root
+    // 完整建库迁移，慢盘秒级）；同步命令在主线程 lock() 会冻结窗口直到
+    // 后台释放，恰好复现 106#4 要消除的病症
+    #[tauri::command(async)]
+    pub async fn reset_storage_location<R: Runtime + 'static>(
+        app: AppHandle<R>,
+    ) -> Result<StartupOverview> {
+        tauri::async_runtime::spawn_blocking(move || {
+            use tauri::Manager;
+            let state = app.state::<StartupState>();
+            reset_location(&state.pointer)?;
+            let pending = (state.root != state.default_root).then(|| state.default_root.clone());
+            state.set_pending(pending)?;
+            overview(&app)
+        })
+        .await
+        .map_err(|_| {
+            crate::backend::error::BackendError::new("internal_error", "目录重置任务执行异常终止")
+        })?
     }
 
     #[tauri::command]

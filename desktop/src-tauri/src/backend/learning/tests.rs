@@ -1185,3 +1185,61 @@ fn lecture_terminal_respects_late_cancellation() {
     );
     assert_eq!(cancelled_rows, 1, "取消终态应有 cancelled 事件");
 }
+
+// 129#1/#2/#3：三个热路径索引必须被查询计划命中，死索引必须已清理——
+// 索引缺失时这些查询全表扫且无任何行为信号（EXPLAIN QUERY PLAN 是唯一
+// 可断言面）；死索引残留则每次写入白付 B-tree 维护成本
+#[test]
+fn hot_path_indexes_are_used_and_dead_indexes_removed() {
+    let learning = LearningState::for_tests().unwrap();
+    let store = learning.store().unwrap();
+    let plan = |sql: &str| -> String {
+        store
+            .conn
+            .query_row(&format!("EXPLAIN QUERY PLAN {sql}"), [], |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+    };
+    // 知识总览（GROUP BY）与全局搜索（逐节点 AVG）
+    let evidence = plan(
+        "SELECT node_id, COUNT(*) FROM learning_node_evidence WHERE plan_id = 1 GROUP BY node_id",
+    );
+    assert!(
+        evidence.contains("learning_node_evidence_plan"),
+        "证据表 plan_id 查询必须走新索引：{evidence}"
+    );
+    // 通知概览 30s 轮询的日期窗口
+    let schedule = plan(
+        "SELECT task_id FROM learning_plan_schedule_tasks WHERE date <= '2026-01-01' AND date >= '2025-12-01'",
+    );
+    assert!(
+        schedule.contains("learning_plan_schedule_tasks_date"),
+        "排期日期窗口查询必须走新索引：{schedule}"
+    );
+    // 插件投递日志全量分支（overview 恒走 plugin_id IS NULL）
+    let deliveries = plan(
+        "SELECT plugin_id, event_id FROM plugin_deliveries WHERE plugin_id IS NULL ORDER BY event_id DESC LIMIT 100",
+    );
+    assert!(
+        deliveries.contains("plugin_deliveries_event"),
+        "投递日志倒序列表必须走新索引：{deliveries}"
+    );
+    // 死索引清理（129#4）：四名不得再存在于 schema
+    for name in [
+        "learning_plan_steps_requests",
+        "project_versions_requests",
+        "project_versions_project",
+        "sync_jobs_created",
+    ] {
+        let exists: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                params![name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 0, "死索引 {name} 必须已被迁移清理");
+    }
+}

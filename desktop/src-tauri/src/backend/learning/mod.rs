@@ -160,7 +160,8 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
             PRIMARY KEY (plan_id, material_id)
         );
-        CREATE INDEX IF NOT EXISTS learning_plan_steps_requests ON learning_plan_steps(request_id);
+        -- 129#4：request_id 在 steps 侧只写入不过滤（含备份侧），死索引清理
+        DROP INDEX IF EXISTS learning_plan_steps_requests;
         CREATE TABLE IF NOT EXISTS learning_plan_adoptions (
             plan_id INTEGER PRIMARY KEY REFERENCES learning_plans(id) ON DELETE CASCADE,
             project_id INTEGER NOT NULL,
@@ -178,6 +179,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         -- 53#6：专注-任务关联按 task_id 点查排期行，PK 前缀是 plan_id 不命中
         CREATE INDEX IF NOT EXISTS learning_plan_schedule_tasks_task
             ON learning_plan_schedule_tasks(task_id);
+        -- 129#3：通知概览的 30s 轮询按日期窗口跨方案查询，PK 不命中——全表扫
+        CREATE INDEX IF NOT EXISTS learning_plan_schedule_tasks_date
+            ON learning_plan_schedule_tasks(date);
         CREATE TABLE IF NOT EXISTS learning_plan_versions (
             plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
             version INTEGER NOT NULL,
@@ -195,6 +199,10 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             details_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL
         );
+        -- 129#1：证据表按 plan_id（+node_id）过滤是全部业务查询形态（知识
+        -- 总览 GROUP BY、全局搜索逐节点 AVG），表无上限增长而 PK 不命中
+        CREATE INDEX IF NOT EXISTS learning_node_evidence_plan
+            ON learning_node_evidence(plan_id, node_id);
         CREATE TABLE IF NOT EXISTS learning_reading_progress (
             plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
             stage_id TEXT NOT NULL,

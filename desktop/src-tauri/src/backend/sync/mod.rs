@@ -157,8 +157,8 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         );
         -- 27 信息性#1：原 (id, created_at) 以唯一 PK 前导、排序用不上——
         -- 换成 created_at 单列索引支撑列表 ORDER BY created_at DESC
-        DROP INDEX IF EXISTS sync_jobs_created;
-        CREATE INDEX IF NOT EXISTS sync_jobs_created ON sync_jobs(created_at);",
+        -- 129#4：列表已按 rowid DESC（73#13b），created_at 索引无消费方
+        DROP INDEX IF EXISTS sync_jobs_created;",
     )?;
     Ok(())
 }

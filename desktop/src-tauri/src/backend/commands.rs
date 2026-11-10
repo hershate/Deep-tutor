@@ -103,24 +103,64 @@ pub async fn get_app_state<R: Runtime + 'static>(app: AppHandle<R>) -> Result<Va
     .map_err(|_| super::error::BackendError::new("internal_error", "状态读取任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn get_collection(state: State<'_, BackendState>, namespace: String) -> Result<Collection> {
-    store(&state)?.collection(&namespace)
+// 127#1：get_collection 是重读命令（notes/projects 万条级全量读 + 逐行
+// 反序列化）却仍是同步命令在主线程执行——Community 页事件密集期反复
+// 触发，窗口冻结面随数据量线性放大；移后台对齐 103#6（读类 principal
+// 用 _existing）
+#[tauri::command(async)]
+pub async fn get_collection<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    namespace: String,
+) -> Result<Collection> {
+    let principal = super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::security::with_principal(principal, || {
+            use tauri::Manager;
+            let state = app.state::<BackendState>();
+            let guard = state
+                .store
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.collection(&namespace)
+        })
+    })
+    .await
+    .map_err(|_| super::error::BackendError::new("internal_error", "状态读取任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn replace_collection<R: Runtime>(
+// 127#2：replace_collection 是高频写路径（打字保存/勾选任务）却在主线程
+// 串行完成「读旧全量+校验重序列化+删全表+重插全表」——万条集合时冻结
+// 窗口达数百毫秒-秒级；移后台对齐 reset_application（73#10），写路径带
+// principal 传播（114#1 口径）
+#[tauri::command(async)]
+pub async fn replace_collection<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
     namespace: String,
     expected_revision: i64,
     value: Value,
 ) -> Result<Value> {
-    let mutation = store(&state)?.replace_collection(&namespace, expected_revision, &value)?;
-    if let Some(event) = &mutation.event {
-        emit(&app, event);
-    }
-    light_receipt(mutation)
+    let principal = super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::security::with_principal(principal, || {
+            // 锁作用域收敛：emit 必须在 MutexGuard 释放后执行——事件监听
+            // 回调（含前端快照校准与测试断言）会再次 lock 同一把锁
+            let mutation = {
+                use tauri::Manager;
+                let state = app.state::<BackendState>();
+                let guard = state
+                    .store
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard.replace_collection(&namespace, expected_revision, &value)?
+            };
+            if let Some(event) = &mutation.event {
+                emit(&app, event);
+            }
+            light_receipt(mutation)
+        })
+    })
+    .await
+    .map_err(|_| super::error::BackendError::new("internal_error", "状态写入任务执行异常终止"))?
 }
 
 #[tauri::command]

@@ -138,8 +138,10 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             completed_at TEXT,
             UNIQUE(project_id, version_number)
         );
-        CREATE INDEX IF NOT EXISTS project_versions_project ON project_versions(project_id, version_number DESC);
-        CREATE INDEX IF NOT EXISTS project_versions_requests ON project_versions(request_id);",
+        -- 129#4：project_versions_project 与 UNIQUE(project_id,version_number)
+        -- 隐式索引重复（双倍写放大）；request_id 只写入不过滤（含备份侧）
+        DROP INDEX IF EXISTS project_versions_project;
+        DROP INDEX IF EXISTS project_versions_requests;",
     )?;
     Ok(())
 }
