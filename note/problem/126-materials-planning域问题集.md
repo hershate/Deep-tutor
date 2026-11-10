@@ -39,45 +39,75 @@ ZIP 包）+ planning（周视图/强度/目标/排期）首次整体逐行深读
 
 ### 126#5 ZIP 上限口径两处失真——注释把「解压总量 200MB」写成「ZIP 本体」；「64 个文件」按含目录条目数判定
 
-- 位置：`materials/commands.rs:218`（注释「≤200MB ZIP 预检」——实际本体上限 50MB（archive.rs:33/MAX_FILE_BYTES），200MB 是解压总量 MAX_TOTAL_BYTES:9）；`archive.rs:42-47`（`archive.len() > MAX_ENTRIES` 在目录条目被 continue（:58-60）**之前**判定——64 文件+目录的合法包被拒，文案「最多包含 64 个文件」与判定口径不符）。
+- 位置：`desktop/src-tauri/src/backend/materials/commands.rs:218`（注释「≤200MB ZIP 预检」）；`archive.rs:33`（本体上限 MAX_FILE_BYTES=50MB）与 `:9`（200MB 是解压总量 MAX_TOTAL_BYTES）；`archive.rs:42-47`（`archive.len() > MAX_ENTRIES` 在目录条目 continue（:58-60）**之前**判定）。
+- 传递链条：①维护者按注释理解边界为「ZIP 本体可到 200MB」；②实际本体 >50MB 即拒（文案「大小为 1 到 50 MB」）——注释口径错位一级；③64 个文件 + 若干目录条目的合法包：len() 含目录 >64 → 整包拒绝，文案「最多包含 64 个文件」与判定（文件+目录条目数）不符；④用户按文案组织的合规包被拒且错误信息无法自解释。
+- 影响范围：导入含目录结构 ZIP 或按注释排障的用户（误拒与口径误导）；纯文件 ZIP 与小包不受影响；文案/注释-行为不符，无数据损坏。
+- 修复方向：上限检查移到目录 continue 之后（只数文件）；注释改为「50MB 本体 / 200MB 解压总量」双口径。
 
 ### 126#6 enqueue 不检查 accepting 闸门——stop 窗口内登记成功但永不执行
 
-- 位置：`mod.rs:1056-1126`（enqueue 全程无 accepting 检查）vs `spawn_job:933`（`if !accepting { return Ok(()) }` 静默吞）。stop_all 后 reset 流程中 enqueue 仍提交 queued 行、发 material.queued 事件、返回 JobAccepted——前端 toast「已登记」而任务挂起直至 recover。触发场景窄（停机窗口）。
+- 位置：`desktop/src-tauri/src/backend/materials/mod.rs:1056-1126`（enqueue 全程无 accepting 检查）vs `spawn_job:933`（`if !accepting { return Ok(()) }` 静默返回）。
+- 传递链条：①stop_all 后、recover 前（reset 流程/关闭中）；②enqueue 仍提交 queued 行、发 material.queued 事件、返回 JobAccepted；③spawn_job 的闸门静默吞掉——任务无 worker 拉起；④前端 toast「原生解析任务已登记，进度将由后端实时推送」而资料永远停在 queued，直至 recover 重排——用户拿到与事实相反的承诺。
+- 影响范围：停机窗口（reset/维护）内登记解析的用户（任务静默挂起 + 成功假象）；正常运行期（accepting=true）与恢复后（schedule_next 补起）不受影响；状态承诺失真，无数据损坏。
+- 修复方向：enqueue 入口检查 accepting，拒绝并提示「维护中，稍后重试」；或 spawn 静默分支补一条事件。
 
 ### 126#7 unscheduled 过滤逐任务 EXISTS 点查（N+1）——take(500) 在 filter 之后无法减少查询
 
-- 位置：`planning/mod.rs:246-249`（tasks 全量 filter 内逐条 `SELECT EXISTS(… schedule_tasks WHERE task_id=?)`）；任务配额 10000 时最坏数千次点查；对照同函数 events 装载是单条查询（:169-177）。每次周视图读取执行。
+- 位置：`desktop/src-tauri/src/backend/planning/mod.rs:246-249`（tasks 全量 filter 闭包内逐条 `SELECT EXISTS(SELECT 1 FROM learning_plan_schedule_tasks WHERE task_id=?)`）；对照同函数 events 装载是单条查询（:169-177）。
+- 传递链条：①每次周视图读取（get_plan_overview）；②先对全部任务（配额上限 10000）逐条 EXISTS 点查再 filter；③`.take(500)` 在 filter **之后**——前 500 个多为已排期时要继续向后扫完全量；④万任务库每次周视图 = 数千次点查（对照单条 JOIN 反例在同函数内）。
+- 影响范围：任务量大的方案打开 Plan 页（每次读取的查询数线性）；小任务量方案与其余 overview 字段不受影响；纯性能，无行为错误。
+- 修复方向：一次 LEFT JOIN/NOT EXISTS 集合查询替代逐条点查。
 
 ### 126#8 get_plan_overview「读命令」每次执行 IMMEDIATE 写事务——无孤儿时也拿写锁
 
-- 位置：`planning/mod.rs:150-168`（10#17/53#4 的孤儿清理 DELETE 无条件包在 Immediate 事务内）。Plan.tsx 对每个 plan.*/tasks 事件全量 refresh——高频读与真实写路径竞争写锁（WAL 下 deferred 升级方 busy）。可改先 SELECT 判断有孤儿再开写事务。
+- 位置：`desktop/src-tauri/src/backend/planning/mod.rs:150-168`（10#17/53#4 的孤儿清理 DELETE 无条件包在 `transaction_with_behavior(Immediate)` 内）。
+- 传递链条：①Plan.tsx 对每个 plan.*/tasks/preferences 事件全量 refresh（:87）；②每次 refresh 进 get_plan_overview → 无条件开 IMMEDIATE 写事务执行两条 DELETE（即使删 0 行也拿了写锁）；③高频读路径与真实写路径（保存任务/强度）竞争写锁——WAL 下 deferred 升级方直接 busy；④事件密集期（生成中每步事件）读命令反复抬高写锁压力。
+- 影响范围：生成/事件密集期的 Plan 页读取（写锁竞争放大 busy 概率）；孤儿本来就少的常态与其余域读命令（无写事务）不受影响——该面本身也无数据错误；性能/竞态压力面，损害为 busy 概率抬升。
+- 修复方向：先 SELECT 判有孤儿再开写事务清理；或清理移出读路径（maintenance/事件驱动）。
 
 ### 126#9 update_goal 的 deadline 无「不早于今天」下限——过去日期静默接受
 
-- 位置：`planning/mod.rs:583`（仅 Iso8601 DATE 解析）；前端 Plan.tsx:216 date input 无 min。过去日期落库后 within_deadline=false → 生成时降级提示「延后截止日」——校验缺口而非部分提交故障。
+- 位置：`desktop/src-tauri/src/backend/planning/mod.rs:583`（`date(&input.deadline)?` 仅 Iso8601 DATE 解析）；前端 `desktop/src/pages/Plan.tsx:216` date input 无 min 属性。
+- 传递链条：①用户在目标弹窗选了过去的日期（手输或误选）；②后端仅验格式不验下限，input_json 落库；③下游 regenerate 时 within_deadline=false → milestone 降 warn + fixes 提示「延后截止日」；④用户在生成结果里才发现日期早已过去——校验缺口而非部分提交故障（25#4 的先校验不覆盖日期语义）。
+- 影响范围：误设过去截止日的目标更新（晚发现、多一轮生成）；格式非法日期（被拒）与未来日期不受影响；输入校验缺口，无数据损坏。
+- 修复方向：后端补 `deadline >= today` 校验 + 前端 date input 补 min。
 
 ### 126#10 now_local 进程级缓存时区偏移，DST 地区跨季不更新——47#2 的遗留边界
 
-- 位置：`store.rs:37-44`（LOCAL_OFFSET get_or_init 进程固化）+ B 区姊妹条（127 号 now_local 探测失败项）。DST 切换后 offset 过期 1 小时，午夜附近周视图默认起点（planning/mod.rs:300）可判错一天；无 DST 地区（中国）不受影响。前端总是显式传 weekStart，默认路径触发面窄。
+- 位置：`desktop/src-tauri/src/backend/store.rs:37-44`（LOCAL_OFFSET `get_or_init` 进程固化）；与 127#10 为同根两症。
+- 传递链条：①DST 地区（欧洲/北美）进程跨季运行（春秋切换）；②缓存的偏移过期 1 小时；③午夜附近 `now_local().date()`（周视图默认起点 planning/mod.rs:300）可判错一天；④前端总是显式传 weekStart（Plan.tsx:82）——默认路径触发面窄；无 DST 地区（中国）完全不受影响。
+- 影响范围：DST 地区长驻进程 + 无参调用本地日界判定的少数路径（周视图默认起点）；显式传参路径与非 DST 时区不受影响；边界条件，损害为单日错判。
+- 修复方向：偏移缓存加 TTL（如 1h）或按日期重探测；与 127#10 一并处理。
 
 ### 126#11 周历单日事件 slice(0,50) 静默截断——无「还有 N 条」提示
 
-- 位置：`desktop/src/pages/Plan.tsx:200`（`day.events.slice(0, 50)`）；后端单日事件无上限。对照待排期列表有「最多显示 500 条」明示。多任务方案的单日溢出用户少一天若干事件而不自知。
+- 位置：`desktop/src/pages/Plan.tsx:200`（`day.events.slice(0, 50).map(...)`）；后端单日事件无上限（排期表任意多条）。
+- 传递链条：①某日排期任务超过 50 条（高密度方案/补排期）；②前端渲染 slice(0,50)，其余静默丢弃；③无任何「还有 N 条」提示（对照同页待排期列表的「最多显示 500 条」明示文案）；④用户在周历上看不到当日全部安排且无从发现——遗漏的任务可能被当作不存在。
+- 影响范围：单日 >50 事件的高密度方案（静默漏显）；≤50 事件的常态与其他有明示上限的列表不受影响；信息完整性，无数据损坏（数据在库可经待排期/任务列表看到）。
+- 修复方向：超限时附「当日还有 N 条未显示」提示条（对齐 500 条文案范式）。
 
 ### 126#12 失败/取消终态把 progress 覆写为 0——进度条倒退丢失语境
 
-- 位置：`mod.rs:987-995` 与 `:1187-1199`（transition 终态传 progress 0）。解析到 80% 失败后 UI 显示「解析失败 · 0%」。可能是有意设计，列为口径问题。
+- 位置：`desktop/src-tauri/src/backend/materials/mod.rs:987-995` 与 `:1187-1199`（transition 终态传 progress 0）；前端 `Library.tsx:408`「解析状态 … · {progress}%」与列表 ProgressBar。
+- 传递链条：①解析推进到 80% 后失败/取消；②终态 UPDATE 把 materials.progress 覆写为 0；③UI 显示「解析失败 · 0%」——进度条从 80% 倒退到 0%；④用户丢失「解析到多少才失败」的语境（长文档解析失败时无法判断是入口就失败还是接近完成失败）；sync_resources 同步重写同值。
+- 影响范围：解析失败/取消的资料详情展示（进度语境丢失）；成功路径（progress=100 语义正确）与队列中资料不受影响；口径问题（可能有意），损害为诊断信息损失。
+- 修复方向：终态保留最后进度值（或 UI 对终态不显示百分比）。
 
 ### 126#13 资料弹窗对每个进度事件全量拉取 detail（含 ≤5MB 解析文本）
 
-- 位置：`desktop/src/pages/Library.tsx:154-163`（任一 material.* 事件 → getMaterial(activeMaterial.id) 整个资料含解析文本）。PDF 解析期间 ≤10 个进度事件各触发一次 MB 级 IPC；90#12 只移了主线程未减重复拉取。可节流或进度事件只拉状态。
+- 位置：`desktop/src/pages/Library.tsx:154-163`（任一 material.* 事件 → `backend.getMaterial(activeMaterial.id)` 拉整个资料含解析中文本）。
+- 传递链条：①用户打开资料详情弹窗，资料在解析中；②每个 material.parsing 进度事件（每文档 ≤10 个）触发整页监听回调；③回调全量 getMaterial——响应含已解析部分文本（PDF 解析中文本可达数百 KB~5MB）；④MB 级 IPC ×10 次/文档——90#12 只把读取移出主线程，未减事件粒度下的重复拉取；弹窗只需进度条数字。
+- 影响范围：解析大资料时打开详情弹窗的用户（重复 MB 级 IPC 与 JSON 解析）；非弹窗期与其他页面事件路径（各自只拉所需）不受影响；性能面，无功能错误。
+- 修复方向：弹窗内进度事件只拉状态字段（或节流 + 解析完成才拉全文）。
 
 ## 待核
 
 ### 126#14 孤儿原件 reuse 与插入失败删除之间的窄竞态——并发同哈希导入可产生永久 missing_original
 
-- 位置：`mod.rs:599-603`（reused 判定）+ `:660-662`（插入失败且无同哈希记录时 `if !reused { fs::remove_file(destination) }`）。线程 A rename 后插入失败准备删除 destination；线程 B 恰在 A 的 rename 后、删除前观察到哈希一致（reused=true 跳过写文件）并成功建记录——B 的记录指向被 A 删除的文件。25#11 只处理 UNIQUE 撞车情形。需插入失败+并发同哈希同时发生，概率极低。
+- 位置：`desktop/src-tauri/src/backend/materials/mod.rs:599-603`（reused 判定：DB 已有同哈希记录或 destination 已存在）+ `:660-662`（插入失败且无同哈希记录时 `if !reused { fs::remove_file(&destination) }`）。
+- 传递链条：①线程 A 导入文件 X：rename 原件到 destination 成功、DB 插入失败（如配额超限）→ 走删除分支；②窗口内线程 B 并发导入同哈希文件：观察到 destination 哈希一致（reused=true，跳过写文件）→ B 的 DB 插入成功——记录指向 destination；③A 的 `remove_file(destination)` 执行——B 的记录永久指向已删文件（missing_original，11#15 的补写也救不回原件内容）；④25#11 只处理了 UNIQUE 撞车（已有记录）情形，该窗口无互斥。需「插入失败 + 并发同哈希」同时发生。
+- 影响范围：并发导入相同内容文件且一方插入失败的毫秒级交叠（产生一条永久缺原件的记录）；串行导入与插入成功路径不受影响；待核（逻辑成立、概率极低），损害为单条记录原件丢失。
+- 修复方向：删除分支改「仅当 DB 无同哈希记录时删」复查一次（或删除也入事务后置）。
 
 ## 核实通过项（免后续复查）
 
