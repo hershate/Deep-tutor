@@ -145,6 +145,38 @@ pub fn send(
     )
 }
 
+/// 109#2：同步域 HTTP 状态码分桶——凭据错误/限流/服务不可用各有明确指引，
+/// 与供应商域（openai.rs http_error）同深度；原先三处一律裸状态码，
+/// 401/403/429 无从区分凭据、权限、时钟偏移与限流方向
+fn sync_http_error(status: reqwest::StatusCode) -> BackendError {
+    match status.as_u16() {
+        401 | 403 => BackendError::new(
+            "sync_http_error",
+            &format!(
+                "远端同步服务返回 HTTP {}（{}：请核对账号密码/AccessKey，S3 另请检查系统时钟是否准确）",
+                status.as_u16(),
+                if status.as_u16() == 401 { "认证失败" } else { "无权限" },
+            ),
+        ),
+        404 => BackendError::new(
+            "sync_http_error",
+            &format!("远端同步服务返回 HTTP 404（路径不存在，请检查远端目录设置）"),
+        ),
+        429 => BackendError::new(
+            "sync_http_error",
+            "远端同步服务返回 HTTP 429（请求过于频繁，请等待一段时间后再试）",
+        ),
+        500..=599 => BackendError::new(
+            "sync_http_error",
+            &format!("远端同步服务返回 HTTP {}（服务暂时不可用，请稍后重试）", status.as_u16()),
+        ),
+        _ => BackendError::new(
+            "sync_http_error",
+            &format!("远端同步服务返回 HTTP {}", status.as_u16()),
+        ),
+    }
+}
+
 pub fn send_at(
     config: &SyncConfig,
     credentials: &SyncCredentials,
@@ -156,10 +188,7 @@ pub fn send_at(
 ) -> Result<Vec<u8>> {
     let (status, bytes) = execute(config, credentials, method, body, path, query, depth)?;
     if !status.is_success() {
-        return Err(BackendError::new(
-            "sync_http_error",
-            &format!("远端同步服务返回 HTTP {}", status.as_u16()),
-        ));
+        return Err(sync_http_error(status));
     }
     Ok(bytes)
 }
@@ -179,10 +208,7 @@ pub fn send_at_or_missing(
         return Ok(None);
     }
     if !status.is_success() {
-        return Err(BackendError::new(
-            "sync_http_error",
-            &format!("远端同步服务返回 HTTP {}", status.as_u16()),
-        ));
+        return Err(sync_http_error(status));
     }
     Ok(Some(bytes))
 }
@@ -193,10 +219,7 @@ pub fn mkcol(config: &SyncConfig, credentials: &SyncCredentials, path: &str) -> 
     if status.is_success() || status.as_u16() == 405 {
         Ok(())
     } else {
-        Err(BackendError::new(
-            "sync_http_error",
-            &format!("远端同步服务返回 HTTP {}", status.as_u16()),
-        ))
+        Err(sync_http_error(status))
     }
 }
 

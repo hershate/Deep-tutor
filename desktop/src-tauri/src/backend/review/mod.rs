@@ -192,13 +192,13 @@ fn validate_scope(
     {
         return Err(BackendError::invalid(
             "invalid_card_content",
-            "卡片正面须为 1 到 8000 字节，背面须为 1 到 20000 字节",
+            "记忆卡正面须为 1 到 8000 字节，背面须为 1 到 20000 字节",
         ));
     }
     if input.tag.as_deref().is_some_and(|tag| tag.len() > 100) {
         return Err(BackendError::invalid(
             "invalid_card_tag",
-            "卡片标签不能超过 100 字节",
+            "记忆卡标签不能超过 100 字节",
         ));
     }
     if input.node_id.is_some() && input.plan_id.is_none() {
@@ -420,7 +420,10 @@ pub fn grade<R: Runtime>(
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
     let card = get_card(&tx, id)?;
     if parse_time(&card.due_at)? > OffsetDateTime::now_utc() {
-        return Err(BackendError::new("card_not_due", "这张卡片尚未到复习时间"));
+        return Err(BackendError::new(
+            "card_not_due",
+            "这张记忆卡尚未到复习时间",
+        ));
     }
     let previous_interval = card.interval_days;
     // 47#3：ease/间隔为库内 f64，被外部改库成 NaN/巨值时直接参与乘法会经
@@ -433,7 +436,7 @@ pub fn grade<R: Runtime>(
     {
         return Err(BackendError::new(
             "invalid_record",
-            "复习卡间隔或难度系数无效，请删除后重建该卡片",
+            "记忆卡间隔或难度系数无效，请删除后重建",
         ));
     }
     let next_interval = match grade {
@@ -468,12 +471,12 @@ pub fn grade<R: Runtime>(
         if card.suspended {
             return Err(BackendError::new(
                 "card_suspended",
-                "这张卡片已暂停，暂停期间不参与复习",
+                "这张记忆卡已暂停，暂停期间不参与复习",
             ));
         }
         return Err(BackendError::new(
             "card_not_due",
-            "这张卡片已被其他操作复习",
+            "这张记忆卡已被其他操作复习",
         ));
     }
     tx.execute(

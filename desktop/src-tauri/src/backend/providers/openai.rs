@@ -397,11 +397,53 @@ pub(crate) fn http_error(status: u16) -> BackendError {
     match status {
         401 | 403 => BackendError::new("authentication_failed", "供应商拒绝了凭据，请检查 API Key"),
         404 => BackendError::new("endpoint_not_found", "供应商不存在该 API 端点"),
-        408 => BackendError::new("provider_timeout", "供应商请求超时"),
-        429 => BackendError::new("rate_limited", "供应商触发了速率限制"),
+        // 109#1：408/429 补自救指引（瞬态故障重试即可）
+        408 => BackendError::new("provider_timeout", "供应商请求超时，请稍后重试"),
+        429 => BackendError::new("rate_limited", "供应商触发了速率限制，请稍后重试"),
         500..=599 => BackendError::new("provider_unavailable", "供应商暂时不可用"),
         _ => BackendError::new("provider_error", "供应商返回了不可用的响应"),
     }
+}
+
+/// 109#1：非 200 响应 body 前 4KB 的诊断细节提取（55#4 read_json 同口径
+/// 共享化）——JSON /error/message 或剥 HTML 标签拼「（服务返回：…）」；
+/// 检测入口与主生成路径原先两种信息量，同一故障误导排障
+pub(crate) async fn read_error_detail(
+    response: &mut reqwest::Response,
+    error: BackendError,
+) -> BackendError {
+    let mut bytes = Vec::new();
+    while bytes.len() < 4096 {
+        match response.chunk().await {
+            Ok(Some(chunk)) => bytes.extend_from_slice(&chunk),
+            _ => break,
+        }
+    }
+    if let Ok(body) = serde_json::from_slice::<Value>(&bytes) {
+        if let Some(message) = body.pointer("/error/message").and_then(Value::as_str) {
+            let detail: String = message.chars().take(200).collect();
+            return BackendError::new(
+                &error.code,
+                &format!("{}（服务返回：{detail}）", error.message),
+            );
+        }
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let stripped: String = text
+        .split('<')
+        .map(|segment| segment.split_once('>').map_or(segment, |(_, rest)| rest))
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !stripped.is_empty() {
+        let detail: String = stripped.chars().take(160).collect();
+        return BackendError::new(
+            &error.code,
+            &format!("{}（服务返回：{detail}）", error.message),
+        );
+    }
+    error
 }
 
 pub fn list_models(
@@ -1178,7 +1220,11 @@ where
     };
     let status = response.status().as_u16();
     if status != 200 {
-        return Err(ChatError::from(http_error(status)));
+        // 109#1：同 protocol.rs——流式主路径 non-200 保留 body 诊断细节
+        let mut response = response;
+        return Err(ChatError::from(
+            read_error_detail(&mut response, http_error(status)).await,
+        ));
     }
     let mut output = StreamOutput {
         text: String::new(),

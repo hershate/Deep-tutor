@@ -355,10 +355,13 @@ export type AgentSession = {
 // 92#3：AgentArtifact.content 后端为自由 Value（agent 域直接存取 JSON），
 // 键名漂移编译期不报错——同 guardLearningPlan 范式做运行时守卫，坏形状
 // 以可定位的错误暴露而非渲染层 undefined 空白
+// 109#8：守卫文案用户向——原先开发者术语（「后端 JSON 键变更？」）直达
+// 整页错误横幅，普通用户无从行动；技术细节留 console
 function guardAgentArtifact(artifact: AgentArtifact): AgentArtifact {
   const content = artifact.content as unknown as Record<string, unknown> | undefined
   if (artifact.status !== 'cancelled' && (!content || typeof content.title !== 'string' || !Array.isArray(content.sections))) {
-    throw new Error(`产物 ${artifact.id} 的内容结构与前端断言不符（title/sections 缺失，后端 JSON 键变更？）`)
+    console.error(`guardAgentArtifact: 产物 ${artifact.id} 形状断言失败（title/sections 缺失，后端 JSON 键变更？）`, artifact.content)
+    throw new Error(`产物 ${artifact.id} 的本地数据结构与当前应用版本不兼容，请更新应用后再查看。`)
   }
   return artifact
 }
@@ -367,9 +370,21 @@ function guardLearningPlan(plan: LearningPlan): LearningPlan {
   if (!plan.result) return plan
   const resources = plan.result.resources as unknown as Record<string, unknown> | undefined
   if (!resources || !Array.isArray(resources.items) || resources.externalSearch === undefined) {
-    throw new Error(`方案 ${plan.id} 的 resources 结构与前端断言不符（items/externalSearch 缺失，后端 JSON 键变更？）`)
+    console.error(`guardLearningPlan: 方案 ${plan.id} resources 形状断言失败（items/externalSearch 缺失，后端 JSON 键变更？）`, plan.result)
+    throw new Error(`方案 ${plan.id} 的本地数据结构与当前应用版本不兼容，请更新应用后再查看。`)
   }
   return plan
+}
+
+// 109#9：对话框插件原始错误统一映射（91#1 的 opener 同口径）——shell COM
+// 故障等罕见情形原先以英文原文直达 toast；用户取消返回 null 不走此通道
+export async function invokeDialog<T>(command: 'plugin:dialog|open' | 'plugin:dialog|save', options: unknown): Promise<T | null> {
+  try {
+    return await invoke<T>(command, { options })
+  } catch (cause) {
+    console.error('dialog plugin failed', cause)
+    throw { code: 'dialog_unavailable', message: '无法打开系统对话框，请重试；若持续失败请重启应用。' } satisfies Partial<BackendError>
+  }
 }
 
 export const backend = {
@@ -382,7 +397,7 @@ export const backend = {
   getDraft: <T>(id: string) => invoke<{ value: T | null; revision: number }>('get_draft', { id }),
   deleteDraft: (id: string) => invoke<WriteReceipt>('delete_draft', { id }),
   resetApplication: () => invoke<AppSnapshot>('reset_application'),
-  openMaterialFiles: () => invoke<string[] | null>('plugin:dialog|open', {
+  openMaterialFiles: () => invokeDialog<string[]>('plugin:dialog|open', {
     options: { title: '导入学习资料', multiple: true, filters: [{ name: '学习资料', extensions: ['pdf', 'docx', 'pptx', 'epub', 'txt', 'md', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'ogg', 'm4a', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'] }] },
   }),
   // 42#1/42#2：defaultPath 统一清洗——Windows 文件名非法字符（\ / : * ? " < > |）
@@ -390,7 +405,7 @@ export const backend = {
   // 直接打不开（手输资料标题含半角冒号即触发）；扩展名统一小写并显式补全
   // （此前各调用点口径不一：有的不带后缀、有的大写）。E-5 按码点截断防代理对切半。
   // 调用方传不含扩展名的基础名即可。
-  saveMaterialFile: (baseName: string, extension: string) => invoke<string | null>('plugin:dialog|save', {
+  saveMaterialFile: (baseName: string, extension: string) => invokeDialog<string>('plugin:dialog|save', {
     options: {
       title: '保存到本地',
       defaultPath: `${sanitizeFileBaseName(baseName)}.${extension.toLowerCase()}`,

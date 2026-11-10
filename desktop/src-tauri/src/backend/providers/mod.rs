@@ -426,10 +426,30 @@ pub fn list(state: &ProviderState) -> Result<Vec<ProviderProfile>> {
 }
 
 pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
+    // 109#11：85#2 的 deep_link 有 display_safe 滤控制字符与 bidi 覆写，
+    // 表单路径原先只查非空+长度——注入脚本/异常配置导入可把 U+202E 等
+    // 伪装字符写进档案名；同口径拒绝
+    let display_safe = |text: &str| {
+        !text
+            .chars()
+            .any(|c| c.is_control() || matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069))
+    };
     if input.name.trim().is_empty() || input.name.len() > 100 {
         return Err(BackendError::invalid(
             "invalid_provider_name",
             "档案名称不能为空且不能超过 100 字符",
+        ));
+    }
+    if !display_safe(&input.name)
+        || !display_safe(&input.default_model)
+        || input
+            .note
+            .as_deref()
+            .is_some_and(|note| !display_safe(note))
+    {
+        return Err(BackendError::invalid(
+            "invalid_provider_name",
+            "档案名称、模型或备注包含不允许的控制或方向覆写字符",
         ));
     }
     if !["官方", "兼容服务", "本地模型"].contains(&input.kind.as_str()) {

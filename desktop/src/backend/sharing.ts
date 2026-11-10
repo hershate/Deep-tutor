@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { invokeDialog } from './client'
 import type { LearningResult } from './client'
 
 export type SharedPlanSnapshot = Pick<LearningResult, 'goal' | 'deadline' | 'graph' | 'stages' | 'schedule' | 'validation' | 'warnings'> & {
@@ -27,8 +28,8 @@ export const sharingBackend = {
   readPackage: (content: string) => invoke<SharedPlanView>('read_shared_plan_package', { package: content }),
   exportPackage: (content: string, destination: string) => invoke<{ bytes: number }>('export_shared_plan_package', { package: content, destination }),
   readFile: (path: string) => invoke<SharedPlanView>('read_shared_plan_file', { path }),
-  openFile: () => invoke<string | null>('plugin:dialog|open', { options: { title: '打开只读学习方案', multiple: false, filters: [{ name: 'Deep Tutor 分享包', extensions: ['dtshare'] }] } }),
-  saveFile: (planId: string) => invoke<string | null>('plugin:dialog|save', { options: { title: '保存只读分享包', defaultPath: `${planId}.dtshare`, filters: [{ name: 'Deep Tutor 分享包', extensions: ['dtshare'] }] } }),
+  openFile: () => invokeDialog<string>('plugin:dialog|open', { options: { title: '打开只读学习方案', multiple: false, filters: [{ name: 'Deep Tutor 分享包', extensions: ['dtshare'] }] } }),
+  saveFile: (planId: string) => invokeDialog<string>('plugin:dialog|save', { options: { title: '保存只读分享包', defaultPath: `${planId}.dtshare`, filters: [{ name: 'Deep Tutor 分享包', extensions: ['dtshare'] }] } }),
 }
 
 export function localShareUrl(token: string) {

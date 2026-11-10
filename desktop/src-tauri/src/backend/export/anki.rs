@@ -56,7 +56,7 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
     if document.cards.is_empty() {
         return Err(BackendError::new(
             "empty_export",
-            "当前范围没有可导出的复习卡",
+            "当前范围没有可导出的记忆卡",
         ));
     }
     let root = state

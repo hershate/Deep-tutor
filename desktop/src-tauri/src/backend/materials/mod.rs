@@ -1398,11 +1398,26 @@ pub(crate) fn atomic_export(destination: &Path, bytes: &[u8]) -> Result<()> {
             // 70#3：回滚 rename 失败不得提前返回——那会跳过 temporary 清理
             // （残留 download-{n} ≤50MB）并掩盖本次替换的原始失败原因；
             // 回滚失败降级记录，两条错误一并上报
-            let mut message = format!("导出替换失败：{error}");
+            // 109#6：io::Error 英文 OS 文案与调试格式路径（\ 转义）原先直接
+            // 进用户 toast——按错误类别映射中文，残留路径用 display()
+            let reason = if error.raw_os_error() == Some(32) {
+                "目标文件正被其他程序占用"
+            } else if error.kind() == std::io::ErrorKind::PermissionDenied {
+                "目标位置无写入权限"
+            } else {
+                "目标文件无法替换"
+            };
+            let mut message = format!("导出替换失败：{reason}，请关闭占用程序后重试");
             if replaced {
                 if let Err(rollback) = fs::rename(&previous, destination) {
+                    let rollback_reason = if rollback.raw_os_error() == Some(32) {
+                        "备份文件被占用"
+                    } else {
+                        "无法恢复备份"
+                    };
                     message.push_str(&format!(
-                        "；回滚先前备份也失败：{rollback}（{previous:?} 残留，可手动删除）"
+                        "；回滚先前备份也失败：{rollback_reason}（{} 残留，可手动删除）",
+                        previous.display()
                     ));
                 }
             }

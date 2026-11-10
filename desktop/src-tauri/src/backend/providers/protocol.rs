@@ -281,7 +281,13 @@ where
     };
     let status = response.status().as_u16();
     if status != 200 {
-        return Err(ChatError::from(openai::http_error(status)));
+        // 109#1：读 body 前 4KB 提取诊断细节（55#4 同口径）——欠费 402/
+        // 模型名错 400 等 body 说明原先整体丢弃，方案生成页只显示泛化
+        // provider_error 而「检测→读取模型列表」却能看到真实原因
+        let mut response = response;
+        return Err(ChatError::from(
+            openai::read_error_detail(&mut response, openai::http_error(status)).await,
+        ));
     }
     let mut output = StreamOutput::new(model);
     let mut pending = Vec::new();
