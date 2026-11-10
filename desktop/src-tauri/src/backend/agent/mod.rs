@@ -548,14 +548,17 @@ fn launch<R: Runtime>(
                     );
                 }
             }
-            if let Ok(mut active) = worker_active.lock() {
-                active.remove(&run_id);
-            }
+            let mut active = worker_active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&run_id);
         });
     if result.is_err() {
-        if let Ok(mut active) = state.active.lock() {
-            active.remove(&run_id);
-        }
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&run_id);
         let _ = finish_run(
             &app,
             state,

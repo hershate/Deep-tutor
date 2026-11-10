@@ -348,9 +348,10 @@ fn launch<R: Runtime>(
                     );
                 }
             }
-            if let Ok(mut active) = active.lock() {
-                active.remove(&key);
-            }
+            let mut active = active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&key);
         })
         .map(|_| ())
         .map_err(|_| BackendError::new("task_start_failed", "无法启动讲义生成线程"))
@@ -426,9 +427,11 @@ pub fn generate<R: Runtime>(
         Ok(event) => {
             emit(app, &event);
             if let Err(error) = launch(app.clone(), state, id, stage_id.into()) {
-                if let Ok(mut active) = state.lecture_active.lock() {
-                    active.remove(&key(id, stage_id));
-                }
+                let mut active = state
+                    .lecture_active
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                active.remove(&key(id, stage_id));
                 let _ = fail_lecture(
                     app,
                     state,
@@ -441,9 +444,11 @@ pub fn generate<R: Runtime>(
             get(state, &id.to_string(), stage_id, None)
         }
         Err(error) => {
-            if let Ok(mut active) = state.lecture_active.lock() {
-                active.remove(&key(id, stage_id));
-            }
+            let mut active = state
+                .lecture_active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&key(id, stage_id));
             Err(error)
         }
     }

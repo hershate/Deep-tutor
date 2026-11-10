@@ -798,9 +798,11 @@ struct TestGuard {
 
 impl Drop for TestGuard {
     fn drop(&mut self) {
-        if let Ok(mut tests) = self.state.lock() {
-            tests.remove(&self.key);
-        }
+        let mut tests = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        tests.remove(&self.key);
     }
 }
 
@@ -933,9 +935,11 @@ struct ChatGuard {
 
 impl Drop for ChatGuard {
     fn drop(&mut self) {
-        if let Ok(mut cancels) = self.cancels.lock() {
-            cancels.remove(&self.request_id);
-        }
+        let mut cancels = self
+            .cancels
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        cancels.remove(&self.request_id);
     }
 }
 

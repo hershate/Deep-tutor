@@ -70,10 +70,21 @@ pub fn restart_learning_diagnostic<R: Runtime>(
     super::restart_diagnostic(&app, &EngagementState::new(&state.learning))
 }
 
-#[tauri::command]
-pub fn get_dashboard<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, BackendState>,
-) -> Result<DashboardOverview> {
-    super::dashboard(&app, &EngagementState::new(&state.learning))
+// 103#4：dashboard = list_with + stats_with + calendar_with + report_with("4w")
+// 四类全量聚合（90#8/90#10 自述要移后台的同一套成本），且被前端每个
+// 后端事件触发——原先同步命令在主线程执行，首页热路径的冻结随历史
+// 数据量线性增长；只读，principal 用 _existing
+#[tauri::command(async)]
+pub async fn get_dashboard<R: Runtime + 'static>(app: AppHandle<R>) -> Result<DashboardOverview> {
+    let principal = super::super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            let state = app.state::<BackendState>();
+            super::dashboard(&app, &EngagementState::new(&state.learning))
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "仪表盘加载任务执行异常终止")
+    })?
 }

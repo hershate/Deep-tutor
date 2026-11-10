@@ -45,6 +45,9 @@ pub(crate) fn reauthentication_required(error: &BackendError) -> bool {
         "session_revoked",
         "account_disabled",
         "login_required",
+        // 103#8：keyring 槽丢失须走显式重登（switch 后由 resume_background
+        // 补偿 recover），不得进入自动签发分支
+        "session_credentials_unavailable",
     ]
     .contains(&error.code.as_str())
 }
@@ -171,7 +174,7 @@ const RESOURCES: [(&str, u64); 5] = [
     ("agent_memory", 500),
 ];
 
-trait CredentialBackend: Send + Sync {
+pub(crate) trait CredentialBackend: Send + Sync {
     fn get(&self, id: &str) -> Result<Option<Zeroizing<String>>>;
     fn set(&self, id: &str, value: &str) -> Result<()>;
     fn delete(&self, id: &str) -> Result<()>;
@@ -325,6 +328,25 @@ impl SecurityState {
             logged_out: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             _guard: None,
         }
+    }
+
+    // 103#8 测试辅助：同一账户库跨 mock_app 实例复用凭据存储——生产中
+    // keyring 随进程持久，「重启回原目录」的场景须持有原会话；凭据存储
+    // 不共享会被判为会话槽丢失（session_credentials_unavailable 须显式重登）
+    #[cfg(test)]
+    pub fn for_tests_at_with(path: &Path, credentials: Arc<dyn CredentialBackend>) -> Self {
+        Self {
+            database_path: path.to_path_buf(),
+            credentials,
+            connection: Arc::new(std::sync::Mutex::new(None)),
+            logged_out: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            _guard: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn credentials_handle(&self) -> Arc<dyn CredentialBackend> {
+        Arc::clone(&self.credentials)
     }
 
     fn store(&self) -> Result<AccountStoreGuard<'_>> {
@@ -592,7 +614,16 @@ fn current(conn: &Connection, state: &SecurityState) -> Result<(LocalUser, Sessi
     let token = state
         .credentials
         .get(&format!("session-{id}"))?
-        .ok_or_else(|| BackendError::new("login_required", "本地会话凭据不可用，请重新选择用户"))?;
+        .ok_or_else(|| {
+            // 103#8：keyring 槽丢失（凭据管理器被清理/损坏）与「零会话行」
+            // 分码——原先同报 login_required，initialize 对两者一律自动以
+            // 管理员签发，成员身份在槽丢失时被静默提权；独立码只允许
+            // 显式重新 login
+            BackendError::new(
+                "session_credentials_unavailable",
+                "本地会话凭据不可用，请重新选择用户登录",
+            )
+        })?;
     let user = verify(conn, state, &token)?;
     Ok((
         user,

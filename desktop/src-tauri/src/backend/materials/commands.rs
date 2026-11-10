@@ -58,8 +58,10 @@ pub async fn get_material<R: Runtime + 'static>(
     state: State<'_, BackendState>,
     id: i64,
 ) -> Result<MaterialDetail> {
-    // 23#7：principal 传播（guard 的 thread-local 到不了阻塞线程）
-    let principal = super::super::security::session_principal(&app)?;
+    // 23#7：principal 传播（guard 的 thread-local 到不了阻塞线程）。
+    // 103#11：读类用 _existing——会话恰在 guard 校验后过期时不自动签发
+    //（产生 session_started 事件触发整树 reload），与其余 10 个迁移读命令一致
+    let principal = super::super::security::session_principal_existing(&app)?;
     let materials = state.materials.shared();
     tauri::async_runtime::spawn_blocking(move || {
         super::super::security::with_principal(principal, || detail(&materials, id))

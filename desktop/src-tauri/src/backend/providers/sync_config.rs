@@ -164,10 +164,21 @@ pub fn preview(bytes: &[u8]) -> Result<SyncPreview> {
 const ROLLBACK_SNAPSHOT_KEY: &str = "import_rollback_snapshot";
 
 fn take_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
+    let snapshot = snapshot_state(conn)?;
+    conn.execute(
+        "INSERT INTO provider_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![ROLLBACK_SNAPSHOT_KEY, snapshot],
+    )?;
+    Ok(())
+}
+
+/// 当前 provider_profiles + provider_meta 的确定性 JSON 快照（ORDER BY 保证
+/// 逐字节可比，供 103#2 的残留快照一致性比对复用）
+fn snapshot_state(conn: &rusqlite::Connection) -> Result<String> {
     let mut profiles = Vec::new();
     {
         let mut statement = conn.prepare(
-            "SELECT id, name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, health, latency_ms, created_at, updated_at FROM provider_profiles",
+            "SELECT id, name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, health, latency_ms, created_at, updated_at FROM provider_profiles ORDER BY id",
         )?;
         let rows = statement.query_map([], |row| {
             Ok(json!([
@@ -204,15 +215,20 @@ fn take_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
         }
     }
     let snapshot = serde_json::to_string(&json!({"profiles": profiles, "meta": meta}))?;
-    conn.execute(
-        "INSERT INTO provider_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        rusqlite::params![ROLLBACK_SNAPSHOT_KEY, snapshot],
-    )?;
-    Ok(())
+    Ok(snapshot)
 }
 
-/// 回滚到快照并丢弃；无快照时为无操作
-fn rollback_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
+/// 回滚到快照并丢弃；无快照时为无操作。
+/// strict=true（本次导入失败路径）：无条件还原——快照就是为这一刻拍的。
+/// strict=false（下次导入开头的残留处理）：当前档案与快照一致时直接丢弃
+/// 过期键；不一致时保留现状只清键——103#2：崩溃残留 + 用户手动增改档案 +
+/// 再次导入的组合，无条件回滚会静默吞掉手动修改（本次导入开头会立刻拍
+/// 新快照兜底）。
+/// 103#3：快照损坏（schema 演进/磁盘损坏/手改）降级——丢弃损坏快照继续
+/// 导入，快照只是安全网，不再永久砖化「恢复供应商配置」。
+/// 103#1：还原整体一个事务（DELETE+重插+清键一并提交）——原先
+/// autocommit 逐条各自提交，中断恰好落在 DELETE 与重插之间会清空全部档案
+fn rollback_import_snapshot(conn: &rusqlite::Connection, strict: bool) -> Result<()> {
     let snapshot: Option<String> = conn
         .query_row(
             "SELECT value FROM provider_meta WHERE key = ?1",
@@ -223,28 +239,47 @@ fn rollback_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
     let Some(snapshot) = snapshot else {
         return Ok(());
     };
-    let parsed: Value = serde_json::from_str(&snapshot)
-        .map_err(|_| BackendError::new("sync_snapshot_invalid", "导入回滚快照损坏"))?;
-    let profiles: Vec<(
-        i64,
-        String,
-        String,
-        String,
-        String,
-        String,
-        String,
-        String,
-        i64,
-        Option<String>,
-        String,
-        Option<i64>,
-        String,
-        String,
-    )> = serde_json::from_value(parsed["profiles"].clone())?;
-    let meta: Vec<(String, String)> = serde_json::from_value(parsed["meta"].clone())?;
-    conn.execute("DELETE FROM provider_profiles", [])?;
+    let parsed: Value = if let Ok(parsed) = serde_json::from_str(&snapshot) {
+        parsed
+    } else {
+        // 103#3：损坏快照降级——清键继续，错误不阻断后续导入
+        drop_import_snapshot(conn)?;
+        return Ok(());
+    };
+    let profiles: Option<
+        Vec<(
+            i64,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            Option<String>,
+            String,
+            Option<i64>,
+            String,
+            String,
+        )>,
+    > = serde_json::from_value(parsed["profiles"].clone()).ok();
+    let meta: Option<Vec<(String, String)>> = serde_json::from_value(parsed["meta"].clone()).ok();
+    let (Some(profiles), Some(meta)) = (profiles, meta) else {
+        drop_import_snapshot(conn)?;
+        return Ok(());
+    };
+    if !strict {
+        // 103#2：残留快照只在与现状一致时静默处理；快照后档案已有任何变更
+        // （手动修复/增改）都保留现状不回滚覆盖——两种结局都只是清掉过期键，
+        // 一致时无需还原，不一致时保留现状
+        drop_import_snapshot(conn)?;
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM provider_profiles", [])?;
     for profile in profiles {
-        conn.execute(
+        tx.execute(
             "INSERT INTO provider_profiles (id, name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, health, latency_ms, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             rusqlite::params![
                 profile.0, profile.1, profile.2, profile.3, profile.4, profile.5, profile.6,
@@ -252,17 +287,21 @@ fn rollback_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
             ],
         )?;
     }
-    conn.execute(
+    tx.execute(
         &format!("DELETE FROM provider_meta WHERE key != '{ROLLBACK_SNAPSHOT_KEY}'"),
         [],
     )?;
     for (key, value) in meta {
-        conn.execute(
+        tx.execute(
             "INSERT INTO provider_meta (key, value) VALUES (?1, ?2)",
             rusqlite::params![key, value],
         )?;
     }
-    drop_import_snapshot(conn)?;
+    tx.execute(
+        "DELETE FROM provider_meta WHERE key = ?1",
+        rusqlite::params![ROLLBACK_SNAPSHOT_KEY],
+    )?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -305,7 +344,8 @@ pub fn import<R: Runtime>(
     // 批内任一步失败回滚到导入前状态，消除半套配置
     {
         let store = state.store()?;
-        rollback_import_snapshot(&store.conn)?;
+        // 103#2：残留快照不回滚覆盖（详见函数注释），只清理过期键
+        rollback_import_snapshot(&store.conn, false)?;
         take_import_snapshot(&store.conn)?;
     }
     let outcome = apply_import(app, state, config, bytes);
@@ -318,7 +358,7 @@ pub fn import<R: Runtime>(
         Err(error) => {
             let rolled_back = state
                 .store()
-                .and_then(|store| rollback_import_snapshot(&store.conn))
+                .and_then(|store| rollback_import_snapshot(&store.conn, true))
                 .is_ok();
             if rolled_back {
                 Err(BackendError::new(
@@ -449,7 +489,7 @@ mod tests {
             [],
         )
         .unwrap();
-        rollback_import_snapshot(&conn).unwrap();
+        rollback_import_snapshot(&conn, true).unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM provider_profiles", [], |row| {
                 row.get(0)
@@ -478,6 +518,49 @@ mod tests {
             .optional()
             .unwrap();
         assert!(snapshot.is_none());
-        rollback_import_snapshot(&conn).unwrap();
+        rollback_import_snapshot(&conn, true).unwrap();
+        // 103#2：残留路径（非 strict）不回滚覆盖——清键后手动修改保留
+        conn.execute(
+            "INSERT INTO provider_profiles (name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, created_at, updated_at) VALUES ('手动修复档案', 'custom', '官方', 'OpenAI Chat', 'https://c.example', 'm', '[\"m\"]', 1, NULL, '2026-01-03T00:00:00Z', '2026-01-03T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        take_import_snapshot(&conn).unwrap();
+        conn.execute(
+            "UPDATE provider_meta SET value = 'p3' WHERE key = 'active_provider'",
+            [],
+        )
+        .unwrap();
+        rollback_import_snapshot(&conn, false).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM provider_profiles", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 2, "残留路径不得回滚吞掉快照后的手动修改");
+        let active: String = conn
+            .query_row(
+                "SELECT value FROM provider_meta WHERE key = 'active_provider'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, "p3");
+        // 103#3：损坏快照降级——清键不报错，后续导入可用
+        conn.execute(
+            "INSERT INTO provider_meta (key, value) VALUES (?1, 'not-json') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![ROLLBACK_SNAPSHOT_KEY],
+        )
+        .unwrap();
+        rollback_import_snapshot(&conn, true).unwrap();
+        let snapshot: Option<String> = conn
+            .query_row(
+                "SELECT value FROM provider_meta WHERE key = ?1",
+                rusqlite::params![ROLLBACK_SNAPSHOT_KEY],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        assert!(snapshot.is_none(), "损坏快照应被清理而非永久砖化导入");
     }
 }

@@ -47,12 +47,19 @@ fn canonical_query(query: &[(&str, &str)]) -> String {
             })
             .collect()
     };
-    let mut pairs: Vec<String> = query
+    // 103#13：SigV4 要求按编码后 key 字节序排序——原先对 "key=value" 整串
+    // 排序，前缀相关参数（max 与 max-keys）时与 AWS 键序相反导致 403；
+    // 改按键排序（同 key 重复时按值，与服务端重建一致）
+    let mut pairs: Vec<(String, String)> = query
         .iter()
-        .map(|(key, value)| format!("{}={}", encode(key), encode(value)))
+        .map(|(key, value)| (encode(key), encode(value)))
         .collect();
     pairs.sort();
-    pairs.join("&")
+    pairs
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 fn signature(

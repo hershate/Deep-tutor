@@ -63,14 +63,44 @@ pub fn reveal_path<R: Runtime>(
         .map_err(|_| super::error::BackendError::new("reveal_failed", "资源管理器定位失败"))
 }
 
-#[tauri::command]
-pub fn bootstrap(state: State<'_, BackendState>) -> Result<Value> {
-    store(&state)?.bootstrap()
+// 103#6：读路径全量重建（四集合全读 + preferences 反序列化，90#9 注释
+// 自述的成本）原先同步命令在主线程执行——事件密集期每个 120ms 去抖簇
+// 一次 getAppState，主线程反复被全量重建占用；移后台（读类 principal
+// 用 _existing）
+#[tauri::command(async)]
+pub async fn bootstrap<R: Runtime + 'static>(app: AppHandle<R>) -> Result<Value> {
+    let principal = super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::security::with_principal(principal, || {
+            use tauri::Manager;
+            let state = app.state::<BackendState>();
+            let guard = state
+                .store
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.bootstrap()
+        })
+    })
+    .await
+    .map_err(|_| super::error::BackendError::new("internal_error", "状态读取任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn get_app_state(state: State<'_, BackendState>) -> Result<Value> {
-    store(&state)?.app_state()
+#[tauri::command(async)]
+pub async fn get_app_state<R: Runtime + 'static>(app: AppHandle<R>) -> Result<Value> {
+    let principal = super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::security::with_principal(principal, || {
+            use tauri::Manager;
+            let state = app.state::<BackendState>();
+            let guard = state
+                .store
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.app_state()
+        })
+    })
+    .await
+    .map_err(|_| super::error::BackendError::new("internal_error", "状态读取任务执行异常终止"))?
 }
 
 #[tauri::command]

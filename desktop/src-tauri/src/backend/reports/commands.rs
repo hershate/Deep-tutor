@@ -94,14 +94,27 @@ pub fn save_study_checkin<R: Runtime>(
     super::save_checkin(&app, &ReportState::new(&state.learning), input)
 }
 
-#[tauri::command]
-pub fn adopt_report_recommendations<R: Runtime>(
+// 103#5：采纳建议与 get_report 同一全量聚合实现（90#8 自述成本）——原先
+// 同步命令在主线程执行，报表页点击「采纳」即冻结；移后台。采纳含写
+//（replace_collection/start_focus），命令层事件发射顺序保持在闭包内不变
+#[tauri::command(async)]
+pub async fn adopt_report_recommendations<R: Runtime + 'static>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     ids: Vec<String>,
     period: Option<String>,
 ) -> Result<AdoptionResult> {
-    super::adopt_recommendations(&app, &ReportState::new(&state.learning), ids, period)
+    let principal = super::super::security::session_principal(&app)?;
+    let report = ReportState::new(&state.learning);
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            super::adopt_recommendations(&app, &report, ids, period)
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "建议采纳任务执行异常终止")
+    })?
 }
 
 // 90#8：报表导出叠加全量聚合与 PDF 渲染，随报表命令一并移后台（90#1 同族）

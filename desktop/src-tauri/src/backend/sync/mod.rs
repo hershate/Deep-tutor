@@ -413,7 +413,7 @@ pub fn overview(service: &SyncService) -> Result<SyncOverview> {
     let store = service.store()?;
     let mut statement = store
         .conn
-        .prepare("SELECT id FROM sync_jobs ORDER BY created_at DESC, id DESC LIMIT 50")?;
+        .prepare("SELECT id FROM sync_jobs ORDER BY rowid DESC LIMIT 50")?;
     let ids = statement
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -742,9 +742,10 @@ fn start_with_path<R: Runtime>(
         Ok(event) => event,
         Err(error) => {
             let active_jobs = service.active();
-            if let Ok(mut active) = active_jobs.lock() {
-                active.remove(&id);
-            }
+            let mut active = active_jobs
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&id);
             return Err(error);
         }
     };
@@ -771,15 +772,18 @@ fn start_with_path<R: Runtime>(
                 Err(_) => Err(BackendError::new("task_panicked", "同步任务异常终止")),
             };
             let _ = finish(&worker_app, &worker_service, &worker_id, outcome);
-            if let Ok(mut active) = worker_service.active().lock() {
-                active.remove(&worker_id);
-            }
+            let active_jobs = worker_service.active();
+            let mut active = active_jobs
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&worker_id);
         });
     if let Err(_spawn_error) = spawn {
         let active_jobs = service.active();
-        if let Ok(mut active) = active_jobs.lock() {
-            active.remove(&id);
-        }
+        let mut active = active_jobs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&id);
         let _ = finish(
             app,
             service,

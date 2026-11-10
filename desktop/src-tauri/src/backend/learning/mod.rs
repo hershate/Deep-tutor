@@ -399,9 +399,10 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &LearningState, id: i64) -> Resu
                     let _ = fail_plan(&worker_app, &worker_state, id, error);
                 }
             }
-            if let Ok(mut jobs) = active.lock() {
-                jobs.remove(&id);
-            }
+            let mut jobs = active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            jobs.remove(&id);
         })
         .map(|_| ())
         .map_err(|_| BackendError::new("task_start_failed", "无法启动学习生成线程"))
@@ -440,16 +441,20 @@ pub fn start<R: Runtime>(
     )?;
     register(state, id)?;
     if let Err(error) = tx.commit() {
-        if let Ok(mut active) = state.active.lock() {
-            active.remove(&id);
-        }
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&id);
         return Err(error.into());
     }
     emit(app, &event);
     if let Err(error) = launch(app.clone(), state, id) {
-        if let Ok(mut active) = state.active.lock() {
-            active.remove(&id);
-        }
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&id);
         let task_error = BackendError::new("task_start_failed", "学习生成任务未能启动");
         let _ = fail_plan(app, state, id, task_error);
         return Err(error);
@@ -482,9 +487,11 @@ pub fn resume<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: &str) -
         Ok(event) => {
             emit(app, &event);
             if let Err(error) = launch(app.clone(), state, id) {
-                if let Ok(mut active) = state.active.lock() {
-                    active.remove(&id);
-                }
+                let mut active = state
+                    .active
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                active.remove(&id);
                 let task_error = BackendError::new("task_start_failed", "学习生成任务未能恢复");
                 let _ = fail_plan(app, state, id, task_error);
                 return Err(error);
@@ -492,9 +499,11 @@ pub fn resume<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: &str) -
             get(state, &format!("plan-{id}"))
         }
         Err(error) => {
-            if let Ok(mut active) = state.active.lock() {
-                active.remove(&id);
-            }
+            let mut active = state
+                .active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&id);
             Err(error)
         }
     }

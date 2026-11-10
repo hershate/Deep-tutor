@@ -4,7 +4,8 @@ import { storageBackend } from './storage'
 import { backupBackend } from './backup'
 import { notesBackend } from './notes'
 
-const authenticationErrors = new Set(['invalid_session', 'session_expired', 'session_revoked', 'account_disabled', 'login_required'])
+// 103#8：keyring 会话槽丢失须显式重登，与过期/吊销同走登录界面
+const authenticationErrors = new Set(['invalid_session', 'session_expired', 'session_revoked', 'account_disabled', 'login_required', 'session_credentials_unavailable'])
 
 const emptySnapshot: AppSnapshot = {
   tasks: [], notes: [], resources: [], projects: [],

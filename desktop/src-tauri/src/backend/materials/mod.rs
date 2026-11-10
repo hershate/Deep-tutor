@@ -1031,9 +1031,11 @@ fn spawn_job<R: Runtime>(
             }
         });
     if result.is_err() {
-        if let Ok(mut active) = state.active.lock() {
-            active.remove(&id);
-        }
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&id);
         let error = BackendError::new("job_start_failed", "无法启动原生解析任务");
         let store = state.store()?;
         transition(
@@ -1225,9 +1227,11 @@ fn schedule_next<R: Runtime>(
         }
         Ok(())
     })();
-    if let Ok(mut active) = state.active.lock() {
-        active.remove(&finished_id);
-    }
+    let mut active = state
+        .active
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    active.remove(&finished_id);
     result
 }
 

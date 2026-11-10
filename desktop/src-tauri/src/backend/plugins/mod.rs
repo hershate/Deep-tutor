@@ -680,14 +680,32 @@ pub fn uninstall<R: Runtime>(app: &AppHandle<R>, state: &PluginState, id: String
     // 删成功而随后的 DELETE/commit 失败会留下 enabled=1 的磁盘缺失行：
     // dispatch 照常投递、reload 永远 plugin_manifest_missing；先停用后，
     // 该失败窗口内行不再投递，重试卸载可收尾
+    let mut previous_enabled: Option<i64> = None;
     if exists {
+        // 103#15：记录原 enabled——目录删除失败（Windows 占用）时按原值
+        // 回写，插件不再「卸载失败却被停用」，放弃卸载无需手动重新启用
+        previous_enabled = Some(store.conn.query_row(
+            "SELECT enabled FROM plugins WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?);
         let disable = store.conn.unchecked_transaction()?;
         disable.execute("UPDATE plugins SET enabled = 0 WHERE id = ?1", params![id])?;
         disable.commit()?;
     }
     if let Some(directory) = path.parent() {
         if directory.exists() {
-            fs::remove_dir_all(directory)?;
+            if let Err(error) = fs::remove_dir_all(directory) {
+                if let Some(enabled) = previous_enabled {
+                    let restore = store.conn.unchecked_transaction()?;
+                    restore.execute(
+                        "UPDATE plugins SET enabled = ?1 WHERE id = ?2",
+                        params![enabled, id],
+                    )?;
+                    restore.commit()?;
+                }
+                return Err(error.into());
+            }
         }
     }
     if !exists {

@@ -481,14 +481,17 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &PracticeState, id: i64) -> Resu
                     );
                 }
             }
-            if let Ok(mut active) = active.lock() {
-                active.remove(&id);
-            }
+            let mut active = active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&id);
         });
     if result.is_err() {
-        if let Ok(mut active) = state.active.lock() {
-            active.remove(&id);
-        }
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&id);
         let error = BackendError::new("task_start_failed", "练习生成未能启动，可恢复任务");
         fail_generation(&app, state, id, error)?;
         return Err(BackendError::new(

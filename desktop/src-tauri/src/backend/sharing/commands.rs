@@ -35,29 +35,71 @@ pub fn revoke_shared_plan<R: Runtime>(
     super::revoke(&app, &state.sharing, id)
 }
 
-#[tauri::command]
-pub fn read_shared_plan_package(
-    state: State<'_, BackendState>,
+// 103#7：分享包读/写为单文件 IO（较轻），原先同步命令在主线程执行——
+// 慢盘上可感卡顿；移后台
+#[tauri::command(async)]
+pub async fn read_shared_plan_package<R: tauri::Runtime + 'static>(
+    app: tauri::AppHandle<R>,
     package: String,
 ) -> Result<SharedPlanView> {
-    super::read_package(&state.sharing, &package)
+    use tauri::Manager;
+    let principal = super::super::security::session_principal_existing(&app)?;
+    let sharing = {
+        let state = app.state::<BackendState>();
+        super::SharingState::new(&state.learning)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            super::read_package(&sharing, &package)
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "分享包读取任务执行异常终止")
+    })?
 }
 
-#[tauri::command]
-pub fn export_shared_plan_package<R: tauri::Runtime>(
+#[tauri::command(async)]
+pub async fn export_shared_plan_package<R: tauri::Runtime + 'static>(
     app: tauri::AppHandle<R>,
-    state: State<'_, BackendState>,
     package: String,
     destination: String,
 ) -> Result<Value> {
-    super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
-    super::export_package(&state.sharing, &package, std::path::Path::new(&destination))
+    use tauri::Manager;
+    let principal = super::super::security::session_principal(&app)?;
+    let sharing = {
+        let state = app.state::<BackendState>();
+        super::SharingState::new(&state.learning)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            super::export_package(&sharing, &package, std::path::Path::new(&destination))
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "分享包导出任务执行异常终止")
+    })?
 }
 
-#[tauri::command]
-pub fn read_shared_plan_file(
-    state: State<'_, BackendState>,
+#[tauri::command(async)]
+pub async fn read_shared_plan_file<R: tauri::Runtime + 'static>(
+    app: tauri::AppHandle<R>,
     path: String,
 ) -> Result<SharedPlanView> {
-    super::read_package_file(&state.sharing, std::path::Path::new(&path))
+    use tauri::Manager;
+    let principal = super::super::security::session_principal_existing(&app)?;
+    let sharing = {
+        let state = app.state::<BackendState>();
+        super::SharingState::new(&state.learning)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            super::read_package_file(&sharing, std::path::Path::new(&path))
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "分享包读取任务执行异常终止")
+    })?
 }

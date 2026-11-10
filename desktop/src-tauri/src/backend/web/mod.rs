@@ -252,8 +252,30 @@ fn document(value: Url, depth: u8) -> Result<Document> {
 /// 声明写在 HTML meta 里，原先一律 from_utf8 必败且报错无自救指引；
 /// 统一转 UTF-8 后再解析。仍无法解码时说明原因与替代做法
 fn decode_body(bytes: &[u8], content_type: &str) -> Result<String> {
+    const ENCODING_HELP: &str =
+        "网页编码无法识别：请在浏览器打开该页面，另存为 UTF-8 编码后用文件方式导入";
+    // 103#12：UTF-16 BOM 原先不识别，UTF-16 中文页经 GB18030 解码
+    // had_errors=false 产出静默乱码正文——按 BOM 正确解码
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        let (text, _, had_errors) = encoding_rs::UTF_16LE.decode(&bytes[2..]);
+        if had_errors {
+            return Err(BackendError::new("web_encoding_unsupported", ENCODING_HELP));
+        }
+        return Ok(text.into_owned());
+    }
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        let (text, _, had_errors) = encoding_rs::UTF_16BE.decode(&bytes[2..]);
+        if had_errors {
+            return Err(BackendError::new("web_encoding_unsupported", ENCODING_HELP));
+        }
+        return Ok(text.into_owned());
+    }
+    // 103#12：UTF-8 BOM 后含坏字节原先 lossy 静默替换（U+FFFD 无提示）——
+    // 与 GB18030 兜底路径同口径类型化报错
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        return Ok(String::from_utf8_lossy(&bytes[3..]).into_owned());
+        return std::str::from_utf8(&bytes[3..])
+            .map(|text| text.to_string())
+            .map_err(|_| BackendError::new("web_encoding_unsupported", ENCODING_HELP));
     }
     let header_charset = content_type
         .split("charset=")
@@ -272,7 +294,12 @@ fn decode_body(bytes: &[u8], content_type: &str) -> Result<String> {
             continue;
         }
         if let Some(encoding) = encoding_rs::Encoding::for_label(label.as_bytes()) {
-            let (text, _, _) = encoding.decode(bytes);
+            // 103#12：声明编码含非法字节原先 had_errors 被丢弃、坏字节静默变
+            // U+FFFD——与 GB18030 兜底路径同口径检查并类型化报错
+            let (text, _, had_errors) = encoding.decode(bytes);
+            if had_errors {
+                return Err(BackendError::new("web_encoding_unsupported", ENCODING_HELP));
+            }
             return Ok(text.into_owned());
         }
     }
@@ -283,10 +310,7 @@ fn decode_body(bytes: &[u8], content_type: &str) -> Result<String> {
     // 可识别的文本编码
     let (text, _, had_errors) = encoding_rs::GB18030.decode(bytes);
     if had_errors {
-        return Err(BackendError::new(
-            "web_encoding_unsupported",
-            "网页编码无法识别：请在浏览器打开该页面，另存为 UTF-8 编码后用文件方式导入",
-        ));
+        return Err(BackendError::new("web_encoding_unsupported", ENCODING_HELP));
     }
     Ok(text.into_owned())
 }

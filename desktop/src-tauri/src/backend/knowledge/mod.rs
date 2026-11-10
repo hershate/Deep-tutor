@@ -484,14 +484,17 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &KnowledgeState, id: i64) -> Res
                     );
                 }
             }
-            if let Ok(mut active) = active.lock() {
-                active.remove(&id);
-            }
+            let mut active = active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&id);
         });
     if result.is_err() {
-        if let Ok(mut active) = state.active.lock() {
-            active.remove(&id);
-        }
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&id);
         fail(
             &app,
             state,

@@ -750,10 +750,26 @@ mod command_tests {
         pointer: &Path,
         configuration_error: Option<BackendError>,
     ) -> tauri::App<tauri::test::MockRuntime> {
+        mock_app_with(
+            root,
+            default_root,
+            pointer,
+            configuration_error,
+            security::SecurityState::for_tests_at(&root.join("deep-tutor.db")),
+        )
+    }
+
+    // 103#8：可携带既有 SecurityState（凭据存储跨「重启」复用，模拟生产
+    // keyring 的进程间持久性）
+    fn mock_app_with(
+        root: &Path,
+        default_root: &Path,
+        pointer: &Path,
+        configuration_error: Option<BackendError>,
+        state: security::SecurityState,
+    ) -> tauri::App<tauri::test::MockRuntime> {
         let app = tauri::test::mock_builder()
-            .manage(security::SecurityState::for_tests_at(
-                &root.join("deep-tutor.db"),
-            ))
+            .manage(state)
             .invoke_handler(security::guard_handler(tauri::generate_handler![
                 commands::get_storage_overview,
                 commands::retry_storage_initialization,
@@ -835,6 +851,7 @@ mod command_tests {
             "原目录笔记"
         );
         assert!(!selected.join("users/1").exists());
+        let default_credentials = app.state::<security::SecurityState>().credentials_handle();
         drop(app);
 
         let app = mock_app(&selected, &default_root, &pointer, None);
@@ -847,7 +864,18 @@ mod command_tests {
         assert!(selected.join("deep-tutor.db").is_file());
         drop(app);
 
-        let app = mock_app(&default_root, &default_root, &pointer, None);
+        // 103#8：生产中 keyring 随进程持久——「重启回原目录」携带原凭据
+        // 存储；不携带会被判为会话槽丢失（须显式重登）
+        let app = mock_app_with(
+            &default_root,
+            &default_root,
+            &pointer,
+            None,
+            security::SecurityState::for_tests_at_with(
+                &default_root.join("deep-tutor.db"),
+                default_credentials,
+            ),
+        );
         assert_eq!(
             ipc(&app, "bootstrap", json!({})).unwrap()["notes"][0]["title"],
             "原目录笔记"

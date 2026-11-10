@@ -80,17 +80,32 @@ pub fn list_practice_mistakes<R: Runtime>(
 
 /// 37#5：错题 JSON 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）；
 /// 61 号：内存版 export_practice_mistakes 命令已删（前端零调用）
-#[tauri::command]
-pub fn export_practice_mistakes_file<R: Runtime>(
+// 103#7：错题 JSON 构建+落盘（37#5 导出族，对照 90#4 已移后台的
+// export_usage_csv_file）原先同步命令在主线程执行；移后台
+#[tauri::command(async)]
+pub async fn export_practice_mistakes_file<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
     destination: String,
 ) -> Result<Value> {
-    let content = super::export_mistakes(&app, &state.practice)?;
-    let bytes = serde_json::to_vec_pretty(&content).map_err(|_| {
-        super::super::error::BackendError::new("export_failed", "错题内容序列化失败")
-    })?;
-    super::super::write_export_bytes(&app, &destination, &bytes)
+    use tauri::Manager;
+    let principal = super::super::security::session_principal(&app)?;
+    let practice = {
+        let state = app.state::<BackendState>();
+        state.practice.shared()
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            let content = super::export_mistakes(&app, &practice)?;
+            let bytes = serde_json::to_vec_pretty(&content).map_err(|_| {
+                super::super::error::BackendError::new("export_failed", "错题内容序列化失败")
+            })?;
+            super::super::write_export_bytes(&app, &destination, &bytes)
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "错题导出任务执行异常终止")
+    })?
 }
 
 #[tauri::command]
