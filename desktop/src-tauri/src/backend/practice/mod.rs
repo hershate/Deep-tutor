@@ -172,6 +172,12 @@ pub struct Mistake {
     pub last_wrong_at: String,
     pub mastered: bool,
     pub mastered_question_id: Option<i64>,
+    // 98#7：导出载荷补全——choice 无选项、fill/short 无参考答案（答案本体在
+    // answer_json 而非 reason 解析文本）、全部缺引用，导出文件无法脱离
+    // 原库重建可作答的复习材料
+    pub options: Vec<String>,
+    pub answer: Value,
+    pub citations: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -379,6 +385,7 @@ fn generation_prompt(
     input: &GenerateInput,
     node_ids: &HashSet<String>,
     variant: Option<&variants::VariantSource>,
+    existing: &[String],
 ) -> Result<String> {
     let stage = input.stage_id.as_deref().and_then(|id| {
         plan.result
@@ -428,6 +435,18 @@ fn generation_prompt(
         serde_json::to_string(&nodes)?,
         serde_json::to_string(&source_data)?,
     );
+    // 98#2：跨集合负约束——去重原先只做集合内 trim 完全相等比对，同一
+    // plan 反复生成的提示词几乎相同，模型高度复现历史题干；把已有题干
+    // 注入「不得重复」约束（截前 80 字防提示词膨胀）
+    let mut prompt = if existing.is_empty() {
+        prompt
+    } else {
+        format!("{prompt}\n以下题干已出过，禁止出相同或近似的题：{}", serde_json::to_string(existing)?)
+    };
+    // 98#2：批次随机标识——同 node/stage 反复生成的请求文本一致会放大
+    // 复现，注入 CSPRNG 批次标识使每次请求文本唯一（random.rs 单一入口）
+    let nonce = &super::random::token("")?[..8];
+    prompt = format!("{prompt}\n生成批次标识：{nonce}");
     if let Some(source) = variant {
         Ok(format!("{prompt}\n变式练习：保持原考点与原题型：{}，改变设问情境、数值或论证角度，不得只换几个词或复制原题。原题与错误原因：{}", source.kind, source.prompt_json()?))
     } else {
@@ -696,6 +715,18 @@ fn generate_questions<R: Runtime>(
         params![id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?)),
     )?;
+    // 98#2：拉取本方案已有题干（截前 80 字）作负约束与硬查重输入
+    let historical: Vec<String> = {
+        let mut statement = store.conn.prepare(
+            "SELECT q.prompt FROM practice_questions q JOIN practice_sets s ON s.id = q.set_id WHERE s.plan_id = ?1 ORDER BY q.id DESC LIMIT 200",
+        )?;
+        let rows = statement
+            .query_map(params![plan_id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows.iter()
+            .map(|prompt| prompt.chars().take(80).collect())
+            .collect()
+    };
     let plan_id = format!("plan-{plan_id}");
     let (plan, sources, nodes) = sources(state, &plan_id)?;
     let input = GenerateInput {
@@ -744,7 +775,7 @@ fn generate_questions<R: Runtime>(
     {
         return Err(BackendError::new("cancelled", "练习生成已取消"));
     }
-    let prompt = generation_prompt(&plan, &sources, &input, &nodes, variant.as_ref())?;
+    let prompt = generation_prompt(&plan, &sources, &input, &nodes, variant.as_ref(), &historical)?;
     let messages = vec![
         ChatMessage {
             role: "system".into(),
@@ -793,7 +824,9 @@ fn generate_questions<R: Runtime>(
             "模型返回的题目数量与请求不一致",
         ));
     }
-    let mut seen = HashSet::new();
+    // 98#2：seen 预填历史题干——模型照抄历史题即整批拒绝（与批内重复同
+    // 口径），配合提示词负约束与批次标识，跨集合重复随重试显著下降
+    let mut seen: HashSet<String> = historical.into_iter().collect();
     let tx = store.conn.unchecked_transaction()?;
     for (index, question) in drafts.questions.iter().enumerate() {
         if !input
@@ -813,7 +846,7 @@ fn generate_questions<R: Runtime>(
             || question
                 .difficulty
                 .is_some_and(|difficulty| !(1..=5).contains(&difficulty))
-            || !seen.insert(question.prompt.trim().to_string())
+            || !seen.insert(question.prompt.trim().chars().take(80).collect::<String>())
         {
             return Err(BackendError::new(
                 "invalid_model_output",
@@ -1311,9 +1344,13 @@ pub fn mistakes(state: &PracticeState) -> Result<Vec<Mistake>> {
     // 过滤 mode='exam' 且未交卷的集合，交卷（finalize 置 status='completed'）
     // 后错题重新可见（与 detail() 的遮蔽口径一致）；客观题与主观题评分两条
     // 写入路径共用本过滤
-    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id WHERE NOT (s.mode = 'exam' AND s.status != 'completed') ORDER BY m.last_wrong_at DESC LIMIT 500")?;
+    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id, q.options_json, q.answer_json, q.citations_json FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id WHERE NOT (s.mode = 'exam' AND s.status != 'completed') ORDER BY m.last_wrong_at DESC LIMIT 500")?;
     let rows = statement.query_map([], |row| {
         let nodes: String = row.get(6)?;
+        // 98#7：选项/参考答案/引用一并带出（结构已持久化在 practice_questions）
+        let options: String = row.get(12)?;
+        let answer: String = row.get(13)?;
+        let citations: String = row.get(14)?;
         Ok(Mistake {
             question_id: row.get(0)?,
             set_id: row.get(1)?,
@@ -1327,6 +1364,9 @@ pub fn mistakes(state: &PracticeState) -> Result<Vec<Mistake>> {
             last_wrong_at: row.get(9)?,
             mastered: row.get(10)?,
             mastered_question_id: row.get(11)?,
+            options: serde_json::from_str(&options).unwrap_or_default(),
+            answer: serde_json::from_str(&answer).unwrap_or(Value::Null),
+            citations: serde_json::from_str(&citations).unwrap_or(Value::Array(Vec::new())),
         })
     })?;
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)

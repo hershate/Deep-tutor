@@ -733,6 +733,13 @@ impl Store {
         if namespace == "notes" {
             tx.execute("DELETE FROM learning_annotations WHERE note_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'notes')", [])?;
         }
+        if namespace == "projects" {
+            // 98#4：projects 是 kv JSON 集合，project_versions 无 FK 可挂——
+            // 前端移除项目（kv 替换）后版本行原先永久残留，workspace 的
+            // 200 条上限被死数据侵蚀且 resume 撞「项目不存在」；同 notes
+            // 替换 GC learning_annotations 的模式一并清理
+            tx.execute("DELETE FROM project_versions WHERE project_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'projects')", [])?;
+        }
         let event = Self::event(
             &tx,
             "state.changed",

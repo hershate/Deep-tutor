@@ -100,6 +100,12 @@ export type PracticeMistake = {
   lastWrongAt: string
   mastered: boolean
   masteredQuestionId: number | null
+  /** 98#7：choice 选项；fill/short/essay 为空数组 */
+  options: string[]
+  /** 98#7：参考答案（choice 为下标、fill/short/essay 为文本） */
+  answer: unknown
+  /** 98#7：资料引用（materialId + quote） */
+  citations: unknown
 }
 
 export type PracticeTarget = { planId: string; stageId: string; nodeId: string; nonce: number }

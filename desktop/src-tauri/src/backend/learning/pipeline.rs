@@ -642,14 +642,25 @@ pub fn run<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: i64) -> Re
         // 31#5：断点窗口修复——complete_step(7) 与 complete_plan 两个事务之间
         // 断电时 result_json 缺失但步骤产物 $.step7 完整；重走生成会在
         // begin_step(7) 撞 step_completed 使方案永久 failed。从步骤产物还原
-        // result 直接补写终态
-        if let Some(result) = step_output(state, id, 7)?
+        // result 直接补写终态。
+        // 98#6：产物损坏（区别于缺失）原先经 ? 上抛 fail_plan，且
+        // regenerate 要求 done/degraded、resume 重入同分支必复现——方案
+        // 永久死路；损坏时把 step7 重置为 pending，从 0-6 已有产物重算
+        match step_output(state, id, 7)?
             .get("result")
             .cloned()
             .map(serde_json::from_value::<PlanResult>)
-            .transpose()?
+            .transpose()
         {
-            return complete_plan(app, state, id, &result);
+            Ok(Some(result)) => return complete_plan(app, state, id, &result),
+            Ok(None) => {}
+            Err(_) => {
+                let store = state.store()?;
+                store.conn.execute(
+                    "UPDATE learning_plan_steps SET status = 'pending', output_json = NULL, error_code = NULL, error_message = NULL, updated_at = ?1 WHERE plan_id = ?2 AND step_index = 7",
+                    rusqlite::params![super::now()?, id],
+                )?;
+            }
         }
     }
     let mut artifacts = RunArtifacts::default();

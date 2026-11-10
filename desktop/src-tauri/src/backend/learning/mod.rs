@@ -705,7 +705,10 @@ fn begin_step<R: Runtime>(
         "UPDATE learning_plan_steps SET status = 'running', attempt = ?1, request_id = ?2, output_json = NULL, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE plan_id = ?4 AND step_index = ?5",
         params![attempt, request_id, now()?, id, index as i64],
     )?;
-    tx.execute("UPDATE learning_plans SET status = 'running', current_step = ?1, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE id = ?3", params![index as i64, now()?, id])?;
+    // 98#5：状态守卫——worker 已通过最后一次取消检查后，cancel() 落库
+    // cancelling；此处无条件覆写会使取消被静默吞掉（方案最终 done）。
+    // 与 knowledge/practice 域的 WHERE status='running' 守卫口径一致
+    tx.execute("UPDATE learning_plans SET status = 'running', current_step = ?1, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE id = ?3 AND status = 'running'", params![index as i64, now()?, id])?;
     let event = Store::event(
         &tx,
         "plan.step_started",
@@ -817,14 +820,38 @@ fn complete_plan<R: Runtime>(
         "degraded"
     };
     let store = state.store()?;
+    // 98#5：终态守卫——cancel() 在 worker 最后一次取消检查后落库 cancelling
+    // 时，done/degraded 不再覆写取消意图；结果照常落库但终态记 cancelled，
+    // resume 可达性与取消语义同时保住（与 knowledge/practice 守卫同口径）
+    let current: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT status FROM learning_plans WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if !matches!(current.as_deref(), Some("running") | Some("cancelling")) {
+        return Ok(());
+    }
+    let status = if current.as_deref() == Some("cancelling") {
+        "cancelled"
+    } else {
+        status
+    };
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE learning_plans SET status = ?1, result_json = ?2, current_step = 7, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE id = ?4", params![status, serde_json::to_string(result)?, now()?, id])?;
+    let changed = tx.execute("UPDATE learning_plans SET status = ?1, result_json = ?2, current_step = 7, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE id = ?4 AND status IN ('running', 'cancelling')", params![status, serde_json::to_string(result)?, now()?, id])?;
+    if changed == 0 {
+        drop(tx);
+        return Ok(());
+    }
     let event = Store::event(
         &tx,
-        if status == "done" {
-            "plan.completed"
-        } else {
-            "plan.degraded"
+        match status {
+            "done" => "plan.completed",
+            // 98#5：取消竞态窗口内完成时按取消终态发事件
+            "cancelled" => "plan.cancelled",
+            _ => "plan.degraded",
         },
         json!({
             "planId": format!("plan-{id}"), "status": status, "progress": 100,

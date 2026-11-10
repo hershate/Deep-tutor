@@ -175,14 +175,22 @@ fn model_server(
                 } else {
                     "先验概率"
                 };
+                // 98#2：题干回显批次标识——跨集合查重生效后，确定性 mock 的
+                // 重复输出会被判 invalid_model_output，按批次变化题干
+                let nonce = request
+                    .split("生成批次标识：")
+                    .nth(1)
+                    .and_then(|rest| rest.split('\n').next())
+                    .unwrap_or("0")
+                    .to_string();
                 let choice = json!({
-                    "kind": "choice", "prompt": "看到新证据之前的概率称为什么？",
+                    "kind": "choice", "prompt": format!("看到新证据之前的概率称为什么？（批次 {nonce}）"),
                     "options": ["先验概率", "条件概率"], "answer": 0,
                     "hint": "注意证据出现之前的时间点", "explanation": "资料将先验概率与后验概率区分开。",
                     "citations": [{"materialId": material_id, "quote": quote}], "nodeIds": ["prob"], "difficulty": 2,
                 });
                 let fill = json!({
-                    "kind": "fill", "prompt": "结合新证据后更新的概率称为什么？", "options": [],
+                    "kind": "fill", "prompt": format!("结合新证据后更新的概率称为什么？（批次 {nonce}）"), "options": [],
                     "answer": "后验概率", "hint": "它是更新后的判断", "explanation": "资料中的后验概率对应更新后的判断。",
                     "citations": [{"materialId": material_id, "quote": "后验概率"}], "nodeIds": ["bayes"], "difficulty": 2,
                 });
@@ -703,6 +711,7 @@ fn node_scope_is_validated_persisted_and_enforced_in_real_generation() {
         &request,
         &HashSet::from(["prob".to_string()]),
         None,
+        &[],
     )
     .unwrap();
     assert!(prompt.contains("\"id\":\"prob\""));

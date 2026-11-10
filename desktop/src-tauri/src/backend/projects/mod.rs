@@ -178,10 +178,27 @@ pub fn workspace(state: &ProjectState) -> Result<ProjectWorkspace> {
         .query_map([], |row| row.get::<_, i64>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
-    let versions = ids
-        .into_iter()
-        .map(|id| version(&store.conn, id))
-        .collect::<Result<Vec<_>>>()?;
+    // 98#3：坏版本行（feedback_json 断电窗口等）只跳过并计数——原先 Err
+    // 传播使 workspace 整页失败，而 submit/cancel/resume/iteration_note
+    // 的返回值均为 workspace，恢复与重看路径一并瘫痪；单行 version()
+    // 直调仍返回类型化错误可定位（75#3 坏行降级同口径）
+    let mut versions = Vec::new();
+    let mut skipped = 0_u64;
+    for id in ids {
+        match version(&store.conn, id) {
+            Ok(version) => versions.push(version),
+            Err(error) => {
+                if error.code == "not_found" {
+                    continue;
+                }
+                skipped += 1;
+                eprintln!("project version row unreadable, skipped: {}", error.code);
+            }
+        }
+    }
+    if skipped > 0 {
+        eprintln!("project workspace: {skipped} 行损坏已跳过");
+    }
     Ok(ProjectWorkspace { versions })
 }
 
