@@ -129,7 +129,13 @@ fn adopted_first_plan(state: &PlanningState) -> Result<Option<Plan>> {
 fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Result<PlanOverview> {
     let mut store = state.store()?;
     let week_start = monday(start)?;
-    let week_end = week_start + Duration::days(7);
+    // 114#5：边界日期类型化报错（77#8/47#3 同型）——末周日期（如 9999-12-31
+    // 归一到周一后 +7 天）越界时 time 的 Add 实现直接 panic，而 planning
+    // 命令全部为同步命令属主线程级故障；week_end 一经验证，下方 offset<7
+    // 的逐日加法必不越界
+    let week_end = week_start.checked_add(Duration::days(7)).ok_or_else(|| {
+        BackendError::invalid("invalid_schedule_date", "排期周已超出可表示日期范围")
+    })?;
     let start_text = week_start.to_string();
     let end_text = week_end.to_string();
     let mut events_by_day: BTreeMap<String, Vec<ScheduleEvent>> = BTreeMap::new();
@@ -203,6 +209,7 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
     }
     let days = (0..7)
         .map(|offset| {
+            // 114#5：week_end 已 checked 验证，offset<7 必不越界
             let date = (week_start + Duration::days(offset)).to_string();
             let events = events_by_day.remove(&date).unwrap_or_default();
             ScheduleDay { date, events }

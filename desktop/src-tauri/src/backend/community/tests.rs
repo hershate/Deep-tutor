@@ -419,3 +419,66 @@ fn community_overview_reads_real_rows_and_filters_through_ipc() {
     .unwrap_err();
     assert_eq!(invalid["code"], "invalid_post_kind");
 }
+
+#[test]
+fn ended_room_reminders_are_not_claimed() {
+    // 114#7：claim 补结束时间上界——原先只查 remind_at<=now 且未投递，
+    // 房间已结束（无终态、status 仍 scheduled）后重开应用会领取过期提醒，
+    // 弹「即将开始」指向一场已结束的学习；结束房间的新提醒行不再投递
+    let (app, state) = setup();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let group = ipc(
+        &window,
+        "create_community_group",
+        json!({"input": {
+            "name": "边界共学", "topic": "结束后的提醒", "schedule": "每周五 20:00",
+        }}),
+    )
+    .unwrap();
+    let group_id = group["id"].as_i64().unwrap();
+    toggle_group(app.handle(), &state, group_id, true).unwrap();
+    let start = OffsetDateTime::now_utc() + Duration::hours(2);
+    let room = create_room(
+        app.handle(),
+        &state,
+        RoomInput {
+            group_id: Some(group_id),
+            title: "边界房间".into(),
+            topic: "验证结束上界".into(),
+            start_at: start.format(&Rfc3339).unwrap(),
+            duration_minutes: 45,
+        },
+    )
+    .unwrap();
+    ipc(&window, "reserve_community_room", json!({"id": room.id})).unwrap();
+    let conn = &state.store().unwrap().conn;
+    // 控制组：提醒到期、房间尚未结束 → 可领取
+    conn.execute(
+        "UPDATE community_reminders SET remind_at = '2000-01-01T00:00:00Z' WHERE room_id = ?1",
+        params![room.id],
+    )
+    .unwrap();
+    let due = ipc(&window, "claim_community_reminders", json!({})).unwrap();
+    assert_eq!(due.as_array().unwrap().len(), 1);
+    // 实验组：房间改为 2 小时前开始、30 分钟即已结束，提醒重置未投递
+    conn.execute(
+        "UPDATE community_reminders SET delivered_at = NULL WHERE room_id = ?1",
+        params![room.id],
+    )
+    .unwrap();
+    let past = (OffsetDateTime::now_utc() - Duration::hours(2))
+        .format(&Rfc3339)
+        .unwrap();
+    conn.execute(
+        "UPDATE community_rooms SET start_at = ?1, duration_minutes = 30 WHERE id = ?2",
+        params![past, room.id],
+    )
+    .unwrap();
+    let stale = ipc(&window, "claim_community_reminders", json!({})).unwrap();
+    assert!(
+        stale.as_array().unwrap().is_empty(),
+        "已结束房间的提醒不应被领取，实际：{stale}"
+    );
+}

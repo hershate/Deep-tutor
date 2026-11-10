@@ -28,26 +28,61 @@ pub async fn search_workspace<R: Runtime + 'static>(
     })?
 }
 
-#[tauri::command]
-pub fn get_notifications(state: State<'_, BackendState>) -> Result<NotificationOverview> {
-    super::get_notifications(&EngagementState::new(&state.learning))
-}
-
-#[tauri::command]
-pub fn mark_all_notifications_read<R: Runtime>(
+#[tauri::command(async)]
+pub async fn get_notifications<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
 ) -> Result<NotificationOverview> {
-    super::mark_all_read(&app, &EngagementState::new(&state.learning))
+    let principal = super::super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            let state = app.state::<BackendState>();
+            super::get_notifications(&EngagementState::new(&state.learning))
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "通知读取任务执行异常终止")
+    })?
 }
 
-#[tauri::command]
-pub fn mark_notification_read<R: Runtime>(
+// 114#6：两命令收尾都跑同一个 notification 刷新（写库 + 周日全量聚合），
+// 与 get_notifications 同成本类别——同步在主线程执行同样有冻结面；且经
+// session principal 解析（23#7）保证与 async 读命令落在同一用户工作区
+// （测试拓扑挂 SecurityState 时，sync 命令走 thread-local 会指到 root 库，
+// 与 async 命令的 user1 工作区各写各的）
+#[tauri::command(async)]
+pub async fn mark_all_notifications_read<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
+) -> Result<NotificationOverview> {
+    let principal = super::super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            let state = app.state::<BackendState>();
+            super::mark_all_read(&app, &EngagementState::new(&state.learning))
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "通知已读任务执行异常终止")
+    })?
+}
+
+#[tauri::command(async)]
+pub async fn mark_notification_read<R: Runtime + 'static>(
+    app: AppHandle<R>,
     id: String,
 ) -> Result<NotificationOverview> {
-    super::mark_read(&app, &EngagementState::new(&state.learning), id)
+    let principal = super::super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            let state = app.state::<BackendState>();
+            super::mark_read(&app, &EngagementState::new(&state.learning), id)
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "通知已读任务执行异常终止")
+    })?
 }
 
 #[tauri::command]

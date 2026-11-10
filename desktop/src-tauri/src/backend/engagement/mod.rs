@@ -554,6 +554,23 @@ fn quiet(preferences: &Value, now: OffsetDateTime) -> bool {
     }
 }
 
+/// 114#10：预约通知正文时间本地化——库内统一 UTC RFC3339，通知中心原样
+/// 渲染 body；用缓存的本地偏移（47#2）转成本地「YYYY-MM-DD HH:mm」，
+/// 与社区页 toLocaleString 口径一致
+fn local_time_text(value: &str) -> Result<String> {
+    let parsed = OffsetDateTime::parse(value, &Rfc3339)
+        .map_err(|_| BackendError::new("invalid_time", "预约时间格式无效"))?;
+    let local = parsed.to_offset(super::store::now_local().offset());
+    Ok(format!(
+        "{}-{:02}-{:02} {:02}:{:02}",
+        local.year(),
+        u8::from(local.month()),
+        local.day(),
+        local.hour(),
+        local.minute()
+    ))
+}
+
 fn add_notification(
     conn: &Connection,
     id: &str,
@@ -641,7 +658,12 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
             )?;
         }
         let end = timestamp(now()? + Duration::hours(24))?;
-        let mut statement = store.conn.prepare("SELECT id, title, start_at FROM community_rooms WHERE status = 'scheduled' AND start_at <= ?1 AND start_at >= ?2")?;
+        // 114#9：房间扫描-判定-插入收进同一 IMMEDIATE 事务——原先先读
+        // reserved 再 INSERT OR IGNORE，取消方在毫秒窗口提交（同事务删除
+        // room-{id} 通知）后，刷新线程会重新插入同主键的幽灵通知（未读、
+        // 保留窗只删已读、永不清理）；写事务使取消与本段互斥
+        let tx = store.write_transaction()?;
+        let mut statement = tx.prepare("SELECT id, title, start_at FROM community_rooms WHERE status = 'scheduled' AND start_at <= ?1 AND start_at >= ?2")?;
         let rooms = statement
             .query_map(params![end, timestamp(now()?)?], |row| {
                 Ok((
@@ -653,18 +675,22 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
             .collect::<std::result::Result<Vec<_>, _>>()?;
         drop(statement);
         for (id, title, start) in rooms {
-            let reserved: bool = store.conn.query_row("SELECT EXISTS(SELECT 1 FROM community_reservations WHERE room_id = ?1 AND cancelled_at IS NULL)", params![id], |row| row.get(0))?;
+            let reserved: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM community_reservations WHERE room_id = ?1 AND cancelled_at IS NULL)", params![id], |row| row.get(0))?;
             if reserved {
                 add_notification(
-                    &store.conn,
+                    &tx,
                     &format!("room-{id}"),
                     "community",
                     &format!("学习预约「{title}」即将开始"),
-                    &format!("开始时间：{start}"),
+                    // 114#10：正文时间本地化——原先拼 UTC RFC3339 原始串
+                    // （2026-11-12T12:00:00.000Z），与社区页 toLocaleString
+                    // 口径差 8 小时，东八区按字面理解会迟到整 8 小时
+                    &format!("开始时间：{}", local_time_text(&start)?),
                     "community",
                 )?;
             }
         }
+        tx.commit()?;
         if preferences
             .get("weeklyReport")
             .and_then(Value::as_bool)

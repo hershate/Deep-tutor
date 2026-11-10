@@ -534,7 +534,9 @@ pub fn toggle_reaction<R: Runtime>(
     if !exists {
         return Err(BackendError::new("not_found", "讨论不存在"));
     }
-    let tx = store.conn.unchecked_transaction()?;
+    // 114#8：读后写改 IMMEDIATE——DEFERRED 读快照在通知刷新写并发下升级写锁
+    // 得 BUSY_SNAPSHOT（busy_timeout 不重试），点赞偶发报锁
+    let tx = store.write_transaction()?;
     let active: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM community_reactions WHERE post_id = ?1 AND kind = ?2)",
         params![post_id, kind],
@@ -568,7 +570,8 @@ pub fn accept_reply<R: Runtime>(
     accepted: bool,
 ) -> Result<ReplyView> {
     let store = state.store()?;
-    let tx = store.conn.unchecked_transaction()?;
+    // 114#8：同 toggle_reaction——读 post_id 后写，改 IMMEDIATE 防 BUSY_SNAPSHOT
+    let tx = store.write_transaction()?;
     let post_id: i64 = tx
         .query_row(
             "SELECT post_id FROM community_replies WHERE id = ?1",
@@ -672,7 +675,8 @@ pub fn toggle_group<R: Runtime>(
     joined: bool,
 ) -> Result<GroupView> {
     let store = state.store()?;
-    let tx = store.conn.unchecked_transaction()?;
+    // 114#8：同 toggle_reaction——读 exists 后写，改 IMMEDIATE 防 BUSY_SNAPSHOT
+    let tx = store.write_transaction()?;
     let exists: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM community_groups WHERE id = ?1)",
         params![id],
@@ -988,7 +992,10 @@ pub fn claim_due_reminders<R: Runtime>(
     // 盲写，两个并发领取（60s 轮询与 visibilitychange 立即领取互不等待）
     // 会重复投递同一批提醒（前端重复弹层、事件流重复行）
     let tx = store.write_transaction()?;
-    let mut statement = tx.prepare("SELECT r.id, r.room_id, rooms.title, rooms.start_at, r.remind_at FROM community_reminders r JOIN community_rooms rooms ON rooms.id = r.room_id JOIN community_reservations reservations ON reservations.room_id = r.room_id AND reservations.cancelled_at IS NULL WHERE r.remind_at <= ?1 AND r.delivered_at IS NULL AND rooms.status = 'scheduled' ORDER BY r.id")?;
+    // 114#7：补结束时间上界——原先只查 remind_at<=now 且未投递，房间已结束
+    // （无终态、status 仍 scheduled）后重开应用会领取过期提醒，弹「即将
+    // 开始」指向一场已结束的学习；口径与 95#4 的 active_reservations 同公式
+    let mut statement = tx.prepare("SELECT r.id, r.room_id, rooms.title, rooms.start_at, r.remind_at FROM community_reminders r JOIN community_rooms rooms ON rooms.id = r.room_id JOIN community_reservations reservations ON reservations.room_id = r.room_id AND reservations.cancelled_at IS NULL WHERE r.remind_at <= ?1 AND r.delivered_at IS NULL AND rooms.status = 'scheduled' AND datetime(rooms.start_at, '+' || rooms.duration_minutes || ' minutes') > datetime('now') ORDER BY r.id")?;
     let rows = statement
         .query_map(params![timestamp], |row| {
             Ok((
