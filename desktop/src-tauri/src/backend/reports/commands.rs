@@ -5,12 +5,22 @@ use super::{
 };
 use tauri::{AppHandle, Runtime, State};
 
-#[tauri::command]
-pub fn get_learning_report(
+// 90#8：报表对 focus_sessions / learning_node_evidence / practice_answers
+// 全量聚合 + JSON 解析，原先同步命令在主线程执行，历史数据多时打开延迟
+// 线性增长；移后台（73#8 范式）
+#[tauri::command(async)]
+pub async fn get_learning_report(
     state: State<'_, BackendState>,
     period: Option<String>,
 ) -> Result<LearningReport> {
-    super::get_report(&ReportState::new(&state.learning), period.as_deref())
+    let report = ReportState::new(&state.learning);
+    tauri::async_runtime::spawn_blocking(move || {
+        super::get_report(&report, period.as_deref())
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "报表统计任务执行异常终止")
+    })?
 }
 
 #[tauri::command]
@@ -89,18 +99,26 @@ pub fn adopt_report_recommendations<R: Runtime>(
     super::adopt_recommendations(&app, &ReportState::new(&state.learning), ids, period)
 }
 
-#[tauri::command]
-pub fn export_learning_report<R: Runtime>(
+// 90#8：报表导出叠加全量聚合与 PDF 渲染，随报表命令一并移后台（90#1 同族）
+#[tauri::command(async)]
+pub async fn export_learning_report<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
     destination: String,
     period: Option<String>,
 ) -> Result<ReportDownload> {
+    use tauri::Manager;
     super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
-    super::export_report(
-        &app,
-        &ReportState::new(&state.learning),
-        std::path::Path::new(&destination),
-        period.as_deref(),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<BackendState>();
+        super::export_report(
+            &app,
+            &ReportState::new(&state.learning),
+            std::path::Path::new(&destination),
+            period.as_deref(),
+        )
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "报表导出任务执行异常终止")
+    })?
 }

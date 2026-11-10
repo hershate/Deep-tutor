@@ -178,9 +178,13 @@ pub fn regenerate<R: Runtime>(
         Ok(event) => {
             emit(app, &event);
             if let Err(error) = launch(app.clone(), state, id) {
-                if let Ok(mut active) = state.active.lock() {
-                    active.remove(&id);
-                }
+                // 90#11：锁中毒恢复继续用（73#16 语义）——静默跳过会让
+                // active 残留死键，后续 resume 被误判「已有任务」
+                let mut active = state
+                    .active
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                active.remove(&id);
                 let task_error = BackendError::new("task_start_failed", "局部重生成未能启动");
                 let _ = fail_plan(app, state, id, task_error);
                 return Err(error);
@@ -188,9 +192,12 @@ pub fn regenerate<R: Runtime>(
             get(state, &format!("plan-{id}"))
         }
         Err(error) => {
-            if let Ok(mut active) = state.active.lock() {
-                active.remove(&id);
-            }
+            // 90#11：同上，恢复继续用
+            let mut active = state
+                .active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&id);
             Err(error)
         }
     }

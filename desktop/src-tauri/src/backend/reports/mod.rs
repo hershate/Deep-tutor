@@ -1020,6 +1020,47 @@ pub(crate) fn calendar_with(store: &super::store::Store) -> Result<CalendarRepor
         .date()
         .with_time(time::Time::MIDNIGHT)
         .assume_offset(local.offset());
+    // 90#7：84 天日历原先每日 2 条 SQL（168 次逐条往返）；改为两表各一次
+    // 拉取窗口内全行、按本地日界在内存分桶——计时行结束时间精确解析后
+    // 归日，不再依赖 RFC3339 字符串比较的亚秒位边界
+    let window_start = today - Duration::days(83);
+    let mut focus_by_day: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
+    {
+        let mut statement = store.conn.prepare(
+            "SELECT ended_at, actual_seconds FROM focus_sessions WHERE status = 'completed' AND ended_at >= ?1",
+        )?;
+        let rows = statement
+            .query_map(params![timestamp(window_start.to_offset(time::UtcOffset::UTC))?], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for (ended_at, seconds) in rows {
+            if let Ok(moment) = OffsetDateTime::parse(&ended_at, &Rfc3339) {
+                *focus_by_day.entry(day(moment.to_offset(local.offset()))).or_insert(0) +=
+                    seconds;
+            }
+        }
+    }
+    let mut checkin_by_day: std::collections::HashMap<String, (i64, String)> =
+        std::collections::HashMap::new();
+    {
+        let mut statement = store
+            .conn
+            .prepare("SELECT date, minutes, note FROM study_checkins WHERE date >= ?1")?;
+        let rows = statement
+            .query_map(params![day(window_start)], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for (date, minutes, note) in rows {
+            checkin_by_day.entry(date).or_insert((minutes, note));
+        }
+    }
     let mut days = Vec::new();
     let mut total_minutes = 0;
     let mut recorded = 0;
@@ -1027,16 +1068,8 @@ pub(crate) fn calendar_with(store: &super::store::Store) -> Result<CalendarRepor
     for offset in (0..84).rev() {
         let date = today - Duration::days(offset);
         let date_text = day(date);
-        let next = timestamp((date + Duration::days(1)).to_offset(time::UtcOffset::UTC))?;
-        let focus: i64 = store.conn.query_row("SELECT COALESCE(SUM(actual_seconds), 0) FROM focus_sessions WHERE status = 'completed' AND ended_at >= ?1 AND ended_at < ?2", params![timestamp(date.to_offset(time::UtcOffset::UTC))?, next], |row| row.get(0))?;
-        let checkin = store
-            .conn
-            .query_row(
-                "SELECT minutes, note FROM study_checkins WHERE date = ?1",
-                params![date_text],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-            )
-            .optional()?;
+        let focus: i64 = focus_by_day.get(&date_text).copied().unwrap_or(0);
+        let checkin = checkin_by_day.get(&date_text).cloned();
         // 13#7：自报与计时并存时不再整日丢弃计时（决策“日历保留计时与
         // 自报来源”）；同一学习活动两来源可能重复描述，取较大值避免双计
         let focus_minutes = (focus.max(0) as u64) / 60;

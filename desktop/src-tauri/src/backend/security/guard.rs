@@ -201,10 +201,15 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
     let actual = current(&app).ok();
     if actual != Some(target) {
         if let (Some(state), Some(previous)) = (&backend, previous_store) {
-            if let Ok(mut store) = state.store.lock() {
-                note_store_owner(previous.owner_id);
-                *store = previous;
-            }
+            // 90#11：回滚路径锁中毒恢复继续用（73#16 语义，与 backend/
+            // commands.rs 的 store 锁一致）——静默跳过会让 store 停留在
+            // 切换目标的库上，会话已离开但数据面没回滚
+            let mut store = state
+                .store
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            note_store_owner(previous.owner_id);
+            *store = previous;
         }
     }
     resume(actual);

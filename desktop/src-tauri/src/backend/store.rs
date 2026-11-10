@@ -599,6 +599,41 @@ impl Store {
         })
     }
 
+    /// 90#9：写命令轻量回执——replace_collection/save_draft/delete_draft 的
+    /// 命令层（light_receipt）只消费 versions/lastEventId/workspaceId 三个
+    /// 字段，原先每条写命令 commit 后全量重读四集合 + preferences 反序列化
+    /// 再丢弃（notes ≤10000 条 × ≤1MB 时每次保存草稿都附带一次全库读）；
+    /// 轻量版只查各 namespace 的 revision 计数与最新事件 id
+    fn finish_write_receipt(
+        &self,
+        tx: rusqlite::Transaction<'_>,
+        event: Option<BackendEvent>,
+    ) -> Result<Mutation> {
+        tx.commit()?;
+        let mut versions = Map::new();
+        for namespace in COLLECTIONS {
+            versions.insert(
+                namespace.to_string(),
+                Value::from(Self::revision(&self.conn, namespace)?),
+            );
+        }
+        for namespace in ["preferences", "drafts"] {
+            versions.insert(
+                namespace.to_string(),
+                Value::from(Self::revision(&self.conn, namespace)?),
+            );
+        }
+        let state = json!({
+            "versions": Value::Object(versions),
+            "lastEventId": self.latest_event_id()?,
+            "workspaceId": self.owner_id.unwrap_or(0),
+        });
+        Ok(Mutation {
+            state,
+            event,
+        })
+    }
+
     fn normalize_tasks(&self, value: &Value) -> Result<Value> {
         let previous = self.collection("tasks")?.value;
         let mut normalized = value.clone();
@@ -695,7 +730,7 @@ impl Store {
             "state.changed",
             json!({"namespace": namespace, "revision": revision}),
         )?;
-        self.finish_write(tx, Some(event))
+        self.finish_write_receipt(tx, Some(event))
     }
 
     fn validate_draft_id(id: &str) -> Result<()> {
@@ -756,7 +791,7 @@ impl Store {
         let revision = Self::next_revision(&tx, "drafts")?;
         Self::insert_json(&tx, "drafts", id, value)?;
         let event = Self::event(&tx, "draft.saved", json!({"id": id, "revision": revision}))?;
-        self.finish_write(tx, Some(event))
+        self.finish_write_receipt(tx, Some(event))
     }
 
     pub fn delete_draft(&self, id: &str) -> Result<Mutation> {
@@ -777,7 +812,7 @@ impl Store {
         } else {
             None
         };
-        self.finish_write(tx, event)
+        self.finish_write_receipt(tx, event)
     }
 
     pub fn reset(&self) -> Result<Mutation> {

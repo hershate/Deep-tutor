@@ -562,9 +562,12 @@ struct RouteGuard {
 
 impl Drop for RouteGuard {
     fn drop(&mut self) {
-        if let Ok(mut cancels) = self.cancels.lock() {
-            cancels.remove(&self.request_id);
-        }
+        // 90#11：锁中毒恢复继续用（73#16 语义）——静默跳过会泄漏取消句柄
+        let mut cancels = self
+            .cancels
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        cancels.remove(&self.request_id);
     }
 }
 

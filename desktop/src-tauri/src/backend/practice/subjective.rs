@@ -242,14 +242,20 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &PracticeState, answer_id: i64) 
                     );
                 }
             }
-            if let Ok(mut active) = active.lock() {
-                active.remove(&answer_id);
-            }
+            // 90#11：锁中毒恢复继续用（73#16 语义）——静默跳过会让 grading
+            // 残留死键，恢复/重试被误判「评分进行中」
+            let mut active = active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(&answer_id);
         });
     if result.is_err() {
-        if let Ok(mut active) = state.grading_active.lock() {
-            active.remove(&answer_id);
-        }
+        // 90#11：同上，恢复继续用
+        let mut active = state
+            .grading_active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&answer_id);
         fail(
             &app,
             state,
