@@ -30,12 +30,38 @@ pub(crate) fn hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
     output
 }
 
+/// 94#5：RFC3986 canonical query——AWS SigV4 要求 unreserved（A-Za-z0-9-_.~）
+/// 原样、其余 %XX 大写（空格 %20 不是 +），且按键排序；原先直接取
+/// form_urlencoded 序列化的原串（空格→+、~→%7E、未排序），当前
+/// list-type/prefix 字符集恰不受影响，未来加 continuation-token 等参数
+/// 即 403 且排障方向被误导到凭据
+fn canonical_query(query: &[(&str, &str)]) -> String {
+    let encode = |value: &str| -> String {
+        value
+            .bytes()
+            .map(|byte| match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (byte as char).to_string()
+                }
+                _ => format!("%{byte:02X}"),
+            })
+            .collect()
+    };
+    let mut pairs: Vec<String> = query
+        .iter()
+        .map(|(key, value)| format!("{}={}", encode(key), encode(value)))
+        .collect();
+    pairs.sort();
+    pairs.join("&")
+}
+
 fn signature(
     config: &SyncConfig,
     credentials: &SyncCredentials,
     url: &reqwest::Url,
     method: &str,
     payload_hash: &str,
+    query: &str,
 ) -> Result<(String, String)> {
     let SyncCredentials::S3 {
         access_key,
@@ -58,15 +84,19 @@ fn signature(
     let host = url
         .host_str()
         .ok_or_else(|| BackendError::invalid("invalid_sync_endpoint", "S3 地址缺少主机"))?;
-    let host = url
-        .port()
-        .map_or_else(|| host.to_string(), |port| format!("{host}:{port}"));
+    // 94#5：默认端口不进 canonical host——endpoint 显式写 https://host:443
+    // 时底层按惯例发不带端口的 Host 头，canonical 带端口即签名不匹配 403
+    let host = match url.port() {
+        Some(port) if !(url.scheme() == "https" && port == 443 || url.scheme() == "http" && port == 80) => {
+            format!("{host}:{port}")
+        }
+        _ => host.to_string(),
+    };
     let canonical_headers =
         format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{timestamp}\n");
     let canonical = format!(
-        "{method}\n{}\n{}\n{canonical_headers}\nhost;x-amz-content-sha256;x-amz-date\n{payload_hash}",
+        "{method}\n{}\n{query}\n{canonical_headers}\nhost;x-amz-content-sha256;x-amz-date\n{payload_hash}",
         url.path(),
-        url.query().unwrap_or("")
     );
     let scope = format!("{date}/{}/s3/aws4_request", config.region);
     let string_to_sign = format!(
@@ -184,8 +214,16 @@ fn execute(
         path.to_string()
     };
     let mut url = openai::endpoint(&config.endpoint, kind, &suffix)?;
+    // 94#5：S3 线上查询串与 canonical 同源（RFC3986）——form 编码的 +/~
+    // 与 canonical 不一致时，服务端按收到的原串校验必 403；
+    // WebDAV 无签名，沿用 form 编码
+    let s3_query = (config.kind == "s3").then(|| canonical_query(query));
     if !query.is_empty() {
-        url.query_pairs_mut().extend_pairs(query.iter().copied());
+        if let Some(canonical) = &s3_query {
+            url.set_query(Some(canonical));
+        } else {
+            url.query_pairs_mut().extend_pairs(query.iter().copied());
+        }
     }
     let client: Client = openai::client(&url, kind)?;
     let payload_hash = format!("{:x}", Sha256::digest(body.as_deref().unwrap_or_default()));
@@ -198,8 +236,14 @@ fn execute(
         request = request.header("Depth", depth.unwrap_or(0).to_string());
     }
     if config.kind == "s3" {
-        let (timestamp, authorization) =
-            signature(config, credentials, &url, method, &payload_hash)?;
+        let (timestamp, authorization) = signature(
+            config,
+            credentials,
+            &url,
+            method,
+            &payload_hash,
+            s3_query.as_deref().unwrap_or(""),
+        )?;
         request = request
             .header("x-amz-content-sha256", payload_hash)
             .header("x-amz-date", timestamp)
