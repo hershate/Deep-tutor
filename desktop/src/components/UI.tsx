@@ -59,10 +59,13 @@ export function Badge({ children, tone = 'neutral' }: { children: ReactNode; ton
   return <span className={`badge badge-${tone}`}>{children}</span>
 }
 
-export function ProgressBar({ value, label, tone = 'green' }: { value: number; label?: string; tone?: 'green' | 'amber' | 'blue' }) {
+// 120#6：去掉「完成 X%」兜底文案——预算占用/步数/掌握度等非完成度语义的
+// 消费方会被读屏错误播报为完成度；无 label 时不再虚构 aria-label 文本，
+// 非完成度语义用 srLabel 提供正确的可访问名（不渲染可见文本）
+export function ProgressBar({ value, label, srLabel, tone = 'green' }: { value: number; label?: string; srLabel?: string; tone?: 'green' | 'amber' | 'blue' }) {
   // 读屏需要显式 role 与数值区间才会把 div 映射为进度部件（09#7）
   const clamped = Math.max(0, Math.min(100, Math.round(value)))
-  return <div className="progress-wrap" role="progressbar" aria-label={label || `完成 ${clamped}%`} aria-valuenow={clamped} aria-valuemin={0} aria-valuemax={100}>
+  return <div className="progress-wrap" role="progressbar" aria-label={srLabel ?? label} aria-valuenow={clamped} aria-valuemin={0} aria-valuemax={100}>
     <div className="progress-track"><div className={`progress-fill progress-${tone}`} style={{ width: `${clamped}%` }} /></div>
     {label && <span className="progress-label">{label}</span>}
   </div>

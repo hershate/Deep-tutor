@@ -66,6 +66,8 @@ export default function App() {
   const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string; nonce: number } | null>(null)
   const [practiceTarget, setPracticeTarget] = useState<PracticeTarget | null>(null)
   const [mapPlanId, setMapPlanId] = useState<string | null>(null)
+  // 120#5：全局搜索节点结果的地图定位目标（nonce 支持同一节点重复点击）
+  const [mapNodeTarget, setMapNodeTarget] = useState<{ planId: string; nodeId: string; nonce: number } | null>(null)
   const [tutorOpen, setTutorOpen] = useState(false)
   const [tutorContext, setTutorContext] = useState<{ planId: string; label: string } | null>(null)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
@@ -367,7 +369,13 @@ export default function App() {
     return next
   }
   const openSearchResult = (result: SearchResult) => {
-    if (result.planId && result.stageId) {
+    if (result.kind === 'node' && result.planId) {
+      // 120#5：节点结果按标注落知识地图并定位选中——原先被 planId+stageId
+      // 分支抢先跳学习空间，与结果的「知识节点」图标/副标题割裂
+      setMapPlanId(result.planId)
+      setMapNodeTarget({ planId: result.planId, nodeId: result.id, nonce: Date.now() })
+      navigate('map')
+    } else if (result.planId && result.stageId) {
       setStudyTarget({ planId: result.planId, stageId: result.stageId, nonce: Date.now() })
       navigate('study')
     } else {
@@ -405,7 +413,7 @@ export default function App() {
       // 会话、不置 loading）——存在运行中会话时点「开始专注」撞
       // focus_active，且先按默认 25:00 渲染（91#6 要消除的场景）
       case 'study': return <StudyRoom target={studyTarget} onFocus={() => openFocus()} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
-      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId, nonce: Date.now() }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
+      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} focusTarget={mapNodeTarget} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId, nonce: Date.now() }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
       case 'practice': return <Practice notify={notify} target={practiceTarget} onTargetConsumed={() => setPracticeTarget(null)} onNavigate={navigate} />
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} onImportNotes={importNotes} notify={notify} />
@@ -600,6 +608,6 @@ function SearchLayer({ open, onClose, onOpenResult }: {
     else if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); openResult(results[activeIndex] ?? results[0]) }
   }
   return <Modal open={open} onClose={() => { onClose(); setQuery('') }} title="全局搜索">
-    <div className="command-search"><Search size={20} /><input autoFocus aria-label="全局搜索" value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} onKeyDown={onKeyDown} placeholder="输入页面、笔记、任务或知识节点…" /></div><div className="command-results">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} className={index === activeIndex ? 'active' : ''} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案、任务、项目与知识节点；↑↓ 选择、Enter 打开、Esc 关闭</div>
+    <div className="command-search"><Search size={20} /><input autoFocus aria-label="全局搜索" value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} onKeyDown={onKeyDown} placeholder="输入页面、笔记、任务或知识节点…" /></div><div className="command-results">{/* 120#12：结果数变化对读屏可见（焦点留在输入框，↑↓/Enter 键盘导航可发现） */}{results.length ? <span className="visually-hidden" aria-live="polite">{results.length} 条结果，↑↓ 选择，Enter 打开</span> : null}{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} className={index === activeIndex ? 'active' : ''} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案、任务、项目与知识节点；↑↓ 选择、Enter 打开、Esc 关闭</div>
   </Modal>
 }

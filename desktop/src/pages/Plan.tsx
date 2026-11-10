@@ -180,7 +180,9 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
   const endLabel = weekEnd ? localDate(new Date(new Date(`${weekEnd}T12:00:00`).getTime() - 86400000)) : ''
   return <div className="page plan-page">
     <div className="page-heading"><div><h1>学习计划</h1><p>让目标适配你的生活，而不是让生活追赶计划。</p></div><div className="heading-actions"><Button variant="secondary" disabled={!ready} onClick={() => setShareOpen(true)}><Share2 size={17} />分享</Button><Button variant="secondary" onClick={() => setExportOpen(true)}><ArrowDownToLine size={17} />导出</Button><Button onClick={() => onNavigate('generator')}><Sparkles size={17} />AI 方案生成</Button><Button variant="secondary" onClick={() => { setSubject(current => current || plan?.goal || ''); setError(''); setAddOpen(true) }}><Plus size={17} />添加任务</Button></div></div>
-    {error && !addOpen && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}
+    {/* 120#8：三个自带错误区块的弹窗（添加任务/任务排期/调整目标）打开期间
+        页面级横幅不重复展示——关闭弹窗后顶部残留且无关闭按钮 */}
+    {error && !addOpen && !goalOpen && !selectedTask && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}
     {plan ? <section className="goal-strip">
       <div className="goal-main"><span className="goal-icon"><Target size={25} /></span><div><span>当前主目标 · {plan.id} · v{plan.version}</span><h2>{plan.goal}</h2><p>目标日 {plan.deadline} · 每周可投入 {overview?.weeklyHours ?? 0} 小时 · {plan.adoptedProjectId === null ? '尚未采用' : '已采用'}</p></div></div>
       <div className="goal-progress"><div><strong>{progress}%</strong><span>阶段阅读进度</span></div><ProgressBar value={progress} /></div>
