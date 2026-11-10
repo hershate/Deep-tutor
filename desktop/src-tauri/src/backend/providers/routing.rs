@@ -678,10 +678,39 @@ fn circuit_permit(
     let (state, _, opened_at, _, _) = circuit_row(conn, provider_id)?;
     match state.as_str() {
         "closed" => Ok(None),
-        "half_open" => Ok(Some(BackendError::new(
-            "circuit_probing",
-            "上游正在进行半开探测，未发起并行请求",
-        ))),
+        "half_open" => {
+            // 102#2：探测发起后无人收尾（工作线程丢失/panic 不经过
+            // record_circuit）的悬挂逃逸——opened_at 仍是熔断打开时间，
+            // 超过再一个完整冷却期即视为探测过期：原子翻回 open 后经
+            // open 分支重新判定放行替代探测（并发 CAS 恰一个成功，
+            // 单探测语义不变；原先该分支不看时间，应用不重启就永远
+            // 停在 circuit_probing）
+            let opened = opened_at
+                .as_deref()
+                .map(|value| OffsetDateTime::parse(value, &Rfc3339))
+                .transpose()
+                .map_err(|_| BackendError::new("invalid_circuit_state", "熔断时间格式无效"))?
+                .ok_or_else(|| {
+                    BackendError::new("invalid_circuit_state", "熔断状态缺少打开时间")
+                })?;
+            if OffsetDateTime::now_utc() < opened + time::Duration::seconds(cooldown as i64 * 2) {
+                return Ok(Some(BackendError::new(
+                    "circuit_probing",
+                    "上游正在进行半开探测，未发起并行请求",
+                )));
+            }
+            let changed = conn.execute(
+                "UPDATE provider_circuits SET state = 'open' WHERE provider_id = ?1 AND state = 'half_open'",
+                params![provider_id],
+            )?;
+            if changed == 1 {
+                return circuit_permit(conn, provider_id, cooldown);
+            }
+            Ok(Some(BackendError::new(
+                "circuit_probing",
+                "上游正在进行半开探测，未发起并行请求",
+            )))
+        }
         "open" => {
             let opened = opened_at
                 .as_deref()
@@ -730,7 +759,7 @@ fn record_circuit<R: Runtime>(
         &store.conn,
         rusqlite::TransactionBehavior::Immediate,
     )?;
-    let (previous, failures, opened_at, _, last_failure_at) = circuit_row(&tx, id)?;
+    let (previous, failures, opened_at, old_error, last_failure_at) = circuit_row(&tx, id)?;
     let (old_previous, old_failures, old_opened_at) =
         (previous.clone(), failures, opened_at.clone());
     let eligible = error.as_ref().is_some_and(can_failover);
@@ -785,10 +814,14 @@ fn record_circuit<R: Runtime>(
     // 99#11：状态/计数/打开时间均未变化且无错误载荷时不再 UPSERT+发事件
     // ——原先每次成功请求都写一行值相同的 circuits 并发 circuit_changed，
     // events 表随请求量线性增加噪音行（55#10 事件治理口径）
+    // 102#3：错误码未变同样跳过（保留首次错误载荷）——原先只有成功路径
+    // 消除噪音，取消风暴/持续不可转移 4xx 下每次尝试仍 UPSERT+发事件
     if next == old_previous
         && failures == old_failures
         && opened_at == old_opened_at
-        && error.is_none()
+        && next_failure_at == last_failure_at
+        && error.as_ref().map(|error| error.code.as_str())
+            == old_error.as_ref().map(|error| error.code.as_str())
     {
         drop(tx);
         return Ok(());

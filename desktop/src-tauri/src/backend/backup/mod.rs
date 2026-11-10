@@ -27,8 +27,11 @@ pub fn preview(state: &LearningState, store: &Store, path: &Path) -> Result<Back
     // 13#19：预演跑导入同款 dry_run（回滚事务），ID 冲突与引用断链
     // 提前在预览阶段报出真实原因，而不是“预览可导入、导入最后一步失败”
     let mut backup = archive::open(path, state)?;
-    transfer::dry_run(&mut backup, store, state)?;
-    backup.preview()
+    // 102#4：dry_run 与导入共用 import_rows，跳行/置空警告随预览返回
+    let (_, warnings) = transfer::dry_run(&mut backup, store, state)?;
+    let mut preview = backup.preview()?;
+    preview.warnings = warnings;
+    Ok(preview)
 }
 
 pub fn import<R: Runtime>(

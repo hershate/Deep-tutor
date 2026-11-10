@@ -114,6 +114,11 @@ where
         let mut done = false;
         // 99#9：拒答标记——refusal delta 与正文混排原先无任何区分
         let mut saw_refusal = false;
+        // 102#5：按 output item 粒度跟踪是否收到过 delta——多文本段
+        // （文本与工具调用交错）场景下后续段只发 done 不发 delta 时，
+        // 原先的整体 is_empty 判定被第一段挡住，该段全文静默丢失
+        let mut text_delta_items = std::collections::HashSet::<u64>::new();
+        let mut unindexed_deltas = false;
         let result = tauri::async_runtime::block_on(stream_events(
             url.clone(),
             &profile.kind,
@@ -133,6 +138,12 @@ where
                 match kind {
                     "response.output_text.delta" => {
                         if let Some(text) = event.get("delta").and_then(Value::as_str) {
+                            match event.get("output_index").and_then(Value::as_u64) {
+                                Some(index) => {
+                                    text_delta_items.insert(index);
+                                }
+                                None => unindexed_deltas = true,
+                            }
                             emit(output, text, false, &mut on_delta)?;
                         }
                     }
@@ -147,8 +158,14 @@ where
                     // 99#9：个别代理只发 output_text.done（携带全文）不发
                     // delta——原先被 `_ => {}` 丢弃、text 为空、finish 报泛化
                     // empty_completion，真实全文丢失；空文本时兜底接收
+                    // 102#5：判定下沉到 output item 粒度（无索引的退化代理
+                    // 沿用整体空判 + 无索引 delta 视为已见，防全文重复拼接）
                     "response.output_text.done" => {
-                        if output.text.is_empty() {
+                        let seen_delta = match event.get("output_index").and_then(Value::as_u64) {
+                            Some(index) => text_delta_items.contains(&index),
+                            None => !output.text.is_empty(),
+                        } || unindexed_deltas;
+                        if !seen_delta {
                             if let Some(text) = event.get("text").and_then(Value::as_str) {
                                 emit(output, text, false, &mut on_delta)?;
                             }

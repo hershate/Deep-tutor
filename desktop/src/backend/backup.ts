@@ -11,6 +11,8 @@ export type BackupPreview = {
   fileBytes: number
   databaseBytes: number
   appendOnly: true
+  /** 102#4：预演与导入同口径的降级警告（跳行/请求列置空） */
+  warnings: string[]
 }
 // 57#2：driftedFiles 为内容与库内记录不符、按缺失处理的原件（不再产出导不回来的档案）
 export type BackupResult = { bytes: number; sha256: string; files: number; records: number; missingFiles: string[]; driftedFiles: string[] }

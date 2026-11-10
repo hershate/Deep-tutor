@@ -919,7 +919,12 @@ fn rewrite_json_field(row: &mut Row, table: &str, column: &str, maps: &IdMap) ->
     Ok(())
 }
 
-fn transform(transfer: &Transfer, table: &str, row: &mut Row, target: &Connection) -> Result<()> {
+fn transform(
+    transfer: &mut Transfer,
+    table: &str,
+    row: &mut Row,
+    target: &Connection,
+) -> Result<()> {
     if table == "events" {
         rewrite_json_field(row, table, "payload", &transfer.maps)?;
     }
@@ -1009,10 +1014,23 @@ fn transform(transfer: &Transfer, table: &str, row: &mut Row, target: &Connectio
                         }
                         // 99#6：审计型父表悬挂返回专用码供调用方 lenient 跳行
                         Err(fallback) if fallback.code == "invalid_backup_reference" => {
-                            return Err(BackendError::new(
-                                "pruned_backup_reference",
-                                &error.message,
-                            ));
+                            // 102#1：用户内容表的请求列（方案步骤/讲义单元/问答
+                            // 会话/练习/项目版本/agent run）仅审计引用不承载
+                            // 内容——vacuum 裁掉 provider_requests 后导出的
+                            // 备份原先整行跳过，恢复后静默丢七类用户内容行；
+                            // 置空该列保留行，维护域子表行仍按 lenient 跳行
+                            if user_content_request_holder(table) {
+                                transfer.warnings.push(format!(
+                                    "{}一行的模型请求记录不在备份中（请求列仅审计引用，已置空保留该行）",
+                                    table_label(table)
+                                ));
+                                row.insert(column.name.clone(), Value::Null);
+                            } else {
+                                return Err(BackendError::new(
+                                    "pruned_backup_reference",
+                                    &error.message,
+                                ));
+                            }
                         }
                         Err(fallback) => return Err(fallback),
                     }
@@ -1209,6 +1227,21 @@ fn lenient_backup_parent(parent: &str) -> bool {
     matches!(
         parent,
         "provider_requests" | "provider_route_runs" | "events"
+    )
+}
+
+/// 102#1：携带请求列（request_id/grader_request_id/current_request_id）的
+/// 用户内容表——这些列仅审计引用不承载内容，悬挂时置空保留行而非跳行
+fn user_content_request_holder(table: &str) -> bool {
+    matches!(
+        table,
+        "learning_plan_steps"
+            | "learning_lecture_units"
+            | "knowledge_sessions"
+            | "practice_sets"
+            | "practice_answers"
+            | "project_versions"
+            | "agent_runs"
     )
 }
 
@@ -1481,7 +1514,7 @@ pub fn dry_run(
     backup: &mut OpenBackup,
     store: &Store,
     state: &LearningState,
-) -> Result<BTreeMap<String, u64>> {
+) -> Result<(BTreeMap<String, u64>, Vec<String>)> {
     let source =
         Connection::open_with_flags(&backup.database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     source.execute("PRAGMA query_only = ON", [])?;
@@ -1505,7 +1538,8 @@ pub fn dry_run(
     let ordered = order(&transfer, &tx)?;
     import_rows(&mut transfer, &tx, &ordered)?;
     tx.rollback()?;
-    Ok(transfer.counts)
+    // 102#4：跳行/置空降级警告与导入同口径返回，供预演展示
+    Ok((transfer.counts, transfer.warnings))
 }
 
 pub fn import(

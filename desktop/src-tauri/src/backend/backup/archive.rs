@@ -144,6 +144,9 @@ pub struct BackupPreview {
     pub file_bytes: u64,
     pub database_bytes: u64,
     pub append_only: bool,
+    /// 102#4：预演与导入共用 import_rows，跳行/置空等降级警告在预演阶段
+    /// 一并返回——原先预演通过、导入回执才发现跳行，口径不一致
+    pub warnings: Vec<String>,
 }
 
 pub(crate) struct Workspace {
@@ -711,6 +714,7 @@ impl OpenBackup {
             file_bytes: self.manifest.files.iter().map(|file| file.bytes).sum(),
             database_bytes: self.manifest.database.bytes,
             append_only: true,
+            warnings: Vec::new(),
         })
     }
 

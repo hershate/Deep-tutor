@@ -872,3 +872,77 @@ fn imported_events_continue_ids_and_remap_payload_references() {
         "AUTOINCREMENT 必须接续导入后的最大 id"
     );
 }
+
+// 102#1：用户内容表的请求列悬挂（vacuum 裁掉 provider_requests 后导出的
+// 备份）时置空该列并保留行——原先按父表粒度整行跳过，恢复后的库静默缺
+// 方案步骤/讲义单元/问答/练习/项目版本；102#4：预演与导入同口径给出警告
+#[test]
+fn dangling_request_column_on_user_content_rows_is_nulled_and_kept() {
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    seed_source(&source_app, &source);
+    // 模拟常规维护（vacuum「90 天窗口外」）裁掉请求行——用户内容行悬挂
+    source
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "DELETE FROM provider_requests WHERE request_id = 'request-1'",
+            [],
+        )
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("pruned.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let target = LearningState::for_tests().unwrap();
+    let target_app = setup(&target);
+    seed_target(&target_app, &target);
+    let preview = ipc(
+        &target_app,
+        "preview_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let preview_warnings = preview["warnings"].as_array().cloned().unwrap_or_default();
+    assert!(
+        preview_warnings
+            .iter()
+            .any(|warning| warning.as_str().unwrap_or_default().contains("置空保留")),
+        "预演应同口径报出降级警告：{preview_warnings:?}"
+    );
+    let state = ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let store = target.store().unwrap();
+    let (steps, request_id): (i64, Option<String>) = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*), MAX(request_id) FROM learning_plan_steps",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(steps, 1, "悬挂请求列的用户内容行必须保留，不得整行跳过");
+    assert!(request_id.is_none(), "悬挂请求列应置空：{request_id:?}");
+    let import_warnings = state["backupImportWarnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        import_warnings
+            .iter()
+            .any(|warning| warning.as_str().unwrap_or_default().contains("置空保留")),
+        "导入回执应包含置空警告：{import_warnings:?}"
+    );
+}
