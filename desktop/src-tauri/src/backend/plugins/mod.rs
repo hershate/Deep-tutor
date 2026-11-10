@@ -682,10 +682,7 @@ pub fn uninstall<R: Runtime>(app: &AppHandle<R>, state: &PluginState, id: String
     // 该失败窗口内行不再投递，重试卸载可收尾
     if exists {
         let disable = store.conn.unchecked_transaction()?;
-        disable.execute(
-            "UPDATE plugins SET enabled = 0 WHERE id = ?1",
-            params![id],
-        )?;
+        disable.execute("UPDATE plugins SET enabled = 0 WHERE id = ?1", params![id])?;
         disable.commit()?;
     }
     if let Some(directory) = path.parent() {

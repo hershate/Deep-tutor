@@ -204,8 +204,7 @@ impl Store {
                     .and_then(|name| name.to_str())
                     .unwrap_or("store")
             ));
-            let copy_result =
-                fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path));
+            let copy_result = fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path));
             drop(source);
             if let Err(error) = copy_result {
                 let _ = fs::remove_file(&staged);
@@ -639,10 +638,7 @@ impl Store {
             "lastEventId": self.latest_event_id()?,
             "workspaceId": self.owner_id.unwrap_or(0),
         });
-        Ok(Mutation {
-            state,
-            event,
-        })
+        Ok(Mutation { state, event })
     }
 
     fn normalize_tasks(&self, value: &Value) -> Result<Value> {
@@ -1616,6 +1612,6 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, "2");
+        assert_eq!(version, "3");
     }
 }

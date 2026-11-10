@@ -441,7 +441,10 @@ fn generation_prompt(
     let mut prompt = if existing.is_empty() {
         prompt
     } else {
-        format!("{prompt}\n以下题干已出过，禁止出相同或近似的题：{}", serde_json::to_string(existing)?)
+        format!(
+            "{prompt}\n以下题干已出过，禁止出相同或近似的题：{}",
+            serde_json::to_string(existing)?
+        )
     };
     // 98#2：批次随机标识——同 node/stage 反复生成的请求文本一致会放大
     // 复现，注入 CSPRNG 批次标识使每次请求文本唯一（random.rs 单一入口）
@@ -775,7 +778,14 @@ fn generate_questions<R: Runtime>(
     {
         return Err(BackendError::new("cancelled", "练习生成已取消"));
     }
-    let prompt = generation_prompt(&plan, &sources, &input, &nodes, variant.as_ref(), &historical)?;
+    let prompt = generation_prompt(
+        &plan,
+        &sources,
+        &input,
+        &nodes,
+        variant.as_ref(),
+        &historical,
+    )?;
     let messages = vec![
         ChatMessage {
             role: "system".into(),

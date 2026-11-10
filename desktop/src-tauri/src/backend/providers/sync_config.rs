@@ -171,11 +171,20 @@ fn take_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
         )?;
         let rows = statement.query_map([], |row| {
             Ok(json!([
-                row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, i64>(8)?,
-                row.get::<_, Option<String>>(9)?, row.get::<_, String>(10)?, row.get::<_, Option<i64>>(11)?,
-                row.get::<_, String>(12)?, row.get::<_, String>(13)?,
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, i64>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, Option<i64>>(11)?,
+                row.get::<_, String>(12)?,
+                row.get::<_, String>(13)?,
             ]))
         })?;
         for row in rows {
@@ -187,8 +196,9 @@ fn take_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
         let mut statement = conn.prepare(&format!(
             "SELECT key, value FROM provider_meta WHERE key != '{ROLLBACK_SNAPSHOT_KEY}'"
         ))?;
-        let rows = statement
-            .query_map([], |row| Ok(json!([row.get::<_, String>(0)?, row.get::<_, String>(1)?])))?;
+        let rows = statement.query_map([], |row| {
+            Ok(json!([row.get::<_, String>(0)?, row.get::<_, String>(1)?]))
+        })?;
         for row in rows {
             meta.push(row?);
         }
@@ -215,9 +225,22 @@ fn rollback_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
     };
     let parsed: Value = serde_json::from_str(&snapshot)
         .map_err(|_| BackendError::new("sync_snapshot_invalid", "导入回滚快照损坏"))?;
-    let profiles: Vec<(i64, String, String, String, String, String, String, String, i64, Option<String>, String, Option<i64>, String, String)> = serde_json::from_value(
-        parsed["profiles"].clone(),
-    )?;
+    let profiles: Vec<(
+        i64,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        Option<String>,
+        String,
+        Option<i64>,
+        String,
+        String,
+    )> = serde_json::from_value(parsed["profiles"].clone())?;
     let meta: Vec<(String, String)> = serde_json::from_value(parsed["meta"].clone())?;
     conn.execute("DELETE FROM provider_profiles", [])?;
     for profile in profiles {
@@ -428,7 +451,9 @@ mod tests {
         .unwrap();
         rollback_import_snapshot(&conn).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM provider_profiles", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM provider_profiles", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 1, "回滚后只保留导入前的档案");
         let name: String = conn

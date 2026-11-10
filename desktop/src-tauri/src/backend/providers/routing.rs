@@ -643,7 +643,13 @@ fn can_failover(error: &BackendError) -> bool {
 fn circuit_row(
     conn: &Connection,
     provider_id: i64,
-) -> Result<(String, u32, Option<String>, Option<BackendError>, Option<String>)> {
+) -> Result<(
+    String,
+    u32,
+    Option<String>,
+    Option<BackendError>,
+    Option<String>,
+)> {
     Ok(conn
         .query_row(
             "SELECT state, failures, opened_at, error_code, error_message, last_failure_at FROM provider_circuits WHERE provider_id = ?1",
@@ -735,8 +741,7 @@ fn record_circuit<R: Runtime>(
         .as_deref()
         .and_then(|value| OffsetDateTime::parse(value, &Rfc3339).ok())
         .is_some_and(|last| {
-            OffsetDateTime::now_utc() - last
-                > time::Duration::seconds(settings.cooldown as i64 * 5)
+            OffsetDateTime::now_utc() - last > time::Duration::seconds(settings.cooldown as i64 * 5)
         });
     let mut next_failure_at = last_failure_at.clone();
     let (next, failures, opened_at) = if error
@@ -756,10 +761,18 @@ fn record_circuit<R: Runtime>(
         ("closed".into(), 0, None)
     } else if previous == "half_open" {
         next_failure_at = Some(timestamp.clone());
-        ("open".into(), failures.saturating_add(1), Some(timestamp.clone()))
+        (
+            "open".into(),
+            failures.saturating_add(1),
+            Some(timestamp.clone()),
+        )
     } else if eligible {
         // 99#5：窗口外的历史失败清零后从头计 1
-        let failures = if window_stale { 1 } else { failures.saturating_add(1) };
+        let failures = if window_stale {
+            1
+        } else {
+            failures.saturating_add(1)
+        };
         next_failure_at = Some(timestamp.clone());
         if failures >= settings.failures {
             ("open".into(), failures, Some(timestamp.clone()))

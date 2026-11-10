@@ -311,7 +311,9 @@ fn gbk_pages_decode_through_header_meta_and_fallback_tiers() {
         .0
         .into_owned();
     // 无声明：UTF-8 直读失败后按 GB18030 超集兜底
-    assert!(decode_body(&plain, "text/html").unwrap().contains("中文正文"));
+    assert!(decode_body(&plain, "text/html")
+        .unwrap()
+        .contains("中文正文"));
     // meta charset 声明（头部嗅探在 lossy 文本上找 ASCII 标签）
     let with_meta = encoding_rs::GBK
         .encode("<html><head><meta charset=\"gbk\"></head><body>中文正文</body></html>")

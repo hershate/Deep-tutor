@@ -367,7 +367,12 @@ pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOvervie
         let date = today
             .checked_sub(Duration::days(offset as i64))
             .ok_or_else(|| BackendError::new("invalid_usage_days", "用量日期无效"))?;
-        daily.push(buckets.get(&date).cloned().unwrap_or_else(|| empty_day(date)));
+        daily.push(
+            buckets
+                .get(&date)
+                .cloned()
+                .unwrap_or_else(|| empty_day(date)),
+        );
     }
     let today_entries: Vec<&UsageEntry> = by_date.get(&today).cloned().unwrap_or_default();
     let summary = UsageSummary {

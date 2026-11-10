@@ -383,7 +383,9 @@ fn approval<R: Runtime>(
         )
         .optional()?;
     if let Some(id) = existing {
-        return Ok(json!({"status": "approval_required", "approvalId": id, "kind": kind, "reused": true}));
+        return Ok(
+            json!({"status": "approval_required", "approvalId": id, "kind": kind, "reused": true}),
+        );
     }
     let tx = store.conn.unchecked_transaction()?;
     tx.execute("INSERT INTO agent_approvals (session_id, kind, payload_json, status, created_at) VALUES (?1, ?2, ?3, 'pending', ?4)", params![session.id, kind, payload_text, now()?])?;
@@ -431,7 +433,9 @@ fn memory_value(value: &str) -> Result<String> {
 fn cap_tool_result(result: Value) -> Value {
     let serialized = match serde_json::to_string(&result) {
         Ok(text) => text,
-        Err(_) => return json!({"status": "failed", "error": {"code": "invalid_tool_result", "message": "工具结果无法序列化"}}),
+        Err(_) => {
+            return json!({"status": "failed", "error": {"code": "invalid_tool_result", "message": "工具结果无法序列化"}})
+        }
     };
     if serialized.len() <= 64 * 1024 {
         return result;

@@ -1024,21 +1024,22 @@ pub(crate) fn calendar_with(store: &super::store::Store) -> Result<CalendarRepor
     // 拉取窗口内全行、按本地日界在内存分桶——计时行结束时间精确解析后
     // 归日，不再依赖 RFC3339 字符串比较的亚秒位边界
     let window_start = today - Duration::days(83);
-    let mut focus_by_day: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    let mut focus_by_day: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     {
         let mut statement = store.conn.prepare(
             "SELECT ended_at, actual_seconds FROM focus_sessions WHERE status = 'completed' AND ended_at >= ?1",
         )?;
         let rows = statement
-            .query_map(params![timestamp(window_start.to_offset(time::UtcOffset::UTC))?], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?
+            .query_map(
+                params![timestamp(window_start.to_offset(time::UtcOffset::UTC))?],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         for (ended_at, seconds) in rows {
             if let Ok(moment) = OffsetDateTime::parse(&ended_at, &Rfc3339) {
-                *focus_by_day.entry(day(moment.to_offset(local.offset()))).or_insert(0) +=
-                    seconds;
+                *focus_by_day
+                    .entry(day(moment.to_offset(local.offset())))
+                    .or_insert(0) += seconds;
             }
         }
     }

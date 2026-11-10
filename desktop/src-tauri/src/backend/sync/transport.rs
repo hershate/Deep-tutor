@@ -87,7 +87,10 @@ fn signature(
     // 94#5：默认端口不进 canonical host——endpoint 显式写 https://host:443
     // 时底层按惯例发不带端口的 Host 头，canonical 带端口即签名不匹配 403
     let host = match url.port() {
-        Some(port) if !(url.scheme() == "https" && port == 443 || url.scheme() == "http" && port == 80) => {
+        Some(port)
+            if !(url.scheme() == "https" && port == 443
+                || url.scheme() == "http" && port == 80) =>
+        {
             format!("{host}:{port}")
         }
         _ => host.to_string(),

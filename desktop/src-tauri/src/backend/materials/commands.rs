@@ -134,12 +134,12 @@ pub async fn export_material_text<R: Runtime + 'static>(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
         super::super::security::with_principal(principal, || {
-        let result = super::export_text(&state.materials, id, Path::new(&destination));
-        if result.is_ok() {
-            // 72#2：导出回执登记（reveal_path 白名单）
-            super::super::reveal::register(Path::new(&destination));
-        }
-        result
+            let result = super::export_text(&state.materials, id, Path::new(&destination));
+            if result.is_ok() {
+                // 72#2：导出回执登记（reveal_path 白名单）
+                super::super::reveal::register(Path::new(&destination));
+            }
+            result
         })
     })
     .await

@@ -255,7 +255,11 @@ where
                     if let Some(reason) = candidate.get("finishReason").and_then(Value::as_str) {
                         // 99#10：词汇归一到 OpenAI Chat 语义（10#4 与 responses.rs
                         // 同口径）——MAX_TOKENS→length，展示层三协议一致
-                        let normalized = if reason == "MAX_TOKENS" { "length" } else { reason };
+                        let normalized = if reason == "MAX_TOKENS" {
+                            "length"
+                        } else {
+                            reason
+                        };
                         output.finish_reason = Some(normalized.into());
                         done = true;
                         // 99#2：拦截类 finishReason 全部按 content_blocked 报告——
@@ -278,8 +282,9 @@ where
                         if reason == "OTHER" {
                             // 99#2：未分类拦截不冒充成功截断，按 incomplete_stream
                             // 归类（与无终止符断流同口径）
-                            return Err(output
-                                .error("incomplete_stream", "供应商返回未分类的中断原因"));
+                            return Err(
+                                output.error("incomplete_stream", "供应商返回未分类的中断原因")
+                            );
                         }
                     }
                 }

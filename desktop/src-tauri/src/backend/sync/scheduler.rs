@@ -32,7 +32,11 @@ pub fn run_due<R: Runtime>(
     let anchor = OffsetDateTime::parse(&anchor_text, &Rfc3339).map_err(|_| {
         super::super::error::BackendError::new("invalid_sync_schedule", "同步调度时间无效")
     })?;
-    if !due(anchor, last_status.as_deref() == Some("failed"), OffsetDateTime::now_utc()) {
+    if !due(
+        anchor,
+        last_status.as_deref() == Some("failed"),
+        OffsetDateTime::now_utc(),
+    ) {
         return Ok(None);
     }
     start(app, service, "upload".into(), None).map(Some)

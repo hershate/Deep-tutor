@@ -19,19 +19,21 @@ pub async fn export_content<R: Runtime + 'static>(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
         super::super::security::with_principal(principal, || {
-        let result =
-            super::export(&app, &state.learning, input, std::path::Path::new(&destination));
-        if result.is_ok() {
-            // 72#2：导出回执登记（reveal_path 白名单）
-            super::super::reveal::register(std::path::Path::new(&destination));
-        }
-        result
+            let result = super::export(
+                &app,
+                &state.learning,
+                input,
+                std::path::Path::new(&destination),
+            );
+            if result.is_ok() {
+                // 72#2：导出回执登记（reveal_path 白名单）
+                super::super::reveal::register(std::path::Path::new(&destination));
+            }
+            result
         })
     })
     .await
-    .map_err(|_| {
-        super::super::error::BackendError::new("internal_error", "导出任务执行异常终止")
-    })?
+    .map_err(|_| super::super::error::BackendError::new("internal_error", "导出任务执行异常终止"))?
 }
 
 // 90#2：笔记归档全量读库 + 内存 ZIP 压缩（Deflate CPU 密集）移后台，
@@ -47,13 +49,13 @@ pub async fn export_notes_archive<R: Runtime + 'static>(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
         super::super::security::with_principal(principal, || {
-        let result =
-            super::notes::archive(&app, &state.learning, std::path::Path::new(&destination));
-        if result.is_ok() {
-            // 72#2：导出回执登记（reveal_path 白名单）
-            super::super::reveal::register(std::path::Path::new(&destination));
-        }
-        result
+            let result =
+                super::notes::archive(&app, &state.learning, std::path::Path::new(&destination));
+            if result.is_ok() {
+                // 72#2：导出回执登记（reveal_path 白名单）
+                super::super::reveal::register(std::path::Path::new(&destination));
+            }
+            result
         })
     })
     .await
