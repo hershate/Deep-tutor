@@ -405,8 +405,18 @@ fn complete<R: Runtime>(
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
     let timestamp = now()?;
-    let changed = tx.execute("UPDATE project_versions SET status = 'done', feedback_json = ?1, error_code = NULL, error_message = NULL, updated_at = ?2, completed_at = ?2 WHERE id = ?3 AND status IN ('running', 'cancelling')", params![serde_json::to_string(feedback)?, timestamp, id])?;
+    // 119#3：对齐 learning 98#5 取消优先口径——cancelling 不再被 done 覆写
+    // （三生成域原唯 projects「结果赢」）；取消交叠时评价结果照存但终态记
+    // cancelled，不发 feedback_completed（取消语义事件已由 cancel() 发出）
+    let changed = tx.execute("UPDATE project_versions SET status = 'done', feedback_json = ?1, error_code = NULL, error_message = NULL, updated_at = ?2, completed_at = ?2 WHERE id = ?3 AND status = 'running'", params![serde_json::to_string(feedback)?, timestamp, id])?;
     if changed == 0 {
+        let cancelled = tx.execute("UPDATE project_versions SET status = 'cancelled', feedback_json = ?1, error_code = 'cancelled', error_message = '评价完成前已请求取消，结果已保留', updated_at = ?2 WHERE id = ?3 AND status = 'cancelling'", params![serde_json::to_string(feedback)?, timestamp, id])?;
+        if cancelled > 0 {
+            tx.commit()?;
+        } else {
+            // 已被并发路径写入终态——保持现状
+            tx.commit()?;
+        }
         return Ok(());
     }
     let event = Store::event(

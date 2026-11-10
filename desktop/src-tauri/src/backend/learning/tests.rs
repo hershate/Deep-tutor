@@ -1130,3 +1130,51 @@ fn parse_model_json_recovers_bare_json_with_fenced_string_content() {
     let parsed: serde_json::Value = pipeline::parse_model_json(fenced).unwrap();
     assert_eq!(parsed["a"], 1);
 }
+
+#[test]
+fn lecture_terminal_respects_late_cancellation() {
+    // 119#2：最后一个单元完成后、终态提交前的取消不得被覆写为 done——
+    // finish_lecture 的 done UPDATE 带 status='running' 守卫，cancelling
+    // 行落终态 cancelled、不插版本行、不发 lecture.completed
+    let (app, state) = setup();
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    store.conn.execute(
+        "INSERT INTO learning_plans (status, provider_id, input_json, result_json, created_at, updated_at) VALUES ('done', 'p1', '{}', '{}', ?1, ?1)",
+        params![timestamp],
+    ).unwrap();
+    let plan_id = store.conn.last_insert_rowid();
+    let seed = |status: &str| {
+        store.conn.execute(
+            "INSERT OR REPLACE INTO learning_lectures (plan_id, stage_id, version, status, current_unit, updated_at) VALUES (?1, 'stage-1', 1, ?2, 2, ?3)",
+            params![plan_id, status, timestamp],
+        ).unwrap();
+        store.conn.execute(
+            "DELETE FROM learning_lecture_versions WHERE plan_id = ?1 AND stage_id = 'stage-1'",
+            params![plan_id],
+        ).unwrap();
+        store.conn.execute(
+            "DELETE FROM events WHERE kind LIKE 'lecture.%' AND json_extract(payload, '$.planId') = ?1",
+            params![format!("plan-{plan_id}")],
+        ).unwrap();
+    };
+    // 控制组：running → done + 版本行 + completed 事件
+    seed("running");
+    lecture::finish_lecture(app.handle(), &state, plan_id, "stage-1", 1, 3).unwrap();
+    let (status, versions, completed): (String, i64, i64) = store.conn.query_row(
+        "SELECT (SELECT status FROM learning_lectures WHERE plan_id = ?1), (SELECT COUNT(*) FROM learning_lecture_versions WHERE plan_id = ?1 AND stage_id = 'stage-1'), (SELECT COUNT(*) FROM events WHERE kind = 'lecture.completed' AND json_extract(payload, '$.planId') = ?2)",
+        params![plan_id, format!("plan-{plan_id}")],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!((status.as_str(), versions, completed), ("done", 1, 1));
+    // 实验组：cancelling（取消已提交）→ 终态 cancelled，无版本行，无 completed
+    seed("cancelling");
+    lecture::finish_lecture(app.handle(), &state, plan_id, "stage-1", 1, 3).unwrap();
+    let (status, versions, completed, cancelled_rows): (String, i64, i64, i64) = store.conn.query_row(
+        "SELECT (SELECT status FROM learning_lectures WHERE plan_id = ?1), (SELECT COUNT(*) FROM learning_lecture_versions WHERE plan_id = ?1 AND stage_id = 'stage-1'), (SELECT COUNT(*) FROM events WHERE kind = 'lecture.completed' AND json_extract(payload, '$.planId') = ?2), (SELECT COUNT(*) FROM events WHERE kind = 'lecture.cancelled' AND json_extract(payload, '$.planId') = ?2)",
+        params![plan_id, format!("plan-{plan_id}")],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).unwrap();
+    assert_eq!((status.as_str(), versions, completed), ("cancelled", 0, 0), "取消不得被覆写为 done");
+    assert_eq!(cancelled_rows, 1, "取消终态应有 cancelled 事件");
+}

@@ -297,3 +297,46 @@ fn cancellation_resume_and_invalid_feedback_never_fabricate_evaluation() {
         "interrupted"
     );
 }
+
+#[test]
+fn completed_feedback_respects_late_cancellation() {
+    // 119#3：取消提交与模型返回 done 的毫秒竞态——cancelling 不再被覆写为
+    // done（对齐 learning 98#5 取消优先口径）：评价结果照存但终态记
+    // cancelled，不发 feedback_completed
+    let (app, state, _learning, _model) = setup(None, false);
+    seed_project(&state);
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    let seed_version = |version_number: i64, status: &str| {
+        store.conn.execute(
+            "INSERT INTO project_versions (project_id, version_number, content, milestone_id, milestone_title, status, attempt, provider_id, created_at, updated_at) VALUES (1, ?1, '真实原型', 2, '验证与复盘', ?2, 1, 'p1', ?3, ?3)",
+            params![version_number, status, timestamp],
+        ).unwrap();
+        store.conn.last_insert_rowid()
+    };
+    let feedback = ProjectFeedback {
+        concept: 80,
+        implementation: 75,
+        verification: 70,
+        summary: "真实量规总结".into(),
+        suggestions: vec!["补一次边界测试".into()],
+    };
+    // 控制组：running → done + feedback 落库 + feedback_completed 事件
+    let running_id = seed_version(1, "running");
+    complete(app.handle(), &state, running_id, &feedback).unwrap();
+    let row = version(&store.conn, running_id).unwrap();
+    assert_eq!(row.status, "done");
+    assert!(row.feedback.is_some());
+    // 实验组：cancelling → 终态 cancelled，feedback 照存，无 completed 事件
+    let cancelling_id = seed_version(2, "cancelling");
+    complete(app.handle(), &state, cancelling_id, &feedback).unwrap();
+    let row = version(&store.conn, cancelling_id).unwrap();
+    assert_eq!(row.status, "cancelled", "取消不得被覆写为 done");
+    assert!(row.feedback.is_some(), "评价结果照存（98#5 口径）");
+    let completed_events: i64 = store.conn.query_row(
+        "SELECT COUNT(*) FROM events WHERE kind = 'project.feedback_completed' AND json_extract(payload, '$.versionId') = ?1",
+        params![cancelling_id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(completed_events, 0, "取消交叠不得发 feedback_completed");
+}

@@ -721,14 +721,53 @@ fn run<R: Runtime>(
         let content = unit(app, state, &plan, stage_id, version, index, &sources)?;
         complete_unit(app, state, id, stage_id, version, index, &content)?;
     }
+    finish_lecture(
+        app,
+        state,
+        id,
+        stage_id,
+        version,
+        stage.node_ids.len(),
+    )
+}
+
+/// 119#2：整段完成落库收敛为独立函数（供回归测试直调）——终态 UPDATE
+/// 带 `status='running'` 守卫：最后一个单元完成后到终态提交之间的取消
+/// 提交不再被无守卫 UPDATE 覆写为 done；cancelling 行尊重取消意图
+/// （终态 cancelled、不落版本行、不发 completed，对照 98#5/practice 口径）
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn finish_lecture<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &LearningState,
+    id: i64,
+    stage_id: &str,
+    version: u32,
+    total_units: usize,
+) -> Result<()> {
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE learning_lectures SET status = 'done', current_unit = ?1, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE plan_id = ?3 AND stage_id = ?4", params![stage.node_ids.len() as i64, now()?, id, stage_id])?;
+    let changed = tx.execute("UPDATE learning_lectures SET status = 'done', current_unit = ?1, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE plan_id = ?3 AND stage_id = ?4 AND status = 'running'", params![total_units as i64, now()?, id, stage_id])?;
+    if changed == 0 {
+        let cancelled = tx.execute("UPDATE learning_lectures SET status = 'cancelled', error_code = 'cancelled', error_message = '已在收尾前取消，已生成单元保留', updated_at = ?1 WHERE plan_id = ?2 AND stage_id = ?3 AND status = 'cancelling'", params![now()?, id, stage_id])?;
+        if cancelled > 0 {
+            let event = Store::event(
+                &tx,
+                "lecture.cancelled",
+                json!({"planId": format!("plan-{id}"), "stageId": stage_id, "error": {"code": "cancelled", "message": "已在收尾前取消，已生成单元保留"}}),
+            )?;
+            tx.commit()?;
+            emit(app, &event);
+        } else {
+            // 已被并发路径写入终态——保持现状
+            tx.commit()?;
+        }
+        return Ok(());
+    }
     tx.execute("INSERT OR IGNORE INTO learning_lecture_versions (plan_id, stage_id, version, created_at) VALUES (?1, ?2, ?3, ?4)", params![id, stage_id, version, now()?])?;
     let event = Store::event(
         &tx,
         "lecture.completed",
-        json!({"planId": format!("plan-{id}"), "stageId": stage_id, "version": version, "totalUnits": stage.node_ids.len()}),
+        json!({"planId": format!("plan-{id}"), "stageId": stage_id, "version": version, "totalUnits": total_units}),
     )?;
     tx.commit()?;
     emit(app, &event);
@@ -749,7 +788,8 @@ fn fail_lecture<R: Runtime>(
     };
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE learning_lectures SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6", params![status, error.code, error.message, now()?, id, stage_id])?;
+    // 119#2：fail 路径同补活跃态守卫——防止覆写并发路径已落的终态
+    tx.execute("UPDATE learning_lectures SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id, stage_id])?;
     let event = Store::event(
         &tx,
         if status == "cancelled" {
