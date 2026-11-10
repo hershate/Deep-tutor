@@ -120,8 +120,11 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     } catch (error) { reportBackendError(error) } finally { setBusy(false) }
   }
   const cancelGeneration = async () => {
-    if (!exam) return
-    try { onUpdated(await practiceBackend.cancel(exam.set.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) }
+    // 115#11：对齐 resumeGeneration 的 busy 模式——在途期间按钮禁用+转圈，
+    // 连点不再零反馈（后端竞态码兜底不变）
+    if (!exam || busy) return
+    setBusy(true)
+    try { onUpdated(await practiceBackend.cancel(exam.set.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const resumeGeneration = async () => {
     // 32#12：busy 守卫 + isCancelRace——双击第二次撞 generation_active 竞态码
@@ -154,8 +157,10 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const cancelAnswer = async () => {
-    if (!answer) return
-    try { onUpdated(await practiceBackend.cancelAnswer(answer.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) }
+    // 115#11：同 cancelGeneration——在途禁用防零反馈连点
+    if (!answer || busy) return
+    setBusy(true)
+    try { onUpdated(await practiceBackend.cancelAnswer(answer.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
   const resumeAnswer = async () => {
     // 32#12：busy 守卫 + isCancelRace——对齐 cancelAnswer
@@ -178,10 +183,10 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   }
   const time = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
 
-  const intro = <section className="surface exam-intro"><Badge tone="blue">阶段测评</Badge><h2>创建一份真实模拟考试</h2><p>按已采用学习方案与资料生成试题。题目就绪时才开始计时，交卷后统一查看答案、评分和知识证据。</p><div className="exam-facts"><div><FileQuestion size={20} /><strong>5–20 题</strong><span>四种题型可组合</span></div><div><Clock3 size={20} /><strong>1–240 分钟</strong><span>绝对截止时间，重启不重置</span></div></div><p className="form-help">交卷时未作答按 0 分计，并明确标记为未作答；正在评分的作答不会伪造为完成。</p><Button size="lg" onClick={() => setSetupOpen(true)} disabled={!plans.length}>配置模拟考试<ArrowRight size={17} /></Button></section>
+  const intro = <section className="surface exam-intro"><Badge tone="blue">阶段测评</Badge><h2>创建一份真实模拟考试</h2><p>按已采用学习方案与资料生成试题。题目就绪时才开始计时，交卷后统一查看答案、评分和知识证据。</p><div className="exam-facts"><div><FileQuestion size={20} /><strong>5–20 题</strong><span>四种题型可组合</span></div><div><Clock3 size={20} /><strong>1–240 分钟</strong><span>绝对截止时间，重启不重置</span></div></div><p className="form-help">交卷时未作答按 0 分计，并明确标记为未作答；正在评分的作答不会伪造为完成。</p><Button size="lg" onClick={() => setSetupOpen(true)} disabled={!plans.length} title={plans.length ? undefined : '先在「方案生成」创建并采用一份学习方案，才能按资料生成试题'}>配置模拟考试<ArrowRight size={17} /></Button>{!plans.length && <p className="form-help">按钮暂不可用：需要先在「方案生成」创建并采用一份包含资料的学习方案。</p>}</section>
 
   return <div className="exam-layout"><div>
-    {!exam ? intro : ['generating', 'cancelling'].includes(exam.set.status) ? <section className="surface exam-intro"><h2>{exam.set.status === 'cancelling' ? '正在取消试卷生成' : '正在生成真实试卷'}</h2><p>{plan?.goal ?? exam.set.planId} · 第 {exam.set.attempt} 次尝试</p><pre className="streaming-output">{output || generationOutput || '等待模型返回试题…'}</pre><Button variant="secondary" onClick={() => void cancelGeneration()} disabled={exam.set.status === 'cancelling'}>取消生成</Button></section>
+    {!exam ? intro : ['generating', 'cancelling'].includes(exam.set.status) ? <section className="surface exam-intro"><h2>{exam.set.status === 'cancelling' ? '正在取消试卷生成' : '正在生成真实试卷'}</h2><p>{plan?.goal ?? exam.set.planId} · 第 {exam.set.attempt} 次尝试</p><pre className="streaming-output">{output || generationOutput || '等待模型返回试题…'}</pre><Button variant="secondary" onClick={() => void cancelGeneration()} disabled={busy || exam.set.status === 'cancelling'}>{busy ? '正在取消…' : '取消生成'}</Button></section>
     : ['failed', 'cancelled', 'interrupted'].includes(exam.set.status) ? <section className="surface exam-intro"><CircleAlert size={30} /><h2>试卷生成未完成</h2><p>{exam.set.error ? backendErrorMessage(exam.set.error) : '生成已停止'}</p><Button onClick={() => void resumeGeneration()}>恢复生成<RefreshCw size={17} /></Button></section>
     : <section className="surface question-surface">
       <div className="question-top"><div><Badge tone="blue">模拟考试</Badge><span>{plan?.goal ?? exam.set.planId}</span></div><span role="timer" aria-label={completed ? '已交卷' : `考试剩余时间 ${time}`}>{completed ? '已交卷' : `剩余 ${time}`}</span></div>
@@ -201,7 +206,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
           {['short', 'essay'].includes(question.kind) && <textarea rows={question.kind === 'essay' ? 8 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} disabled={recorded || busy || expired} onChange={event => { const next = clampToBytes(event.target.value, 30000); if (question) draftByQuestion.current[question.id] = next; setDraft(next) }} placeholder="组织自己的回答，交卷后由后端按评分要点评分" aria-label={`${question?.kind === 'essay' ? '论述' : '简答'}作答：${question?.prompt ?? ''}`} />}
           {question.rubric.length > 0 && <div className="rubric-preview"><strong>评分要点</strong>{question.rubric.map(criterion => <div key={criterion.id}><span>{criterion.description}</span><small>{criterion.points.toFixed(2)} 分</small></div>)}</div>}
           {recorded && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>交卷后统一显示得分与解析。</p></div>}
-          {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>正在按评分要点判分</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancelAnswer()} disabled={answer.status === 'cancelling'}>取消评分</Button></div>}
+          {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>正在按评分要点判分</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancelAnswer()} disabled={busy || answer.status === 'cancelling'}>{busy ? '正在取消…' : '取消评分'}</Button></div>}
           {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><h3>评分未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分已停止'}</p><Button onClick={() => void resumeAnswer()}>恢复评分<RefreshCw size={17} /></Button></div>}
           {completed && answer && <div className="subjective-rubric"><div><CheckCircle2 size={20} /><h3>{answer.feedback.unanswered ? '未作答，按 0 分计' : answer.correct ? '达到本题掌握阈值' : '本题仍需巩固'}</h3>{answer.score !== null && <strong>{answer.score.toFixed(2)} / {answer.maxScore?.toFixed(2)}</strong>}</div>
             {answer.feedback.overallFeedback && <p>{answer.feedback.overallFeedback}</p>}

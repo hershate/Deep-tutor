@@ -183,7 +183,9 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       if (event.kind === 'agent.session_created' || event.kind === 'agent.session_deleted') void refreshRef.current()
       else if (sessionId !== null && sessionId === activeIdRef.current) refreshSessionCoalesced(sessionId)
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
-    return () => { disposed = true; unlisten?.() }
+    // 111#3：卸载清掉武装中的合并定时器——76#7 口径（deltaThrottle 同款），
+    // 原先关抽屉/切页后 200ms 内武装的定时器照常触发多余 IPC
+    return () => { disposed = true; unlisten?.(); if (sessionTimerRef.current !== undefined) window.clearTimeout(sessionTimerRef.current) }
   }, [enabled, setLiveLogical, setLiveRequest, refreshSessionCoalesced])
 
   const createSession = useCallback(async (title?: string, requestedPlanId?: string): Promise<AgentSession | null> => {

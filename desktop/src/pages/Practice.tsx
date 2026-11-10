@@ -4,6 +4,7 @@ import { Badge, Button, EmptyState, Modal, ProgressBar, SectionHeader } from '..
 import SubjectivePractice from '../components/SubjectivePractice'
 import ExamWorkspace from '../components/ExamWorkspace'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace, deltaThrottle } from '../backend/client'
+import type { PageId } from '../data'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeMistake, type PracticeSet, type PracticeTarget } from '../backend/practice'
 import { statusName } from '../status'
 import { clampToBytes } from '../limits'
@@ -11,7 +12,7 @@ import { clampToBytes } from '../limits'
 type Tab = 'practice' | 'subjective' | 'mistakes' | 'exam'
 const emptyInput: PracticeInput = { planId: '', stageId: null, count: 5, difficulty: 'adaptive', feedbackMode: 'immediate', kinds: ['choice', 'fill'] }
 
-export default function Practice({ notify, target, onTargetConsumed }: { notify: (message: string) => void; target?: PracticeTarget | null; onTargetConsumed?: () => void }) {
+export default function Practice({ notify, target, onTargetConsumed, onNavigate }: { notify: (message: string) => void; target?: PracticeTarget | null; onTargetConsumed?: () => void; onNavigate?: (page: PageId) => void }) {
   const [tab, setTab] = useState<Tab>('practice')
   // 76#3：考试/主观题长文草稿由本页持有——子组件随 tab 条件卸载不再丢稿
   //（计时仍由后端权威；对照笔记有后端草稿通道 43#1）
@@ -261,7 +262,7 @@ export default function Practice({ notify, target, onTargetConsumed }: { notify:
       <aside className="practice-side"><section className="surface"><SectionHeader title="本组依据" description={plan?.goal} /><p className="side-copy">范围：{detail?.set.nodeId ? `节点：${plan?.result?.graph.nodes.find(node => node.id === detail.set.nodeId)?.title ?? detail.set.nodeId}` : detail ? plan?.result?.stages.find(stage => stage.id === detail.set.stageId)?.title ?? '整个方案' : '尚未选择'}。每道题都必须通过原文引用与知识节点校验。</p>{detail && <p className="side-copy">题型：{detail.set.kinds.map(kind => kind === 'choice' ? '单选' : kind === 'fill' ? '填空' : kind === 'short' ? '简答' : '论述').join('、')} · 反馈：{{ immediate: '逐题反馈', deferred: '统一反馈', hints: '只给提示' }[detail.set.feedbackMode]}</p>}</section><section className="surface"><SectionHeader title="真实练习历史" description="点击可恢复未完成的作答" /><div className="practice-history-list">{history.map(item => <button key={item.id} onClick={() => void selectHistory(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>第 {item.attempt} 次尝试 · {statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</div></section></aside>
     </div>}
 
-    {tab === 'subjective' && <SubjectivePractice detail={detail} history={history} plans={plans} onUpdated={setDetail} onGenerated={chooseSet} onShowObjective={() => setTab('practice')} notify={notify} draftByQuestion={subjectiveDraftsRef} />}
+    {tab === 'subjective' && <SubjectivePractice detail={detail} history={history} plans={plans} onUpdated={setDetail} onGenerated={chooseSet} onShowObjective={() => setTab('practice')} onNavigate={onNavigate} notify={notify} draftByQuestion={subjectiveDraftsRef} />}
     {tab === 'mistakes' && <section className="surface mistakes-surface"><SectionHeader title="真实错题与下一步" description="变式达到真实掌握阈值后自动更新原错题；手动标记会单独注明。" action={<Button variant="secondary" size="sm" onClick={() => void exportMistakes()} disabled={exportBusy}>{exportBusy ? '正在导出…' : '导出错题'}</Button>} /><div className="mistake-list">{!mistakes.length && <EmptyState title="还没有错题" description="提交练习后，答错的题目会显示在这里。" />}{mistakes.map(item => <div className="mistake-row" key={item.questionId}><span className="mistake-count">{item.wrongCount}<small>次错误</small></span><div><Badge tone={item.mastered ? 'green' : 'neutral'}>{item.mastered ? item.masteredQuestionId ? `变式 #${item.masteredQuestionId} 通过` : '手动标记掌握' : item.nodeIds.join('、')}</Badge><h3>{item.prompt}</h3><p>{item.reason} · 最近错误：{new Date(item.lastWrongAt).toLocaleString()}</p></div><div className="mistake-actions"><Button variant="secondary" size="sm" onClick={() => void generateVariant(item)} disabled={busy}>生成变式<ChevronRight size={15} /></Button><button onClick={() => void setMastered(item)} disabled={busy}>{item.mastered ? '恢复待巩固' : '标记掌握'}</button></div></div>)}</div></section>}
     {tab === 'exam' && <ExamWorkspace detail={detail} history={history} plans={plans} generationOutput={generationOutput} onUpdated={setDetail} onGenerated={chooseSet} notify={notify} draftByQuestion={examDraftsRef} />}
 

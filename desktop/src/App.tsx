@@ -92,6 +92,10 @@ export default function App() {
   // notifications（否则每 30s 轮询都要重挂定时器），经 ref 取最新值
   const notificationsRef = useRef(notifications)
   useEffect(() => { notificationsRef.current = notifications }, [notifications])
+  // 115#15：侧栏「记忆复习」角标只数复习类未读——unreadCount 是全类型合计，
+  // 原先仅有未读「方案已生成/预约」通知时复习导航也挂角标，屡次失准后
+  // 用户会忽略真正的复习提醒；顶栏铃铛仍显示合计（通知中心入口语义正确）
+  const reviewUnread = notifications ? notifications.items.filter(item => !item.readAt && item.kind === 'review').length : 0
   // 91#8：通知中心两条写路径的 busy 防重——角标要等 IPC 返回才清零，
   // 在途期间连点会发出多余的 mark_all_read/mark_read 与重复页面跳转
   const [notificationBusy, setNotificationBusy] = useState(false)
@@ -402,7 +406,7 @@ export default function App() {
       // focus_active，且先按默认 25:00 渲染（91#6 要消除的场景）
       case 'study': return <StudyRoom target={studyTarget} onFocus={() => openFocus()} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
       case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId, nonce: Date.now() }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
-      case 'practice': return <Practice notify={notify} target={practiceTarget} onTargetConsumed={() => setPracticeTarget(null)} />
+      case 'practice': return <Practice notify={notify} target={practiceTarget} onTargetConsumed={() => setPracticeTarget(null)} onNavigate={navigate} />
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} onImportNotes={importNotes} notify={notify} />
       case 'projects': return <Projects projects={projects} setProjects={setProjects} onNavigateMap={planId => { setMapPlanId(planId); navigate('map') }} notify={notify} />
@@ -438,7 +442,7 @@ export default function App() {
       <div className="brand"><BrandMark /><div><strong>知舟</strong><span>Deep Tutor</span></div><IconButton label="关闭导航" className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></IconButton></div>
       {/* 43#12：ChevronDown 形似可展开的下拉，实际整钮跳转学习计划——改右箭头对齐导航语义 */}
       <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>{homeSummary?.goal || '尚未设置学习目标'}</strong></div><ChevronRight size={15} /></button>
-      <nav className="main-nav" aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{item.label}</span>{item.id === 'review' && notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</button>)}</div>)}</nav>
+      <nav className="main-nav" aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{item.label}</span>{item.id === 'review' && reviewUnread > 0 && <i>{reviewUnread}</i>}</button>)}</div>)}</nav>
       <div className="sidebar-bottom"><button className={page === 'settings' ? 'active' : ''} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>设置与偏好</span></button><button onClick={() => setModal('tasks')}><Zap size={18} /><span>Agent 任务中心</span></button><div className="sidebar-profile"><span>{(homeSummary?.name || '本').slice(0, 1)}</span><div><strong>{homeSummary?.name || '本地学习者'}</strong><small>连续学习 {homeSummary?.streak ?? 0} 天</small></div><button aria-label="个人设置" onClick={() => navigate('settings')}><MoreHorizontal size={18} /></button></div></div>
     </aside>
 

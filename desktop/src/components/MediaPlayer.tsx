@@ -47,7 +47,12 @@ export default function MediaPlayer({ material }: { material: Pick<Material, 'id
     void load()
     return () => { disposed = true; if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [material.id, attempt])
-  const unsupported = () => setError('应用内播放器无法解码此文件，请检查实际编码；仍可下载原件。')
+  // 115#14：解码失败时同步清 url——损坏的 video/audio 元素不再与错误框、
+  // 重试按钮同屏并存；重试读取成功后重新取 url
+  const unsupported = () => {
+    setUrl('')
+    setError('应用内播放器无法解码此文件，请检查实际编码；仍可下载原件。')
+  }
   return <section className="native-media-preview" aria-label={`预览 ${material.title}`}>
     <div><strong>{material.title}</strong><p>本地原件预览，不生成字幕、OCR 或内容分析。</p></div>
     {loading && <><ProgressBar value={progress} label={`正在校验媒体 ${progress}%`} /><p>正在由原生后端读取并校验原件…</p></>}

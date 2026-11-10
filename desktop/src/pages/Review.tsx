@@ -121,12 +121,16 @@ export default function Review({ notify }: { notify: (message: string) => void }
   // 20#5：删除记忆卡不可恢复（历史仍可查询）——确认后再执行
   const [removeCard, setRemoveCard] = useState<ReviewCard | null>(null)
   const remove = async (item: ReviewCard) => {
+    // 115#10：remove 参与 busy——删除在途期间同卡「暂停/历史/编辑」原先
+    // 可点出与用户操作矛盾的伪 not_found；ConfirmDialog 同步透传 busy
+    if (busy) return
+    setBusy(true)
     try {
       await reviewBackend.remove(item.id)
       if (historyCard === item.id) { setHistoryCard(null); setHistory([]) }
       await refresh()
       notify('记忆卡已删除，历史记录仍可查询')
-    } catch (error) { reportBackendError(error, 'write') }
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const suspend = async (item: ReviewCard) => {
     // 32#10：busy 守卫——refresh 完成前的快速双击会两次取相互抵消
@@ -172,7 +176,7 @@ export default function Review({ notify }: { notify: (message: string) => void }
       <aside className="review-side"><section className="surface forgetting-panel"><SectionHeader title="记忆节奏" description="未来 7 天真实到期卡片" /><div className="review-calendar">{stats.calendar.map((day, index) => <div key={day.date}><span style={{ height: `${Math.max(2, day.count / maximum * 96)}px` }} className={index === 0 ? 'active' : ''} /><small>{day.label}</small><strong>{day.count}</strong></div>)}</div></section><section className="surface review-method"><Sparkles size={20} /><h3>为什么先显示问题？</h3><p>主动回忆会暴露「看得熟但想不起」的假性掌握。反馈会保存为复习历史，并作为关联知识节点的学习证据。</p><button onClick={() => setLogicOpen(!logicOpen)}>了解复习安排逻辑<ArrowRight size={15} /></button>{logicOpen && <p>首次反馈：困难 2 天、良好 5 天、轻松 12 天；之后按上次间隔与难度系数计算。再来一次为 10 分钟，并清零连续次数。保持率按困难 60%、良好 80%、轻松 100% 的历史反馈均值计算（再来一次按 0% 计入均值）；预计每张 40 秒。</p>}</section></aside>
     </div>
     <Modal open={editorOpen} onClose={() => setEditorOpen(false)} title={editing ? '编辑记忆卡' : '创建记忆卡'}><div className="form-stack"><label>正面 · 问题<textarea rows={3} value={input.front} disabled={busy} onChange={event => setInput({ ...input, front: clampToBytes(event.target.value, 8000) })} placeholder="尽量一次只检查一个知识节点" /></label><label>背面 · 参考答案<textarea rows={4} value={input.back} disabled={busy} onChange={event => setInput({ ...input, back: clampToBytes(event.target.value, 20000) })} placeholder="保留关键解释，避免整段复制" /></label><label>标签<input value={input.tag ?? ''} disabled={busy} onChange={event => setInput({ ...input, tag: clampToBytes(event.target.value, 100) })} placeholder="例如：概率基础" /></label><label>关联学习方案<select value={input.planId ?? ''} disabled={busy} onChange={event => setInput({ ...input, planId: event.target.value || null, nodeId: null })}><option value="">不关联方案</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.goal}</option>)}</select></label>{input.planId && <label>关联知识节点<select value={input.nodeId ?? ''} disabled={busy} onChange={event => setInput({ ...input, nodeId: event.target.value || null })}><option value="">整个方案</option>{nodes.map(node => <option key={node.id} value={node.id}>{node.title}</option>)}</select></label>}<Button onClick={() => void save()} disabled={busy || !input.front.trim() || !input.back.trim()}>{editing ? '保存修改' : '加入复习队列'}</Button></div></Modal>
-    <ConfirmDialog open={removeCard !== null} onClose={() => setRemoveCard(null)} onConfirm={() => { const item = removeCard; setRemoveCard(null); if (item) void remove(item) }} title="删除这张记忆卡？" description={`将删除「${removeCard?.front ?? ''}」及其复习排期；历史评分记录仍可查询。此操作不可恢复。`} confirmLabel="确认删除" />
+    <ConfirmDialog open={removeCard !== null} onClose={() => setRemoveCard(null)} onConfirm={() => { const item = removeCard; setRemoveCard(null); if (item) void remove(item) }} title="删除这张记忆卡？" description={`将删除「${removeCard?.front ?? ''}」及其复习排期；历史评分记录仍可查询。此操作不可恢复。`} confirmLabel="确认删除" busy={busy} />
     <Modal open={manageOpen} onClose={() => setManageOpen(false)} title={`管理 ${cards.length} 张记忆卡`} wide><div className="review-card-list">{cards.length === 0 && <EmptyState title="还没有记忆卡" description="关闭此窗口后可创建第一张。" />}{cards.length >= 200 && <p className="form-help">列表按到期时间排序，最多显示前 200 张；更早到期的旧卡仍会正常进入复习队列。</p>}{cards.map(item => <div className="review-card-row" key={item.id}><div><Badge tone={item.suspended ? 'amber' : 'neutral'}>{item.suspended ? '已暂停' : item.tag}</Badge><h3>{item.front}</h3><p>到期：{new Date(item.dueAt).toLocaleString()} · 间隔 {item.intervalDays.toFixed(2)} 天 · 难度系数 {item.ease.toFixed(2)}</p><div className="row-actions"><Button size="sm" variant="secondary" onClick={() => edit(item)}>编辑</Button><Button size="sm" variant="ghost" onClick={() => void suspend(item)}>{item.suspended ? '恢复' : '暂停'}</Button><Button size="sm" variant="ghost" onClick={() => void showHistory(item.id)}>{historyCard === item.id ? '收起历史' : '历史'}</Button><Button size="sm" variant="ghost" onClick={() => setRemoveCard(item)}>删除</Button></div>{historyCard === item.id && <div>{history.length ? history.map(entry => <p key={entry.id}>{new Date(entry.reviewedAt).toLocaleString()} · {gradeNames[entry.grade]} · {entry.previousInterval.toFixed(2)} → {entry.nextInterval.toFixed(2)} 天</p>) : <p>这张卡片还没有复习历史。</p>}</div>}</div></div>)}</div></Modal>
   </div>
 }
