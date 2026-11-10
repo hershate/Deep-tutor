@@ -449,7 +449,12 @@ fn apkg_multiline_card_fields_keep_line_breaks() {
         "UPDATE review_cards SET back = '第一行要点\n\n第二行要点' WHERE id = (SELECT MIN(id) FROM review_cards)",
         params![],
     ).unwrap();
-    let (_, _, path) = exported(&app, input("review", "apkg"), directory.path(), "multiline.apkg");
+    let (_, _, path) = exported(
+        &app,
+        input("review", "apkg"),
+        directory.path(),
+        "multiline.apkg",
+    );
     let file = std::fs::File::open(path).unwrap();
     let mut archive = zip::ZipArchive::new(file).unwrap();
     let mut bytes = Vec::new();
@@ -466,6 +471,9 @@ fn apkg_multiline_card_fields_keep_line_breaks() {
             row.get::<_, String>(0)
         })
         .unwrap();
-    assert!(fields.contains("第一行要点<br><br>第二行要点"), "换行应转 <br>，实际 flds：{fields}");
+    assert!(
+        fields.contains("第一行要点<br><br>第二行要点"),
+        "换行应转 <br>，实际 flds：{fields}"
+    );
     assert!(!fields.contains('\n'), "flds 内不应残留原始换行：{fields}");
 }

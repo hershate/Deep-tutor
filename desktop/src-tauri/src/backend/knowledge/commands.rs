@@ -19,9 +19,7 @@ pub async fn search_knowledge<R: Runtime + 'static>(
         super::super::security::with_principal(principal, || super::search(&knowledge, &query))
     })
     .await
-    .map_err(|_| {
-        super::super::error::BackendError::new("internal_error", "检索任务执行异常终止")
-    })?
+    .map_err(|_| super::super::error::BackendError::new("internal_error", "检索任务执行异常终止"))?
 }
 
 #[tauri::command]
