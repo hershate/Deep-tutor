@@ -352,6 +352,17 @@ export type AgentSession = {
 // 改键名编译期不报错。artifacts 各键本就可选（消费方全部 ?. 链）无需断言；
 // resources.items/externalSearch 由 pipeline 恒定写入且 StudyRoom 直接 .map，
 // 键漂移时在这里抛可定位错误，而不是渲染层 undefined 崩溃
+// 92#3：AgentArtifact.content 后端为自由 Value（agent 域直接存取 JSON），
+// 键名漂移编译期不报错——同 guardLearningPlan 范式做运行时守卫，坏形状
+// 以可定位的错误暴露而非渲染层 undefined 空白
+function guardAgentArtifact(artifact: AgentArtifact): AgentArtifact {
+  const content = artifact.content as unknown as Record<string, unknown> | undefined
+  if (artifact.status !== 'cancelled' && (!content || typeof content.title !== 'string' || !Array.isArray(content.sections))) {
+    throw new Error(`产物 ${artifact.id} 的内容结构与前端断言不符（title/sections 缺失，后端 JSON 键变更？）`)
+  }
+  return artifact
+}
+
 function guardLearningPlan(plan: LearningPlan): LearningPlan {
   if (!plan.result) return plan
   const resources = plan.result.resources as unknown as Record<string, unknown> | undefined
@@ -427,14 +438,17 @@ export const backend = {
   saveStudyNote: (id: string, stageId: string, content: string) => invoke<AppSnapshot>('save_study_note', { id, stageId, content }),
   createAgentSession: (input: { title?: string; planId?: string; budgetTokens?: number }) => invoke<AgentSession>('create_agent_session', input),
   listAgentSessions: () => invoke<AgentSession[]>('list_agent_sessions'),
-  getAgentSession: (id: string) => invoke<AgentSession>('get_agent_session', { id }),
-  sendAgentMessage: (sessionId: string, content: string) => invoke<AgentRun>('send_agent_message', { sessionId, content }),
-  getAgentRun: (id: string) => invoke<AgentRun>('get_agent_run', { id }),
-  cancelAgentRun: (id: string) => invoke<AgentRun>('cancel_agent_run', { id }),
-  resumeAgentRun: (id: string) => invoke<AgentRun>('resume_agent_run', { id }),
-  deleteAgentSession: (id: string) => invoke<void>('delete_agent_session', { id }),
-  approveAgentRequest: (id: string) => invoke<void>('approve_agent_request', { id }),
-  cancelAgentApproval: (id: string) => invoke<void>('cancel_agent_approval', { id }),
+  // 92#4：Agent 域 id 的 Rust 侧为 String（serde 期望 JSON string）而视图层
+  // 为 number——封装层统一 String()，调用方免手工转换（漏写不再于运行时
+  // 以整条命令反序列化失败暴露）；92#3：产物内容运行时守卫
+  getAgentSession: (id: number | string) => invoke<AgentSession>('get_agent_session', { id: String(id) }).then(session => { session.artifacts.forEach(guardAgentArtifact); return session }),
+  sendAgentMessage: (sessionId: number | string, content: string) => invoke<AgentRun>('send_agent_message', { sessionId: String(sessionId), content }),
+  getAgentRun: (id: number | string) => invoke<AgentRun>('get_agent_run', { id: String(id) }),
+  cancelAgentRun: (id: number | string) => invoke<AgentRun>('cancel_agent_run', { id: String(id) }),
+  resumeAgentRun: (id: number | string) => invoke<AgentRun>('resume_agent_run', { id: String(id) }),
+  deleteAgentSession: (id: number | string) => invoke<void>('delete_agent_session', { id: String(id) }),
+  approveAgentRequest: (id: number | string) => invoke<void>('approve_agent_request', { id: String(id) }),
+  cancelAgentApproval: (id: number | string) => invoke<void>('cancel_agent_approval', { id: String(id) }),
   getRoutingSettings: () => invoke<RoutingSettings>('get_routing_settings'),
   saveRoutingSettings: (settings: RoutingSettings) => invoke<RoutingSettings>('save_routing_settings', { settings }),
   listProviderRouteLogs: () => invoke<ProviderRouteLog[]>('list_provider_route_logs'),

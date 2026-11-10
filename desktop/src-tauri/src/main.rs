@@ -187,7 +187,9 @@ fn main() {
             commands::get_draft,
             commands::delete_draft,
             commands::reset_application,
-            commands::events_since,
+            // 92 号：events_since 前端零调用（38#2 起改为「事件触发即全量
+            // 快照」策略），从注册表移除收敛 IPC 暴露面（同 61 号先例）；
+            // 命令本体保留，测试 mock 注册面仍在使用
             commands::reveal_path,
             backup::commands::export_full_backup,
             backup::commands::preview_full_backup,

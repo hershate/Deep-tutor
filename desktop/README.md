@@ -12,8 +12,11 @@
 | `package.json`、`package-lock.json` | 界面依赖与 Tauri CLI |
 | `src-tauri/src/backend/` | Rust 原生业务、SQLite、事件、文件与网络能力 |
 | `src-tauri/tauri.conf.json` | 应用与 NSIS 打包配置 |
+| `src-tauri/capabilities/` | WebView 权限声明（opener/dialog 等 scope 强制层） |
+| `src-tauri/assets/` | 8 个 Skill 资产（声明式结构，随包分发） |
+| `scripts/` | 构建辅助（`tauri.mjs` 复制安装包并双向 SHA-256 校验） |
 
-`dist/`、`node_modules/`、`src-tauri/target/` 和 `src-tauri/gen/` 是可重建产物，不入库。
+`dist/`、`node_modules/`、`src-tauri/target/`、`src-tauri/gen/` 是可重建产物，不入库；`src-tauri/licenses/` 为构建时收集的第三方许可（根 .gitignore 覆盖），同样不入库。
 
 ## 原生契约
 

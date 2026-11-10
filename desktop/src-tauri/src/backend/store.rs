@@ -87,6 +87,8 @@ pub struct Collection {
 }
 
 #[derive(Debug, Serialize)]
+// 92 号：仅 events_since 使用（生产注册面已移除，测试仍用）
+#[allow(dead_code)]
 pub struct EventPage {
     pub events: Vec<BackendEvent>,
     #[serde(rename = "latestId")]
@@ -926,6 +928,8 @@ impl Store {
             })?)
     }
 
+    // 92 号：同 EventPage，测试注册面保留
+    #[allow(dead_code)]
     pub fn events_since(&self, last_id: i64) -> Result<EventPage> {
         if last_id < 0 {
             return Err(BackendError::invalid(

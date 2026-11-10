@@ -189,6 +189,9 @@ export function useBackendState() {
         requestSync()
       }, 120)
     }
+    // 92 号事件契约：六类事件（application.reset、backup.exported/imported、
+    // content.exported、draft.saved/deleted）无任何专项监听——发起方 UI 直接
+    // 消费命令返回值，本全局快照是它们唯一的消费路径（单窗口下数据不失步）
     void onBackendEvent(requestSyncCoalesced).then(stop => {
       if (alive()) {
         unlisten = stop

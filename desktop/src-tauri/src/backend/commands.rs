@@ -183,6 +183,8 @@ pub async fn reset_application<R: Runtime + 'static>(app: AppHandle<R>) -> Resul
 }
 
 #[tauri::command]
+// 92 号：生产注册表已移除（前端零调用），测试 mock 注册面仍在使用
+#[allow(dead_code)]
 pub fn events_since(state: State<'_, BackendState>, last_id: i64) -> Result<EventPage> {
     store(&state)?.events_since(last_id)
 }
