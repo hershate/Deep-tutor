@@ -88,6 +88,10 @@ export default function App() {
   const [focusResetOpen, setFocusResetOpen] = useState(false)
   const [notifications, setNotifications] = useState<NotificationOverview | null>(null)
   const [notificationsError, setNotificationsError] = useState('')
+  // 115#4：预约提醒弹层读取最近的免打扰状态——claim effect 的依赖不含
+  // notifications（否则每 30s 轮询都要重挂定时器），经 ref 取最新值
+  const notificationsRef = useRef(notifications)
+  useEffect(() => { notificationsRef.current = notifications }, [notifications])
   // 91#8：通知中心两条写路径的 busy 防重——角标要等 IPC 返回才清零，
   // 在途期间连点会发出多余的 mark_all_read/mark_read 与重复页面跳转
   const [notificationBusy, setNotificationBusy] = useState(false)
@@ -222,7 +226,9 @@ export default function App() {
         const due = await communityBackend.claimDueReminders()
         claimFailures = 0
         // 37#6：同一轮领取的多条到期预约逐条可见——原先只弹最后一条标题
-        if (active && due.length) {
+        // 115#4：免打扰时段不主动弹层（通知中心仍保留行，30s 轮询刷新），
+        // 与设置页「通知仍保留在中心，不主动弹出提醒」的承诺对齐
+        if (active && due.length && !notificationsRef.current?.suppressed) {
           const titles = due.map(item => item.title)
           const listed = titles.length > 5 ? `${titles.slice(0, 5).join('、')} 等` : titles.join('、')
           notify(due.length === 1 ? `预约「${listed}」即将开始` : `${due.length} 条预约即将开始：${listed}`)

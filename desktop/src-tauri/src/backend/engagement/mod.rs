@@ -244,14 +244,13 @@ fn validate_profile(input: &ProfileInput) -> Result<()> {
             "学习档案、语言、每周时长、学习方式或免打扰时间不符合约定",
         ));
     }
-    // 47#4：起止相等在 quiet() 里恒真（= 全天静音）且通知中心被整体压制
-    // 无任何解释——界面本就不该允许保存这种组合
-    if input.quiet_start == input.quiet_end {
-        return Err(BackendError::invalid(
-            "invalid_profile",
-            "免打扰起止时间相同会被解释为全天静音，请设置不同的起止时间",
-        ));
-    }
+    // 114#2（撤销 47#4 禁令）：设置页（13#1）现在显式提供「全天不通知」
+    // （enabled + 00:00/00:00，命中 quiet() 的 start==end 全天分支）与
+    // 「关闭免打扰」（disabled + 00:00/00:00，quiet() 先查 enabled 直接
+    // 返回 false）两个选项——47#4 的无条件禁令使这两个选项永远无法保存，
+    // 且砖化存量/导入的 00:00/00:00 档案（restart_diagnostic 全量回传
+    // save）。相等组合的语义如今由 UI 明确解释（通知中心也有 suppressed
+    // 提示），不再按意外输入对待
     if let Some(date) = &input.diagnostic_started_at {
         OffsetDateTime::parse(date, &Rfc3339)
             .map_err(|_| BackendError::invalid("invalid_diagnostic_time", "学习诊断时间无效"))?;

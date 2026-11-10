@@ -220,3 +220,34 @@ fn due_notifications_are_deduplicated_read_and_quiet() {
         .as_bool()
         .unwrap());
 }
+
+#[test]
+fn equal_quiet_times_save_for_allday_and_disabled() {
+    // 114#2：设置页「全天不通知」（enabled+00:00/00:00，命中 quiet() 的
+    // start==end 全天分支）与「关闭免打扰」（disabled+00:00/00:00，quiet()
+    // 先查 enabled 直接返回 false）——47#4 的无条件相等禁令使两个选项
+    // 永远无法保存且砖化存量同型档案；撤销后两种组合都必须落库成功
+    let (app, _learning) = setup();
+    let mut allday = profile("全天静音");
+    allday.quiet_start = "00:00".into();
+    allday.quiet_end = "00:00".into();
+    allday.quiet_enabled = true;
+    let saved = ipc(&app, "save_learning_profile", json!({"input":allday})).unwrap();
+    assert_eq!(saved["quietStart"], "00:00");
+    assert_eq!(saved["quietEnd"], "00:00");
+    assert_eq!(saved["quietEnabled"], true);
+    let mut disabled = profile("关闭免打扰");
+    disabled.quiet_start = "00:00".into();
+    disabled.quiet_end = "00:00".into();
+    disabled.quiet_enabled = false;
+    let saved = ipc(&app, "save_learning_profile", json!({"input":disabled})).unwrap();
+    assert_eq!(saved["quietEnabled"], false);
+    // 存量 enabled+00:00/00:00 档案路径：重新诊断全量回传 save 不再被拒
+    let mut legacy = profile("存量档案");
+    legacy.quiet_start = "00:00".into();
+    legacy.quiet_end = "00:00".into();
+    legacy.quiet_enabled = true;
+    ipc(&app, "save_learning_profile", json!({"input":legacy})).unwrap();
+    let restarted = ipc(&app, "restart_learning_diagnostic", json!({})).unwrap();
+    assert!(restarted["diagnosticStartedAt"].is_string());
+}
