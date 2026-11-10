@@ -1053,7 +1053,7 @@ fn begin_chat<R: Runtime>(
         }
         None => get(state, &provider_id)?.default_model,
     };
-    let mut cancels = state
+    let cancels = state
         .chat_cancels
         .lock()
         .map_err(|_| BackendError::new("store_unavailable", "模型请求状态不可用"))?;

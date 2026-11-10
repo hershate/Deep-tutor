@@ -458,3 +458,56 @@ fn stopping_another_database_does_not_cancel_the_current_job() {
         "done"
     );
 }
+
+#[test]
+fn upload_anchor_uses_rowid_order_not_text_id_lexicographic_order() {
+    // 94#1 回归：sync_jobs.id 为 TEXT 主键，字典序与时间序无关
+    // （`"sync-9999-1" > "sync-1000-5"`、pid 变小等场景乱序）。锚点必须
+    // 按 rowid（真实插入顺序）取最新一行，否则 auto_sync 每 60s 重复
+    // 上传，retention 窗口被风暴版本挤满后真实历史不可逆销毁
+    let learning = LearningState::for_tests().unwrap();
+    let store = learning.store().unwrap();
+    let insert = |id: &str, finished_at: &str| {
+        store
+            .conn
+            .execute(
+                "INSERT INTO sync_jobs (id, kind, status, config_json, remote_path, created_at, updated_at, finished_at)
+                 VALUES (?1, 'upload', 'done', '{}', 'p', ?2, ?2, ?2)",
+                params![id, finished_at],
+            )
+            .unwrap();
+    };
+    // 先插字典序最大但时间最旧的行，再插字典序较小、时间更新的行
+    insert("sync-9999-1", "2026-01-01T00:00:00Z");
+    insert("sync-1000-5", "2026-06-01T00:00:00Z");
+    let (anchor, status) = scheduler::upload_anchor(&store.conn).unwrap().unwrap();
+    assert_eq!(anchor, "2026-06-01T00:00:00Z");
+    assert_eq!(status.as_deref(), Some("done"));
+    // download/kind 行不参与 upload 锚点
+    store
+        .conn
+        .execute(
+            "INSERT INTO sync_jobs (id, kind, status, config_json, remote_path, created_at, updated_at, finished_at)
+             VALUES ('sync-1000-6', 'download', 'done', '{}', 'p', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+    let (anchor, _) = scheduler::upload_anchor(&store.conn).unwrap().unwrap();
+    assert_eq!(anchor, "2026-06-01T00:00:00Z");
+}
+
+#[test]
+fn due_treats_future_anchor_as_due_to_self_heal_clock_rollback() {
+    // 94#4 回归：时钟回拨使 finished_at 落在未来时，照常比较会让
+    // 「anchor+24h > now」在真实时间追上前恒成立，自动同步停摆数月；
+    // 按到期处理立即同步一次，新锚点以当前时钟重写后调度自愈
+    let now = OffsetDateTime::parse("2026-06-01T12:00:00Z", &Rfc3339).unwrap();
+    let rollback_anchor = OffsetDateTime::parse("2026-08-01T00:00:00Z", &Rfc3339).unwrap();
+    assert!(scheduler::due(rollback_anchor, false, now));
+    // 常规未到期 / 到期 / 失败 1 小时退避口径不变
+    let anchor = OffsetDateTime::parse("2026-06-01T00:00:00Z", &Rfc3339).unwrap();
+    assert!(!scheduler::due(anchor, false, now));
+    assert!(scheduler::due(anchor, true, now));
+    let done_anchor = OffsetDateTime::parse("2026-05-31T11:00:00Z", &Rfc3339).unwrap();
+    assert!(scheduler::due(done_anchor, false, now));
+}
