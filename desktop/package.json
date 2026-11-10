@@ -28,12 +28,15 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "~5.6.2",
-    "vite": "^5.4.14"
+    "vite": "^6.4.6"
   },
   "overrides": {
     "katex": "^0.19.1"
   },
   "engines": {
     "node": ">=24 <25"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
   }
 }

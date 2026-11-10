@@ -8,6 +8,13 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# 110#2：tauri 2.12.5 传递引入 reqwest 0.13（无 TLS 后端）与应用钉住的
+# 0.12 并存——两套 HTTP 栈同链编译仅体积/编译时长上浮，tauri 内部 fetch
+# 被 CSP connect-src ipc: 关闭无运行时风险；跟踪上游归一（需同步
+# native-tls feature 决策）。
+# 110#3：版本约定为 ^ 语义（patch 号写出≠钉住），实际钉住由 Cargo.lock +
+# --locked 门禁承担；行为敏感项（tauri/rusqlite/reqwest）升 minor 走完整
+# make check 审查
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

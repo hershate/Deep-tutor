@@ -40,6 +40,10 @@ jobs:
       # beforeBuildCommand 执行，不再每条 CI 双跑 vite 产物
       - name: Frontend type check
         run: npx tsc --noEmit
+      # 110#1：依赖审计入 CI——vite/esbuild dev 侧通告（含 Windows 命令
+      # 执行族）原先无任何检出通道；runtime 与 dev 全量要求零漏洞
+      - name: Dependency audit
+        run: npm audit --omit=dev && npm audit
       - name: Rust format
         working-directory: desktop/src-tauri
         run: cargo fmt --all -- --check

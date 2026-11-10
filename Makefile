@@ -29,6 +29,9 @@ lint:
 	cd desktop/src-tauri && $(CARGO) fmt --all -- --check
 	node scripts/check-versions.mjs
 	cd desktop && $(NPM) run build
+	# 110#1：依赖审计入门禁——vite/esbuild dev 侧通告（含 Windows 命令
+	# 执行族）原先无任何检出通道；runtime 与 dev 全量要求零漏洞
+	cd desktop && $(NPM) audit --omit=dev && $(NPM) audit
 
 test:
 	# 串行执行：多个测试共享进程级全局（如 sync DEFER 标志），并行会互相污染

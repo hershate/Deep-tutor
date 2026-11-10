@@ -25,7 +25,9 @@ for (const stale of readdirSync(outDir)) {
 
 const copied = []
 
-const licensePattern = /^licen[cs]e|notice/i
+// 110#6：补 copying——GNU 风格包的 COPYING-only 许可文件原先两道都不
+// 命中，落入缺失通道靠兜底声明而非全文
+const licensePattern = /^licen[cs]e|notice|^copying/i
 
 // 49#1：许可文件按优先级挑选，全文优先、SPDX 元数据存根最后——readdir
 // 字母序中 `.`(0x2E) < `_`(0x5F)，`LICENSE.spdx` 恒排第一，旧实现 find

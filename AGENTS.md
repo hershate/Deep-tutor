@@ -34,7 +34,12 @@
 ## 构建与验证
 
 - 前端：`cd desktop && npm run build`。
-- Rust 按 `rust-toolchain.toml` 钉住 1.99.1（本机解析为 `1.99.1-x86_64-pc-windows-gnu`）。
+- Rust 按 `rust-toolchain.toml` 钉住 1.99.1（本机解析为 `1.99.1-x86_64-pc-windows-gnu`；
+  110#5：CI windows-latest 默认解析 msvc——本地与 CI 是不同 host ABI 的双轨，
+  GNU 专属问题 CI 测不到，反之亦然；`npm audit`（含 dev）已入 make check 与 CI）。
+  110#7：`desktop/package.json` 的 katex override（59#8 有意决策）退出条件——
+  rehype-katex 发布声明支持 katex ^0.19 的版本后移除。110#9：dialog 2.8.4
+  传递编译 tauri-plugin-fs 2.7.1（未注册、零权限，仅体积名义条目）。
   跑 cargo 一律带：`export PATH="/f/DevCache/toolchains/winlibs-16.2.0-ucrt/mingw64/bin:$PATH"`
   （gnu 工具链链接需要 dlltool）与 `CARGO_HOME=F:/DevCache/cargo`、
   `RUSTUP_HOME=F:/DevCache/rustup`（Git Bash 里用正斜杠）；rustfmt 已装于该工具链。
