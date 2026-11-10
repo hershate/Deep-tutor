@@ -1338,3 +1338,110 @@ fn multi_step_tool_loop_retrims_the_window_before_each_model_request() {
         "第二个请求应携带工具结果继续循环"
     );
 }
+
+#[test]
+fn truncated_tool_results_stay_valid_json_with_status() {
+    // 122#1：截断说明不得拼进 JSON 体——原先落库内容是「截断前缀+中文
+    // 说明」，前端 JSON.parse 恒失败，「运行过程」面板对超长工具结果
+    // 永久显示「等待模型完成」；结构化包装后解析成功且 status 保留
+    let outcome = json!({"status": "done", "content": "长".repeat(40_000)});
+    let wrapped = truncate_for_model(&outcome).unwrap();
+    assert!(
+        serde_json::to_string(&outcome).unwrap().len() > MODEL_TOOL_CONTENT_LIMIT,
+        "前置：原始结果确实超限"
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(&wrapped).expect("截断产物必须仍是合法 JSON");
+    assert_eq!(parsed["status"], "done");
+    assert_eq!(parsed["truncated"], true);
+    assert!(parsed["notice"].as_str().unwrap().contains("截断"));
+    assert!(!parsed["preview"].as_str().unwrap().is_empty());
+    // 转义膨胀时包装整体仍回到预算附近（+1024 容差）
+    assert!(wrapped.len() <= MODEL_TOOL_CONTENT_LIMIT + 1024);
+    // 未超限原样返回
+    let small = json!({"status": "done", "content": "短"});
+    assert_eq!(
+        truncate_for_model(&small).unwrap(),
+        serde_json::to_string(&small).unwrap()
+    );
+}
+
+#[test]
+fn resume_is_gated_by_session_budget_and_step_limit() {
+    // 122#2：预算/步数耗尽的终态 run 原先照常恢复——首轮循环顶/
+    // begin_step 必再失败，产生必败 run 行与事件对；入口闸与 send 同口径
+    let (app, state, _baseline, session) = prepare();
+    let agent_server = server(|_request, stream| {
+        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"content\":\"预算输出\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":1024},\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+    });
+    configure_provider(&app, &state, &agent_server.url());
+    let session = new_session(
+        app.handle(),
+        &state,
+        Some("预算测试".into()),
+        Some(session.plan_id),
+        Some(1024),
+    )
+    .unwrap();
+    let run = send(
+        app.handle(),
+        &state,
+        &session.id.to_string(),
+        "触发预算".into(),
+    )
+    .unwrap();
+    assert_eq!(wait_run(&state, &run.id.to_string()).status, "done");
+    assert_eq!(agent_server.request_count(), 1);
+    // 模拟「预算耗尽落 failed」的终态（31#41 带 calls 拒绝路径同型）
+    state
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE agent_runs SET status = 'failed', error_code = 'budget_exceeded', error_message = '已达到本会话 Token 预算' WHERE id = ?1",
+            params![run.id],
+        )
+        .unwrap();
+    assert_eq!(
+        resume(app.handle(), &state, &run.id.to_string())
+            .unwrap_err()
+            .code,
+        "budget_exceeded"
+    );
+    // 步数到顶：预算放开后 steps=26（无 assistant@26，next=26）超 25 限
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE agent_sessions SET budget_tokens = 999999 WHERE id = ?1",
+            params![session.id],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE agent_runs SET steps = 26, error_code = 'step_limit' WHERE id = ?1",
+            params![run.id],
+        )
+        .unwrap();
+    drop(store);
+    assert_eq!(
+        resume(app.handle(), &state, &run.id.to_string())
+            .unwrap_err()
+            .code,
+        "step_limit"
+    );
+    // 两次拒绝都不发起请求、不翻回 running
+    assert_eq!(agent_server.request_count(), 1);
+    let status: String = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT status FROM agent_runs WHERE id = ?1",
+            params![run.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "failed");
+}

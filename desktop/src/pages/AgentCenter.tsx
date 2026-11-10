@@ -27,7 +27,7 @@ const toolStatus: Record<string, string> = { done: '完成', failed: '失败', c
 
 function toolResult(message: AgentMessage | undefined) {
   if (!message) return null
-  try { return JSON.parse(message.content) as { status?: string; error?: { message?: string } } } catch { return null }
+  try { return JSON.parse(message.content) as { status?: string; error?: { message?: string }; truncated?: boolean; notice?: string } } catch { return null }
 }
 
 function ApprovalCard({ approval, busy, onResolve }: { approval: AgentApproval; busy: boolean; onResolve: (approved: boolean) => void }) {
@@ -50,7 +50,9 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
   const [deleteOpen, setDeleteOpen] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const running = activeRun?.status === 'running' || activeRun?.status === 'cancelling'
-  const resumable = activeRun && ['failed', 'cancelled', 'interrupted'].includes(activeRun.status)
+  // 122#2：预算/步数耗尽的终态排除——后端 resume 入口已同口径拦截，
+  // 按钮不再展示「恢复运行」（该场景恢复必失败且计费文案误导）
+  const resumable = activeRun && ['failed', 'cancelled', 'interrupted'].includes(activeRun.status) && !['budget_exceeded', 'step_limit'].includes(activeRun.error?.code ?? '')
   const messages = useMemo(() => activeSession?.messages.filter(message => message.role !== 'tool') ?? [], [activeSession])
   const plan = plans.find(item => item.id === activeSession?.planId)
   // 32#18：搜索语料按 sessions 记忆化——原先每次击键都重拼全部消息全文
@@ -67,7 +69,9 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
     const results = new Map(recent.filter(message => message.role === 'tool').map(message => [message.toolCallId, message]))
     return recent.flatMap(message => message.toolCalls.map(call => {
       const result = toolResult(results.get(call.id))
-      return { id: call.id, name: call.name, status: result?.status ?? 'waiting', detail: result?.error?.message ?? (result?.status === 'approval_required' ? '后端已创建真实审批，等待用户决定' : '工具结果已持久化，可从会话历史恢复') }
+      // 122#1：截断说明不进 JSON 体——超长工具结果的落库内容保持合法
+      // JSON（后端结构化包装），解析成功后按 notice 降级展示而非误显等待
+      return { id: call.id, name: call.name, status: result?.status ?? 'waiting', detail: result?.error?.message ?? (result?.truncated ? result.notice ?? '工具结果过长，已截断保存头部预览' : result?.status === 'approval_required' ? '后端已创建真实审批，等待用户决定' : '工具结果已持久化，可从会话历史恢复') }
     }))
   }, [activeSession])
   const usedTokens = activeSession?.outputTokensUsed ?? 0

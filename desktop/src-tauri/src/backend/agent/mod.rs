@@ -26,8 +26,50 @@ use time::OffsetDateTime;
 /// 完整结果仍持久化在 agent_messages；不截断时两次满额长文抓取即可超出常见 128K 上下文。
 const MODEL_TOOL_CONTENT_LIMIT: usize = 16 * 1024;
 
-/// 按字节截断并在字符边界对齐，附加截断说明。
-fn truncate_for_model(content: &str) -> String {
+/// 按字节截断并在字符边界对齐；122#1：截断产物保持合法 JSON——
+/// 原先把中文说明追加在 JSON 串尾部，落库后前端 JSON.parse 恒失败，
+/// 「运行过程」面板对超长工具结果永久显示「等待模型完成」；改结构化
+/// 包装（status 保留原语义，preview 为截断前缀，notice 承载 101#3 的
+/// 如实提示），前端解析成功并可按 notice 降级展示。
+/// 101#3：提示如实——超限结果不再全量入库（工具调用记录只留头部预览），
+/// 「完整结果已保存在会话记录中」对 >64KB 结果不成立
+fn truncate_for_model(outcome: &Value) -> Result<String> {
+    let content = serde_json::to_string(outcome)?;
+    if content.len() <= MODEL_TOOL_CONTENT_LIMIT {
+        return Ok(content);
+    }
+    let status = outcome
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("done");
+    let notice = format!(
+        "工具输出已截断至 {MODEL_TOOL_CONTENT_LIMIT} 字节；超长结果的完整原文不会保留，如需其余内容请缩小读取范围后重试"
+    );
+    let mut cut = MODEL_TOOL_CONTENT_LIMIT;
+    loop {
+        while !content.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let wrapped = serde_json::to_string(&json!({
+            "status": status,
+            "truncated": true,
+            "notice": notice,
+            "preview": &content[..cut],
+        }))?;
+        // preview 按字符串转义可膨胀（引号/反斜杠翻倍、控制字符 \u 化），
+        // 包装整体超预算时收缩前缀重试（×0.9 收敛，极端转义密集也只需
+        // 数轮；下限保护不无限收缩）
+        if wrapped.len() <= MODEL_TOOL_CONTENT_LIMIT + 1024 || cut < 1024 {
+            return Ok(wrapped);
+        }
+        cut = cut * 9 / 10;
+    }
+}
+
+/// 历史/重放路径的字符串截断（消息可能是已包装的截断产物，也可能未超限）：
+/// 未超限原样返回；超限串本身可能已非合法 JSON（旧版落库行），包装成
+/// 同款结构化产物供模型与前端消费
+fn truncate_replay_for_model(content: &str) -> String {
     if content.len() <= MODEL_TOOL_CONTENT_LIMIT {
         return content.to_string();
     }
@@ -35,12 +77,9 @@ fn truncate_for_model(content: &str) -> String {
     while !content.is_char_boundary(cut) {
         cut -= 1;
     }
-    // 101#3：提示如实——超限结果不再全量入库（工具调用记录只留头部预览），
-    // 「完整结果已保存在会话记录中」对 >64KB 结果不成立
     format!(
-        "{}…[工具输出已截断至 {} 字节；超长结果的完整原文不会保留，如需其余内容请缩小读取范围后重试]",
-        &content[..cut],
-        MODEL_TOOL_CONTENT_LIMIT
+        "{{\"status\":\"done\",\"truncated\":true,\"notice\":\"工具输出已截断至 {MODEL_TOOL_CONTENT_LIMIT} 字节\",\"preview\":{}}}",
+        serde_json::to_string(&content[..cut]).expect("字符串序列化不会失败")
     )
 }
 
@@ -621,7 +660,16 @@ pub fn send<R: Runtime>(
     tx.execute("INSERT INTO agent_runs (session_id, status, created_at, updated_at) VALUES (?1, 'running', ?2, ?2)", params![session_id, timestamp])?;
     let run_id = tx.last_insert_rowid();
     tx.execute("INSERT INTO agent_messages (session_id, run_id, step_index, role, content, created_at) VALUES (?1, ?2, 0, 'user', ?3, ?4)", params![session_id, run_id, content, timestamp])?;
-    tx.execute("UPDATE agent_sessions SET title = CASE WHEN title = '新学习会话' THEN ?1 ELSE title END, updated_at = ?2 WHERE id = ?3", params![content.chars().take(60).collect::<String>(), timestamp, session_id])?;
+    // 122#6：自动标题按 160 字节截断（与 new_session 的 160 字节校验同
+    // 口径）——原先 take(60) 纯 CJK 约 180B，UPDATE 路径绕过自身约束
+    let mut title = String::new();
+    for character in content.chars() {
+        if title.len() + character.len_utf8() > 160 {
+            break;
+        }
+        title.push(character);
+    }
+    tx.execute("UPDATE agent_sessions SET title = CASE WHEN title = '新学习会话' THEN ?1 ELSE title END, updated_at = ?2 WHERE id = ?3", params![title, timestamp, session_id])?;
     let event = Store::event(
         &tx,
         "agent.run_started",
@@ -638,6 +686,10 @@ pub fn send<R: Runtime>(
     get_run(state, run_id)
 }
 
+/// 会话已耗输出 token 的聚合（FK 主 + GLOB 兜底）；122#2 抽出常量供
+/// resume 入口闸在事务内复用同一口径
+const SESSION_OUTPUT_TOKENS_SQL: &str = "SELECT COALESCE(SUM(CASE WHEN json_extract(r.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(r.usage_json, '$.outputTokens') AS INTEGER) ELSE LENGTH(CAST(r.output AS BLOB)) / 2 END), 0) FROM provider_requests r WHERE r.agent_session_id = ?1 OR (r.agent_session_id IS NULL AND EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.session_id = ?1 AND r.request_id GLOB 'agent-' || ar.id || '-*'))";
+
 fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
     let store = state.store()?;
     Ok(store.conn.query_row(
@@ -646,7 +698,7 @@ fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
         // 预算护栏不失真。25#17：原按字符数/2 计，中文 1 字符≈1+ token 被
         // 低估 2-4 倍、穿透预算护栏；改按字节数/2——ASCII 约为 2 倍高估、
         // 中文约 1.5 token/字，与"宁可高估"的注释口径一致
-        "SELECT COALESCE(SUM(CASE WHEN json_extract(r.usage_json, '$.outputTokens') IS NOT NULL THEN CAST(json_extract(r.usage_json, '$.outputTokens') AS INTEGER) ELSE LENGTH(CAST(r.output AS BLOB)) / 2 END), 0) FROM provider_requests r WHERE r.agent_session_id = ?1 OR (r.agent_session_id IS NULL AND EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.session_id = ?1 AND r.request_id GLOB 'agent-' || ar.id || '-*'))",
+        SESSION_OUTPUT_TOKENS_SQL,
         params![session_id],
         |row| row.get::<_, i64>(0),
     )? as u64)
@@ -720,7 +772,7 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
             .collect::<Vec<_>>();
         // 重放历史时同样截断工具结果，保证 resume 不把全量输出重新注入上下文
         let content = if message.role == "tool" {
-            truncate_for_model(&message.content)
+            truncate_replay_for_model(&message.content)
         } else {
             message.content.clone()
         };
@@ -885,6 +937,15 @@ fn finish_run<R: Runtime>(
     if changed == 0 {
         return Ok(());
     }
+    // 122#8：终态事件载荷补 sessionId——前端原先靠 runOwners 内存映射
+    //（run_started 与列表加载填充）反查归属，启动恢复窗口内
+    // run_interrupted 先于首拉到达时事件被丢；与 plan.*/lecture.* 事件族
+    // 对齐后前端可直读归属
+    let session_id: i64 = tx.query_row(
+        "SELECT session_id FROM agent_runs WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    )?;
     let event = Store::event(
         &tx,
         match status {
@@ -893,7 +954,7 @@ fn finish_run<R: Runtime>(
             "degraded" => "agent.run_degraded",
             _ => "agent.run_failed",
         },
-        json!({"runId": id, "status": status, "error": error}),
+        json!({"runId": id, "sessionId": session_id, "status": status, "error": error}),
     )?;
     tx.commit()?;
     emit(app, &event);
@@ -1082,7 +1143,15 @@ fn run_loop<R: Runtime>(
             tool_call_id: None,
             name: None,
         });
+        let mut seen_call_ids: HashSet<String> = HashSet::new();
         for call in &request.tool_calls {
+            // 122#7：单响应内重复 tool_call id 只回复一次——部分本地/小模型
+            // 会重复 id，两条同 id 的 tool 消息会被严格 OpenAI 系端点整体
+            // 400 拒绝且 resume 重放同样序列（会话卡死）；跳过重复项不执行
+            // 不落库（首个 id 的执行与回复已覆盖该 id）
+            if !seen_call_ids.insert(call.id.clone()) {
+                continue;
+            }
             if cancel_requested(state, run_id)? {
                 return Err(BackendError::new("cancelled", "Agent 运行已取消"));
             }
@@ -1095,7 +1164,7 @@ fn run_loop<R: Runtime>(
                 // 101#3：消息层按模型可见口径（16KB 截断）存储——execute 返回
                 // 原始结果（cap 预览只落 agent_tool_calls/事件副本），不回涨
                 // 256KB 全文入库，也不把模型份额缩水到 2048 字符预览
-                let content = truncate_for_model(&serde_json::to_string(&outcome)?);
+                let content = truncate_for_model(&outcome)?;
                 save_message(
                     app,
                     state,
@@ -1112,7 +1181,7 @@ fn run_loop<R: Runtime>(
                 )?;
                 return Err(BackendError::new("cancelled", "Agent 运行已取消"));
             }
-            let content = truncate_for_model(&serde_json::to_string(&outcome)?);
+            let content = truncate_for_model(&outcome)?;
             save_message(
                 app,
                 state,
@@ -1168,9 +1237,24 @@ pub fn cancel<R: Runtime>(
         params![now()?, run_id],
     )?;
     if changed == 0 {
+        // 122#6：cancelling 态再取消原先同样报「已经结束」——实际仍在
+        // 取消流程中；按行状态分流文案（码维持 no_active_run，
+        // 前端 isCancelRace 白名单不变）
+        let status: Option<String> = store
+            .conn
+            .query_row(
+                "SELECT status FROM agent_runs WHERE id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
         return Err(BackendError::new(
             "no_active_run",
-            "该 Agent 任务已经结束，不能重复取消",
+            if status.as_deref() == Some("cancelling") {
+                "该 Agent 任务正在取消，请等待收尾"
+            } else {
+                "该 Agent 任务已经结束，不能重复取消"
+            },
         ));
     }
     let event = Store::event(&tx, "agent.run_cancel_requested", json!({"runId": run_id}))?;
@@ -1223,6 +1307,41 @@ pub fn resume<R: Runtime>(
         return Err(BackendError::new(
             "run_active",
             "该 Agent 会话已有正在执行的任务",
+        ));
+    }
+    // 122#2：与 send 同口径的入口闸——预算/步数耗尽的 run 原先照常翻
+    // running 并 spawn，首轮 begin_step/循环顶必再失败：产生一对
+    // run_resumed/run_failed 事件与一条必败 run 行，且 UI 文案
+    //「中断的步骤将重新请求并计费」对该场景误导
+    let budget: i64 = tx.query_row(
+        "SELECT budget_tokens FROM agent_sessions WHERE id = ?1",
+        params![session_id],
+        |row| row.get(0),
+    )?;
+    let used: i64 = tx.query_row(SESSION_OUTPUT_TOKENS_SQL, params![session_id], |row| {
+        row.get(0)
+    })?;
+    if used >= budget {
+        return Err(BackendError::new(
+            "budget_exceeded",
+            "已达到本会话 Token 预算，不能恢复该运行",
+        ));
+    }
+    let steps: u32 = tx.query_row(
+        "SELECT steps FROM agent_runs WHERE id = ?1",
+        params![run_id],
+        |row| Ok(row.get::<_, i64>(0)?.max(0) as u32),
+    )?;
+    let completed: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM agent_messages WHERE run_id = ?1 AND step_index = ?2 AND role = 'assistant')",
+        params![run_id, steps],
+        |row| row.get(0),
+    )?;
+    let next_step = if completed { steps + 1 } else { steps.max(1) };
+    if next_step > 25 {
+        return Err(BackendError::new(
+            "step_limit",
+            "Agent 已达到 25 步工具循环上限，不能恢复该运行",
         ));
     }
     active.insert(run_id, Arc::new(AtomicBool::new(false)));
@@ -1318,6 +1437,11 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &AgentState) -> Result<()>
             "UPDATE agent_tool_calls SET status = 'interrupted', finished_at = ?2 WHERE run_id = ?1 AND status = 'running'",
             params![id, now()?],
         )?;
+        let session_id: i64 = tx.query_row(
+            "SELECT session_id FROM agent_runs WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
         let event = Store::event(
             &tx,
             if cancelled {
@@ -1325,7 +1449,8 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &AgentState) -> Result<()>
             } else {
                 "agent.run_interrupted"
             },
-            json!({"runId": id, "error": error}),
+            // 122#8：补 sessionId（与 finish_run 终态事件同口径）
+            json!({"runId": id, "sessionId": session_id, "error": error}),
         )?;
         tx.commit()?;
         emit(app, &event);

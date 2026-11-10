@@ -638,9 +638,14 @@ pub fn execute<R: Runtime>(
                 )
             }
             "web.search" => {
-                let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(3);
-                let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-                super::super::web::search(string(&arguments, "query")?, limit)
+                // 122#4：limit 钳制到目录声明区间（1-5，对齐 history.load 的
+                // clamp 风格）——原先超界值透传 web 层校验整步报错，浪费一步
+                let limit = arguments
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(3)
+                    .clamp(1, 5);
+                super::super::web::search(string(&arguments, "query")?, limit as usize)
                     .map(|result| json!({"status":"done","search":result}))
             }
             "web.fetch" => super::super::web::fetch(string(&arguments, "url")?)
@@ -746,7 +751,10 @@ pub fn execute<R: Runtime>(
     // 101#3：cap 预览只落持久层（agent_tool_calls）与事件副本——返回
     // 原始结果给 run_loop，模型份额沿用 truncate_for_model 的 16KB 截断
     //（97#2 前的行为）；原先模型对 >64KB 结果只能看到 2048 字符头部预览，
-    // 回答质量回归且重复抓取同一页面反复命中同一截断
+    // 回答质量回归且重复抓取同一页面反复命中同一截断。
+    // 122#3：该口径只在首次执行成立——resume 命中重放分支（上方
+    // registered==0）时返回的是持久层 cap 副本，>64KB 结果对模型退化为
+    // 预览；重执行需放开幂等键（会重复产生副作用），按预览恢复是取舍
     let persisted = cap_tool_result(result.clone());
     let status = persisted
         .get("status")
@@ -812,16 +820,19 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
                     .and_then(Value::as_str)
                     .ok_or_else(|| BackendError::invalid("invalid_approval", "记忆审批缺少内容"))?,
             )?;
+            // 31#42：IMMEDIATE——与 25#18 注释宣称一致，DEFERRED 下配额计数仍处读快照
+            let tx = store.write_transaction()?;
+            // 122#9：key_exists 复查挪进写事务内（IMMEDIATE 下天然串行）——
+            // 原先事务外读取，同键 memory.delete 审批并发提交删除后，save
+            // 以「覆盖已有键」路径插入新行，单槽位配额差一
             // 10#18：agent_memory 是 agent 域此前唯一无条数配额的持久写入口；
             // 覆盖已有键不新增条数，新键写入前过配额
-            let key_exists: bool = store.conn.query_row(
+            // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
+            let key_exists: bool = tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM agent_memory WHERE key = ?1)",
                 params![key],
                 |row| row.get(0),
             )?;
-            // 31#42：IMMEDIATE——与 25#18 注释宣称一致，DEFERRED 下配额计数仍处读快照
-            let tx = store.write_transaction()?;
-            // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
             if !key_exists {
                 store.ensure_quota_in_tx(&tx, "agent_memory", 1)?;
             }

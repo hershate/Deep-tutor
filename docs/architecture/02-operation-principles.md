@@ -305,15 +305,15 @@ flowchart TD
 
 ## 8. Agent 工具循环
 
-`send_agent_message`（agent/mod.rs:575）：
-1. 预算闸：会话累计 output_tokens ≥ budget_tokens 拒绝（:590）；同会话 running 查重（:605）。
-2. Immediate 事务 INSERT `agent_runs('running')` + 用户消息 + `agent.run_started`；注册取消标志（:616-625）。
-3. 线程 `agent-run-{id}`（:516）跑 `run_loop`（:855）：每轮首查取消 → 会话预算 → `usage::ensure_budget` → `begin_step`（:775，25 步上限；可复用已完成请求；request_id=`agent-{run}-{attempt}-{step}`）→ `routing::stream_chat("agent")` 带 12 工具目录。历史重放先修剪悬挂 tool_calls/孤儿 tool 消息（23#9），并收敛到最近 62 条 / 200KB 内（34#8，validate_messages 上限 64 条 / 256KB）；工具循环的 tool 消息前必须落 assistant(tool_calls) 声明（34#5）。too_many/取消判定在 assistant 消息落库**之前**——超限中断时已产生的部分输出以 partial=true 保存，不再丢弃。
-4. 成本从 `provider_requests.usage_json` 聚合，会话口径双通道：`agent_session_id = ?` 外键为主（31#1，导入经 FK 重映射保持关联），GLOB `agent-<run>-*` 仅兜底无主行（34#16，防直连请求串扰他人会话；agent/mod.rs:644、usage.rs:448-455）。
-5. 无 tool_calls → `finish_run("done")`；有则工具循环：`tools::execute`（tools.rs:413）先幂等登记 `agent_tool_calls`（ON CONFLICT 重放或 `tool_active`）再分发。
+`send_agent_message`（命令，agent/commands.rs:27；域函数 `send` agent/mod.rs:619）：
+1. 预算闸：会话累计 output_tokens ≥ budget_tokens 拒绝（mod.rs:634）；同会话 running 查重（:657）。
+2. Immediate 事务 INSERT `agent_runs('running')` + 用户消息 + `agent.run_started`；注册取消标志。
+3. 线程 `agent-run-{id}` 跑 `run_loop`（:974）：每轮首查取消 → 会话预算 → `usage::ensure_budget` → `begin_step`（:851，25 步上限；可复用已完成请求；request_id=`agent-{run}-{attempt}-{step}`）→ `routing::stream_chat("agent")` 带 12 工具目录。历史重放先修剪悬挂 tool_calls/孤儿 tool 消息（23#9），并收敛到最近 62 条 / 200KB 内（34#8，validate_messages 上限 64 条 / 256KB）；工具循环的 tool 消息前必须落 assistant(tool_calls) 声明（34#5）；单响应内重复 tool_call id 只回复一次（122#7，严格端点拒重复 id）。too_many/取消判定在 assistant 消息落库**之前**——超限中断时已产生的部分输出以 partial=true 保存，不再丢弃。超长工具结果（>16KB）落库为结构化包装 `{status,truncated,notice,preview}`——保持合法 JSON（122#1，前端可解析降级展示而非误显等待）。
+4. 成本从 `provider_requests.usage_json` 聚合，会话口径双通道：`agent_session_id = ?` 外键为主（31#1，导入经 FK 重映射保持关联），GLOB `agent-<run>-*` 仅兜底无主行（34#16，防直连请求串扰他人会话；`SESSION_OUTPUT_TOKENS_SQL` mod.rs:691、usage.rs:448-455）。
+5. 无 tool_calls → `finish_run("done")`；有则工具循环：`tools::execute`（tools.rs:483）先幂等登记 `agent_tool_calls`（ON CONFLICT 重放或 `tool_active`）再分发。终态事件载荷含 sessionId（122#8）。`resume`（mod.rs:1275）入口与 send 同口径：预算耗尽/步数到顶直接拒绝，不翻 running（122#2）。
 
-工具目录（tools.rs:13-91）：workspace.list/read/write/edit、web.search/web.fetch（走 §9 抓取链）、memory.save/recall/delete、history.load/search、artifact.promote。写文件产物 `commit_artifact`（:258）：阶段/单元校验 → `lecture::validate_content` → `artifact_path`（:167，拒绝对对路径/父级/>6 层/非 json-md-txt/符号链接/越界）→ 原子写（tmp+previous 双 rename :218）→ `agent_artifacts`（expires_at=+24h）。
-审批：memory.save/delete、artifact.promote 产生 `agent_approvals('pending')`；`approve_agent_request` CAS pending→approved 执行——promote 校验 sha256 与阶段未漂移，讲义须 done，整版本拷贝 `learning_lecture_units` 并推进版本。历史重放修剪：`history()`（:658）重放前剔除悬挂 tool_calls（无完整对应 tool 回复）与孤儿 tool 消息（无对应声明）——OpenAI 系端点对不自洽序列返回 400，取消/超限中断后的 run 曾因此永久无法恢复。
+工具目录（tools.rs:13-91）：workspace.list/read/write/edit、web.search/web.fetch（走 §9 抓取链）、memory.save/recall/delete、history.load/search、artifact.promote。写文件产物 `commit_artifact`（:272）：阶段/单元校验 → `lecture::validate_content` → `artifact_path`（:167，拒绝对对路径/父级/>6 层/非 json-md-txt/符号链接/越界）→ 原子写（tmp+previous 双 rename）→ `agent_artifacts`（expires_at=+24h）。
+审批：memory.save/delete、artifact.promote 产生 `agent_approvals('pending')`；`approve_agent_request` CAS pending→approved 执行——promote 校验 sha256 与阶段未漂移，讲义须 done，整版本拷贝 `learning_lecture_units` 并推进版本；memory.save 的 key_exists 复查在写事务内（122#9）。历史重放修剪：`history()`（mod.rs:716）重放前剔除悬挂 tool_calls（无完整对应 tool 回复）与孤儿 tool 消息（无对应声明）——OpenAI 系端点对不自洽序列返回 400，取消/超限中断后的 run 曾因此永久无法恢复。
 
 Agent 工具循环：
 
