@@ -40,6 +40,11 @@ jobs:
       # beforeBuildCommand 执行，不再每条 CI 双跑 vite 产物
       - name: Frontend type check
         run: npx tsc --noEmit
+      # 117#5：dev server 冒烟入 CI——116#3 门禁原先仅本地 make check 生效，
+      # vite 配置类回归（111#2 型：build 绿但 dev 403）在 CI 侧无检出通道；
+      # 脚本自定位到 desktop，GitHub windows runner 的 Git Bash 可跑
+      - name: Dev server smoke
+        run: bash ../scripts/dev-smoke.sh
       # 110#1：依赖审计入 CI——vite/esbuild dev 侧通告（含 Windows 命令
       # 执行族）原先无任何检出通道；runtime 与 dev 全量要求零漏洞
       - name: Dependency audit

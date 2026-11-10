@@ -481,3 +481,32 @@ fn installed_plugin_missing_manifest_is_reported() {
     assert_eq!(cleanup["deletedFiles"], 0, "安装态目录不得被孤儿清理触碰");
     assert!(root.join("plugins/half.events/keep.txt").is_file());
 }
+
+// 117#4：整目录回收的 freedBytes 按删前目录实际内容入账（原先只记清单
+// 字节，目录内 assets 等其余文件全部漏记）；deletedFiles 不因占位项虚高
+#[test]
+fn cleanup_accounts_directory_bytes() {
+    *GRACE_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = Some(std::time::Duration::ZERO);
+    let (app, learning) = setup();
+    let root = learning.database_path().parent().unwrap();
+    write(
+        root,
+        "plugins/gone.events/manifest.json",
+        &json!({"id": "gone.events", "name": "孤儿", "version": "1.0.0", "description": "整目录回收", "kind": "events", "subscriptions": []}).to_string(),
+    );
+    write(root, "plugins/gone.events/assets/payload.bin", &"x".repeat(8192));
+    let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
+    assert_eq!(report["orphans"]["plugins"].as_array().unwrap().len(), 1);
+    let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
+    assert_eq!(cleanup["deletedFiles"], 1);
+    assert!(
+        cleanup["freedBytes"].as_u64().unwrap() >= 8192,
+        "目录内非清单文件的实际字节必须计入 freedBytes：{cleanup}"
+    );
+    assert!(!root.join("plugins/gone.events").exists());
+    *GRACE_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = None;
+}

@@ -679,6 +679,26 @@ pub fn scan<R: Runtime>(
     emit_result(app, &store, "scan", result)
 }
 
+/// 117#4：删除前目录遍历的字节数——remove_tree 只返回 ()，整目录回收的
+/// freed_bytes 按删前实际内容入账；枚举失败按 0 记（不阻塞删除本身）
+fn directory_bytes(directory: &Path) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = fs::read_dir(directory) {
+        for entry in entries.flatten() {
+            match entry.file_type() {
+                Ok(file_type) if file_type.is_dir() => total += directory_bytes(&entry.path()),
+                Ok(_) => {
+                    if let Ok(metadata) = entry.metadata() {
+                        total += metadata.len();
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    total
+}
+
 fn remove_file(root: &Path, item: &FileItem) -> Result<u64> {
     let path = root.join(&item.path);
     if !fs::canonicalize(&path)?.starts_with(fs::canonicalize(root)?)
@@ -811,11 +831,17 @@ pub fn cleanup<R: Runtime>(
                 .map(|parent| root.join(parent));
             let outcome = match directory {
                 Some(directory) if directory.is_dir() => {
-                    remove_tree(&root, &directory, 0).map(|()| item.bytes)
+                    // 117#4：整目录回收按删前目录实际字节数入账——原先只记
+                    // 清单字节或占位 0，目录内其余文件（assets 等）全部漏记
+                    let bytes = directory_bytes(&directory);
+                    remove_tree(&root, &directory, 0).map(|()| bytes)
                 }
                 _ if !root.join(&item.path).exists() => {
-                    // 同批更早项已连带删除本项所在目录
-                    Ok(0)
+                    // 117#4：同批更早项连带删除的目录占位——对齐 sync 循环
+                    // 70#6 口径：计 batch（remaining 不虚高）不计
+                    // deleted_files/freed_bytes（非本轮删除）
+                    batch += 1;
+                    continue;
                 }
                 _ => remove_file(&root, item),
             };
