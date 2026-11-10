@@ -301,3 +301,43 @@ fn webpage_import_preserves_source_parses_real_text_and_deduplicates_through_ipc
         1
     );
 }
+
+#[test]
+fn gbk_pages_decode_through_header_meta_and_fallback_tiers() {
+    // 94#3：中文 GBK/GB18030 站点——响应头不带 charset、编码声明写在
+    // meta 里，原先一律 from_utf8 必败；三级解码统一转 UTF-8
+    let plain = encoding_rs::GBK
+        .encode("<html><body>中文正文</body></html>")
+        .0
+        .into_owned();
+    // 无声明：UTF-8 直读失败后按 GB18030 超集兜底
+    assert!(decode_body(&plain, "text/html").unwrap().contains("中文正文"));
+    // meta charset 声明（头部嗅探在 lossy 文本上找 ASCII 标签）
+    let with_meta = encoding_rs::GBK
+        .encode("<html><head><meta charset=\"gbk\"></head><body>中文正文</body></html>")
+        .0
+        .into_owned();
+    assert!(decode_body(&with_meta, "text/html")
+        .unwrap()
+        .contains("中文正文"));
+    // 响应头 charset=gbk（原先此处直接拒绝）
+    assert!(decode_body(&plain, "text/html; charset=gbk")
+        .unwrap()
+        .contains("中文正文"));
+    // 纯 UTF-8 与 BOM 路径不受影响
+    assert_eq!(
+        decode_body("<html>正文</html>".as_bytes(), "text/html").unwrap(),
+        "<html>正文</html>"
+    );
+    assert_eq!(
+        decode_body("\u{FEFF}<html>正文</html>".as_bytes(), "text/html").unwrap(),
+        "<html>正文</html>"
+    );
+    // 无法识别的二进制按可行动错误拒绝
+    assert_eq!(
+        decode_body(&[0xFF, 0x00, 0xD8, 0xFF], "text/html")
+            .unwrap_err()
+            .code,
+        "web_encoding_unsupported"
+    );
+}

@@ -80,6 +80,24 @@ pub(crate) fn session_principal<R: Runtime>(app: &AppHandle<R>) -> Result<Option
     }
 }
 
+/// 23#7 只读变体：读取已建立的会话，不自动签发（90 号移后台的读类命令
+/// 使用——guard 已在 IPC 线程建立会话；无 guard 的测试环境退回
+/// thread-local，不产生 session_started 事件副作用）
+pub(crate) fn session_principal_existing<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Option<i64>> {
+    match app.try_state::<SecurityState>() {
+        Some(security) => {
+            let store = security.store()?;
+            match current(&store.conn, &security) {
+                Ok((user, _)) => Ok(Some(user.id)),
+                Err(_) => Ok(principal_id()),
+            }
+        }
+        None => Ok(principal_id()),
+    }
+}
+
 pub(crate) struct ScopedBuilder(std::thread::Builder);
 
 impl ScopedBuilder {

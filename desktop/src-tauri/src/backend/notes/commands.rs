@@ -12,9 +12,12 @@ pub async fn import_notes<R: Runtime + 'static>(
     path: String,
 ) -> Result<NotesImportResult> {
     use tauri::Manager;
+    let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
-        super::import(&app, &state, Path::new(&path))
+        super::super::security::with_principal(principal, || {
+            super::import(&app, &state, Path::new(&path))
+        })
     })
     .await
     .map_err(|_| {

@@ -236,9 +236,13 @@ pub async fn get_usage_overview<R: Runtime + 'static>(
     days: Option<u32>,
 ) -> Result<super::usage::UsageOverview> {
     use tauri::Manager;
+    // 23#7：principal 传播（guard 的 thread-local 到不了阻塞线程）
+    let principal = super::super::security::session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
-        super::usage::overview(&state.providers, days)
+        super::super::security::with_principal(principal, || {
+            super::usage::overview(&state.providers, days)
+        })
     })
     .await
     .map_err(|_| {
@@ -273,10 +277,13 @@ pub async fn export_usage_csv_file<R: Runtime + 'static>(
     destination: String,
 ) -> Result<Value> {
     use tauri::Manager;
+    let principal = super::super::security::session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
-        let content = super::usage::export_csv(&state.providers)?;
-        super::super::write_export_bytes(&app, &destination, content.as_bytes())
+        super::super::security::with_principal(principal, || {
+            let content = super::usage::export_csv(&state.providers)?;
+            super::super::write_export_bytes(&app, &destination, content.as_bytes())
+        })
     })
     .await
     .map_err(|_| {

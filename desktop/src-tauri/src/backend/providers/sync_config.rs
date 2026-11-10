@@ -1,7 +1,8 @@
 use super::super::error::{BackendError, Result};
 use super::{ProfileInput, ProviderProfile, ProviderState};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::Digest;
 use std::collections::HashMap;
 use tauri::{AppHandle, Runtime};
@@ -154,6 +155,102 @@ pub fn preview(bytes: &[u8]) -> Result<SyncPreview> {
     })
 }
 
+/// 94#2：导入快照与回滚——恢复/导入逐档案 upsert 各自提交，进行到第 N 个
+/// 档案时失败或进程被杀会留下「部分新 + 部分旧」的混合配置且无回滚入口
+/// （upsert/routing/set_active 三段均无总事务）。导入前把 provider_profiles
+/// 与 provider_meta（路由设置/默认档案）整体快照为 JSON 存入 provider_meta
+/// 保留键：任一步失败立即回滚；进程中断残留的快照由下次导入开头先回滚。
+/// keyring 不受影响——导入路径 api_key 恒 None，不写不删密钥
+const ROLLBACK_SNAPSHOT_KEY: &str = "import_rollback_snapshot";
+
+fn take_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
+    let mut profiles = Vec::new();
+    {
+        let mut statement = conn.prepare(
+            "SELECT id, name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, health, latency_ms, created_at, updated_at FROM provider_profiles",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(json!([
+                row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, i64>(8)?,
+                row.get::<_, Option<String>>(9)?, row.get::<_, String>(10)?, row.get::<_, Option<i64>>(11)?,
+                row.get::<_, String>(12)?, row.get::<_, String>(13)?,
+            ]))
+        })?;
+        for row in rows {
+            profiles.push(row?);
+        }
+    }
+    let mut meta = Vec::new();
+    {
+        let mut statement = conn.prepare(&format!(
+            "SELECT key, value FROM provider_meta WHERE key != '{ROLLBACK_SNAPSHOT_KEY}'"
+        ))?;
+        let rows = statement
+            .query_map([], |row| Ok(json!([row.get::<_, String>(0)?, row.get::<_, String>(1)?])))?;
+        for row in rows {
+            meta.push(row?);
+        }
+    }
+    let snapshot = serde_json::to_string(&json!({"profiles": profiles, "meta": meta}))?;
+    conn.execute(
+        "INSERT INTO provider_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![ROLLBACK_SNAPSHOT_KEY, snapshot],
+    )?;
+    Ok(())
+}
+
+/// 回滚到快照并丢弃；无快照时为无操作
+fn rollback_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
+    let snapshot: Option<String> = conn
+        .query_row(
+            "SELECT value FROM provider_meta WHERE key = ?1",
+            rusqlite::params![ROLLBACK_SNAPSHOT_KEY],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(snapshot) = snapshot else {
+        return Ok(());
+    };
+    let parsed: Value = serde_json::from_str(&snapshot)
+        .map_err(|_| BackendError::new("sync_snapshot_invalid", "导入回滚快照损坏"))?;
+    let profiles: Vec<(i64, String, String, String, String, String, String, String, i64, Option<String>, String, Option<i64>, String, String)> = serde_json::from_value(
+        parsed["profiles"].clone(),
+    )?;
+    let meta: Vec<(String, String)> = serde_json::from_value(parsed["meta"].clone())?;
+    conn.execute("DELETE FROM provider_profiles", [])?;
+    for profile in profiles {
+        conn.execute(
+            "INSERT INTO provider_profiles (id, name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, health, latency_ms, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            rusqlite::params![
+                profile.0, profile.1, profile.2, profile.3, profile.4, profile.5, profile.6,
+                profile.7, profile.8, profile.9, profile.10, profile.11, profile.12, profile.13,
+            ],
+        )?;
+    }
+    conn.execute(
+        &format!("DELETE FROM provider_meta WHERE key != '{ROLLBACK_SNAPSHOT_KEY}'"),
+        [],
+    )?;
+    for (key, value) in meta {
+        conn.execute(
+            "INSERT INTO provider_meta (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )?;
+    }
+    drop_import_snapshot(conn)?;
+    Ok(())
+}
+
+fn drop_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
+    conn.execute(
+        "DELETE FROM provider_meta WHERE key = ?1",
+        rusqlite::params![ROLLBACK_SNAPSHOT_KEY],
+    )?;
+    Ok(())
+}
+
 pub fn import<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
@@ -181,6 +278,44 @@ pub fn import<R: Runtime>(
             },
         )?;
     }
+    // 94#2：先回滚上次中断残留的快照（若有），再为本次导入建立快照；
+    // 批内任一步失败回滚到导入前状态，消除半套配置
+    {
+        let store = state.store()?;
+        rollback_import_snapshot(&store.conn)?;
+        take_import_snapshot(&store.conn)?;
+    }
+    let outcome = apply_import(app, state, config, bytes);
+    match outcome {
+        Ok(preview) => {
+            let store = state.store()?;
+            drop_import_snapshot(&store.conn)?;
+            Ok(preview)
+        }
+        Err(error) => {
+            let rolled_back = state
+                .store()
+                .and_then(|store| rollback_import_snapshot(&store.conn))
+                .is_ok();
+            if rolled_back {
+                Err(BackendError::new(
+                    &error.code,
+                    &format!("导入失败，已回滚到导入前的本地配置：{}", error.message),
+                ))
+            } else {
+                // 回滚本身失败时保留快照，下次导入开头会再次尝试回滚
+                Err(error)
+            }
+        }
+    }
+}
+
+fn apply_import<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    config: RemoteConfig,
+    bytes: &[u8],
+) -> Result<SyncPreview> {
     let mut mapping = HashMap::new();
     let mut applied = 0;
     for profile in config.providers {
@@ -252,4 +387,72 @@ pub fn import<R: Runtime>(
         active_provider: super::active(state)?,
         sha256: format!("{:x}", sha2::Sha256::digest(bytes)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn import_snapshot_rollback_restores_profiles_and_meta() {
+        // 94#2：恢复/导入逐档案 upsert 中断留下半套配置无回滚入口——快照
+        // 机制须能完整还原 provider_profiles 与 provider_meta（路由/默认档案）
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::backend::providers::migrate(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO provider_profiles (name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, created_at, updated_at) VALUES ('本地档案', 'custom', '官方', 'OpenAI Chat', 'https://a.example', 'm', '[\"m\"]', 1, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO provider_meta (key, value) VALUES ('active_provider', 'p1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO provider_meta (key, value) VALUES ('routing_settings', '{\"mode\":\"direct\",\"routes\":{},\"failover\":[],\"aggregateProviderIds\":[],\"aggregateDefault\":null}')",
+            [],
+        )
+        .unwrap();
+        take_import_snapshot(&conn).unwrap();
+        // 模拟导入进行到一半：追加新档案行 + 覆写默认档案
+        conn.execute(
+            "INSERT INTO provider_profiles (name, preset, kind, protocol, base_url, default_model, models_json, enabled, note, created_at, updated_at) VALUES ('半套新档案', 'custom', '官方', 'OpenAI Chat', 'https://b.example', 'm', '[\"m\"]', 1, NULL, '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE provider_meta SET value = 'p2' WHERE key = 'active_provider'",
+            [],
+        )
+        .unwrap();
+        rollback_import_snapshot(&conn).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM provider_profiles", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "回滚后只保留导入前的档案");
+        let name: String = conn
+            .query_row("SELECT name FROM provider_profiles", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(name, "本地档案");
+        let active: String = conn
+            .query_row(
+                "SELECT value FROM provider_meta WHERE key = 'active_provider'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, "p1");
+        // 快照键已清除；无快照时再次回滚为无操作（幂等）
+        let snapshot: Option<String> = conn
+            .query_row(
+                "SELECT value FROM provider_meta WHERE key = ?1",
+                rusqlite::params![ROLLBACK_SNAPSHOT_KEY],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        assert!(snapshot.is_none());
+        rollback_import_snapshot(&conn).unwrap();
+    }
 }

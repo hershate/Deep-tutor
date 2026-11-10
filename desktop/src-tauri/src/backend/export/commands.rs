@@ -13,8 +13,12 @@ pub async fn export_content<R: Runtime + 'static>(
 ) -> Result<ExportResult> {
     use tauri::Manager;
     super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
+    // 23#7：principal 传播——guard 在 IPC 线程设置的 thread-local 到不了
+    // 阻塞线程，由会话派生当前用户
+    let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
+        super::super::security::with_principal(principal, || {
         let result =
             super::export(&app, &state.learning, input, std::path::Path::new(&destination));
         if result.is_ok() {
@@ -22,6 +26,7 @@ pub async fn export_content<R: Runtime + 'static>(
             super::super::reveal::register(std::path::Path::new(&destination));
         }
         result
+        })
     })
     .await
     .map_err(|_| {
@@ -38,8 +43,10 @@ pub async fn export_notes_archive<R: Runtime + 'static>(
 ) -> Result<super::notes::NotesArchiveResult> {
     use tauri::Manager;
     super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
+    let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
+        super::super::security::with_principal(principal, || {
         let result =
             super::notes::archive(&app, &state.learning, std::path::Path::new(&destination));
         if result.is_ok() {
@@ -47,6 +54,7 @@ pub async fn export_notes_archive<R: Runtime + 'static>(
             super::super::reveal::register(std::path::Path::new(&destination));
         }
         result
+        })
     })
     .await
     .map_err(|_| {

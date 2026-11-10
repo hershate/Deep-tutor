@@ -9,13 +9,18 @@ use tauri::{AppHandle, Runtime, State};
 // 全量聚合 + JSON 解析，原先同步命令在主线程执行，历史数据多时打开延迟
 // 线性增长；移后台（73#8 范式）
 #[tauri::command(async)]
-pub async fn get_learning_report(
+pub async fn get_learning_report<R: Runtime + 'static>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
     period: Option<String>,
 ) -> Result<LearningReport> {
+    // 23#7：principal 传播（guard 的 thread-local 到不了阻塞线程）
+    let principal = super::super::security::session_principal_existing(&app)?;
     let report = ReportState::new(&state.learning);
     tauri::async_runtime::spawn_blocking(move || {
-        super::get_report(&report, period.as_deref())
+        super::super::security::with_principal(principal, || {
+            super::get_report(&report, period.as_deref())
+        })
     })
     .await
     .map_err(|_| {
@@ -108,14 +113,17 @@ pub async fn export_learning_report<R: Runtime + 'static>(
 ) -> Result<ReportDownload> {
     use tauri::Manager;
     super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
+    let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BackendState>();
-        super::export_report(
-            &app,
-            &ReportState::new(&state.learning),
-            std::path::Path::new(&destination),
-            period.as_deref(),
-        )
+        super::super::security::with_principal(principal, || {
+            super::export_report(
+                &app,
+                &ReportState::new(&state.learning),
+                std::path::Path::new(&destination),
+                period.as_deref(),
+            )
+        })
     })
     .await
     .map_err(|_| {

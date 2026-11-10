@@ -219,15 +219,6 @@ fn document(value: Url, depth: u8) -> Result<Document> {
             "仅允许抓取 HTML 或纯文本网页",
         ));
     }
-    if content_type.contains("charset=")
-        && !content_type.contains("utf-8")
-        && !content_type.contains("utf8")
-    {
-        return Err(BackendError::new(
-            "web_encoding_unsupported",
-            "网页必须使用 UTF-8 编码",
-        ));
-    }
     if response
         .content_length()
         .is_some_and(|length| length > MAX_BYTES)
@@ -248,12 +239,69 @@ fn document(value: Url, depth: u8) -> Result<Document> {
             "网页内容超过 1 MB 上限",
         ));
     }
-    let body = String::from_utf8(bytes)
-        .map_err(|_| BackendError::new("web_encoding_unsupported", "网页必须使用 UTF-8 编码"))?;
+    let body = decode_body(&bytes, &content_type)?;
     Ok(Document {
         url,
         body,
         content_type,
+    })
+}
+
+/// 94#3：三级解码——BOM → 响应头 charset → HTML meta charset → UTF-8 →
+/// GB18030 兜底。中文互联网大量 GBK/GB18030 站点响应头不带 charset、编码
+/// 声明写在 HTML meta 里，原先一律 from_utf8 必败且报错无自救指引；
+/// 统一转 UTF-8 后再解析。仍无法解码时说明原因与替代做法
+fn decode_body(bytes: &[u8], content_type: &str) -> Result<String> {
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        return Ok(String::from_utf8_lossy(&bytes[3..]).into_owned());
+    }
+    let header_charset = content_type
+        .split("charset=")
+        .nth(1)
+        .map(|rest| {
+            rest.split([';', ' ', '"'])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase()
+        })
+        .filter(|label| !label.is_empty());
+    let meta_charset = sniff_meta_charset(&bytes[..bytes.len().min(4096)]);
+    for label in [header_charset, meta_charset].into_iter().flatten() {
+        if label == "utf-8" || label == "utf8" {
+            continue;
+        }
+        if let Some(encoding) = encoding_rs::Encoding::for_label(label.as_bytes()) {
+            let (text, _, _) = encoding.decode(bytes);
+            return Ok(text.into_owned());
+        }
+    }
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return Ok(text.to_string());
+    }
+    // 无任何声明：按 GB18030（GBK/GB2312 超集）兜底，解码出错说明不是
+    // 可识别的文本编码
+    let (text, _, had_errors) = encoding_rs::GB18030.decode(bytes);
+    if had_errors {
+        return Err(BackendError::new(
+            "web_encoding_unsupported",
+            "网页编码无法识别：请在浏览器打开该页面，另存为 UTF-8 编码后用文件方式导入",
+        ));
+    }
+    Ok(text.into_owned())
+}
+
+/// 从文档头部（≤4KB）嗅探 <meta charset="…"> / <meta http-equiv … charset=…>
+fn sniff_meta_charset(head: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
+    text.split("<meta").skip(1).find_map(|tag| {
+        let value = tag.split("charset").nth(1)?;
+        let label = value.trim_start_matches(['=', ' ', '"', '\'']);
+        let end = label
+            .find(['"', '\'', '>', ' ', ';'])
+            .unwrap_or(label.len());
+        let label = &label[..end];
+        (!label.is_empty()).then(|| label.to_string())
     })
 }
 

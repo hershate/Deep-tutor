@@ -15,15 +15,20 @@ pub fn start_learning_plan<R: Runtime>(
 // 可达数百 KB × 最多 100 行）——列表消费方（导出中心/任务中心）确实读取
 // result.stages，摘要化会破坏契约，故移后台消除主线程打开延迟
 #[tauri::command(async)]
-pub async fn list_learning_plans(
+pub async fn list_learning_plans<R: Runtime + 'static>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
 ) -> Result<Vec<Plan>> {
+    // 23#7：principal 传播（guard 的 thread-local 到不了阻塞线程）
+    let principal = super::super::security::session_principal_existing(&app)?;
     let learning = state.learning.shared();
-    tauri::async_runtime::spawn_blocking(move || super::list(&learning))
-        .await
-        .map_err(|_| {
-            super::super::error::BackendError::new("internal_error", "方案列表读取任务执行异常终止")
-        })?
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || super::list(&learning))
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "方案列表读取任务执行异常终止")
+    })?
 }
 
 #[tauri::command]
