@@ -5,8 +5,9 @@ import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from
 import { pluginBackend, type PluginEvent, type PluginOverview } from '../backend/plugins'
 import UsagePanel from '../components/UsagePanel'
 
-// 61#1：与后端白名单同步——app 无对应原生命名空间事件，订阅恒空投递
-const namespaces = ['plan', 'practice', 'review', 'material', 'agent', 'knowledge', 'community', 'provider', 'plugin', 'share', 'content', 'backup', 'sync', 'maintenance']
+// 61#1/117#3：与后端 EVENT_NAMESPACES 白名单同步（后端一致性测试校验两侧一致；
+// state.changed 为高频内部状态同步，不开放订阅）
+const namespaces = ['plan', 'practice', 'review', 'material', 'agent', 'knowledge', 'community', 'provider', 'plugin', 'share', 'content', 'backup', 'sync', 'maintenance', 'focus', 'study', 'lecture', 'report', 'security', 'notifications', 'usage', 'project']
 
 export default function Integrations({ notify }: { notify: (message: string) => void }) {
   const [tab, setTab] = useState('插件体系')

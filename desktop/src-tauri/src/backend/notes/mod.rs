@@ -180,21 +180,10 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<NoteSource>> {
         if !["md", "txt"].contains(&extension.as_str()) {
             continue;
         }
-        if entry.size() > MAX_NOTE_BYTES
-            || entry.size() > entry.compressed_size().max(1).saturating_mul(200)
-        {
+        if entry.size() > MAX_NOTE_BYTES {
             return Err(BackendError::new(
                 "size_limit_exceeded",
-                "单条笔记超过 1 MB 或压缩比超过安全上限",
-            ));
-        }
-        total = total
-            .checked_add(entry.size())
-            .ok_or_else(|| BackendError::new("size_limit_exceeded", "笔记解压总量无效"))?;
-        if total > MAX_FILE_BYTES {
-            return Err(BackendError::new(
-                "size_limit_exceeded",
-                "笔记解压总量超过 64 MB 上限",
+                "单条笔记超过 1 MB 上限",
             ));
         }
         let title = path
@@ -217,6 +206,20 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<NoteSource>> {
             return Err(BackendError::new(
                 "size_limit_exceeded",
                 "单条笔记超过 1 MB 上限",
+            ));
+        }
+        // 117#1：总量按实读字节数累加——ZIP 声明值可伪造（每条声明 size=1、
+        // 实读 1MB 的恶意归档在声明口径下永不触 64MB，可绕至 ~1GB 内存
+        // 峰值）；单条实读已被 take 钳到 1MB，总量熔断以真实 64 MB 为准。
+        // 声明压缩比检查一并移除：实读钳制后它只剩误伤——诚实 >200:1 高
+        // 压缩比笔记（重复行多的表格/日志型文本）曾被整条拒绝
+        total = total
+            .checked_add(bytes.len() as u64)
+            .ok_or_else(|| BackendError::new("size_limit_exceeded", "笔记解压总量无效"))?;
+        if total > MAX_FILE_BYTES {
+            return Err(BackendError::new(
+                "size_limit_exceeded",
+                "笔记解压总量超过 64 MB 上限",
             ));
         }
         let text = String::from_utf8(bytes).map_err(|_| {

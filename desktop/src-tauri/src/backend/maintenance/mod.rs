@@ -371,21 +371,28 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                 continue;
             }
             if !installed && entry.path().is_dir() && !path.exists() {
+                // 117#2：目录 mtime 宽限——install 在 create_dir 与 rename 之间
+                // 的窗口内目录刚建，不能当孤儿收
+                if modified_recently(&entry.path()) {
+                    continue;
+                }
                 plugins.push(FileItem {
                     path: format!("plugins/{id}/manifest.json"),
                     bytes: 0,
                 });
                 continue;
             }
-            // B-13：已安装插件缺磁盘清单（并发清理误删等）此前零报告——
-            // reload 将报 plugin_manifest_missing，体检应能提前暴露
             if installed && entry.path().is_dir() && !path.exists() {
-                issues.push(BackendError::new(
-                    "plugin_manifest_missing",
-                    &format!("插件 {id} 已安装但磁盘清单缺失，重装该插件可恢复"),
-                ));
+                // 已安装缺清单交给循环后的库驱动 B-13 检查统一报告
+                continue;
             }
             if !installed && path.is_file() {
+                // 117#2：清单 mtime 宽限——install 在 rename 与事务 commit 之间
+                // 的毫秒窗内库行未提交、清单是刚 rename 出的新文件；宽限命中
+                // 跳过，下一轮扫描时已提交（不再是孤儿）或仍年轻（再宽限）
+                if modified_recently(&path) {
+                    continue;
+                }
                 match fs::read_to_string(&path)
                     .ok()
                     .and_then(|content| super::plugins::validate_manifest_content(&content).ok())
@@ -396,6 +403,23 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                         "过期插件清单无效，未自动删除",
                     )),
                 }
+            }
+        }
+        // B-13（117#2 改库驱动）：已安装但 manifest.json 缺失——原先依赖
+        // read_dir 枚举到插件目录，目录被整体误删的僵尸行（reload 恒报
+        // plugin_manifest_missing、重装被 plugin_already_installed 挡死）
+        // 零可见；按库枚举后删目录、删清单两种形态都能报出
+        let mut statement = store.conn.prepare("SELECT id FROM plugins")?;
+        let installed_ids = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(statement);
+        for id in &installed_ids {
+            if !plugin_root.join(id).join("manifest.json").is_file() {
+                issues.push(BackendError::new(
+                    "plugin_manifest_missing",
+                    &format!("插件 {id} 已安装但磁盘清单缺失，重装该插件可恢复"),
+                ));
             }
         }
     }
@@ -770,6 +794,13 @@ pub fn cleanup<R: Runtime>(
         for item in &orphans.plugins {
             if batch >= CLEANUP_BATCH {
                 break;
+            }
+            // 117#2：31#32 同款删除前复查——扫描与删除之间 install 可能刚
+            // rename 出新清单（库行未提交时被扫成孤儿），mtime 命中宽限即
+            // 跳过本轮；下一轮扫描时该行已提交（不再是孤儿）或仍年轻（再宽限）
+            if modified_recently(&root.join(&item.path)) {
+                deferred += 1;
+                continue;
             }
             // 14#19：插件孤儿按目录整体收——真实清单与“空目录占位项”都指向
             // 插件目录，只删 manifest.json 会留下空目录被反复扫描报出；

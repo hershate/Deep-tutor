@@ -407,3 +407,77 @@ fn foreign_key_violations_and_future_schema_are_rejected_without_deleting_files(
         "拒绝未来版本之前不得执行任何建表迁移"
     );
 }
+
+// 117#2：install 的 rename→commit 毫秒窗防护——未入库的年轻清单与年轻空
+// 目录处于宽限期，不报孤儿也不清理（原先清单无宽限，并发清理可把安装成功
+// 的插件变成 reload 永久失败的僵尸行）；超过宽限期后按孤儿报出并回收
+#[test]
+fn install_window_manifest_and_dir_get_grace() {
+    let (app, learning) = setup();
+    let root = learning.database_path().parent().unwrap();
+    write(
+        root,
+        "plugins/fresh.events/manifest.json",
+        &json!({"id": "fresh.events", "name": "安装中", "version": "1.0.0", "description": "rename 后 commit 前的清单", "kind": "events", "subscriptions": ["focus.*"]}).to_string(),
+    );
+    std::fs::create_dir_all(root.join("plugins/broken.events")).unwrap();
+    let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
+    assert!(report["orphans"]["plugins"].as_array().unwrap().is_empty());
+    let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
+    assert_eq!(cleanup["deletedFiles"], 0);
+    assert!(root.join("plugins/fresh.events/manifest.json").is_file());
+    assert!(root.join("plugins/broken.events").is_dir());
+    // 宽限置零（模拟超过宽限期的遗留）→ 同一布局按孤儿报出并整目录回收
+    *GRACE_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = Some(std::time::Duration::ZERO);
+    let stale = ipc(&app, "get_maintenance_report", json!({})).unwrap();
+    let paths: Vec<&str> = stale["orphans"]["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["path"].as_str().unwrap())
+        .collect();
+    assert!(paths.contains(&"plugins/fresh.events/manifest.json"), "{paths:?}");
+    assert!(paths.contains(&"plugins/broken.events/manifest.json"), "{paths:?}");
+    let cleaned = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
+    assert_eq!(cleaned["deletedFiles"], 2);
+    assert!(!root.join("plugins/fresh.events").exists());
+    assert!(!root.join("plugins/broken.events").exists());
+    *GRACE_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = None;
+}
+
+// 117#2（B-13 库驱动）：已安装但清单缺失——整目录被误删的僵尸行与只留目录
+// 两种形态都能在体检报出（原先依赖 read_dir 枚举到插件目录，整目录被删的
+// 僵尸行零可见：reload 恒失败、重装被 already_installed 挡死）
+#[test]
+fn installed_plugin_missing_manifest_is_reported() {
+    let (app, learning) = setup();
+    let root = learning.database_path().parent().unwrap();
+    let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+    let store = learning.store().unwrap();
+    for id in ["zombie.events", "half.events"] {
+        store.conn.execute(
+            "INSERT INTO plugins (id, name, version, description, kind, manifest_json, created_at, updated_at) VALUES (?1, '僵尸', '1.0.0', '清单被并发清理误删', 'events', '{}', ?2, ?2)",
+            params![id, timestamp],
+        ).unwrap();
+    }
+    // zombie.events：整目录不存在；half.events：目录在、manifest.json 缺失
+    write(root, "plugins/half.events/keep.txt", "安装态目录不被孤儿清理触碰");
+    let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
+    let missing: Vec<&str> = report["orphans"]["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|issue| issue["code"] == "plugin_manifest_missing")
+        .map(|issue| issue["message"].as_str().unwrap())
+        .collect();
+    assert_eq!(missing.len(), 2, "{missing:?}");
+    assert!(missing.iter().any(|message| message.contains("zombie.events")));
+    assert!(missing.iter().any(|message| message.contains("half.events")));
+    let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
+    assert_eq!(cleanup["deletedFiles"], 0, "安装态目录不得被孤儿清理触碰");
+    assert!(root.join("plugins/half.events/keep.txt").is_file());
+}

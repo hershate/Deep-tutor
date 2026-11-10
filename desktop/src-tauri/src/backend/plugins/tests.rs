@@ -237,3 +237,106 @@ fn assets_are_real_files_and_reset_removes_installed_manifest_data() {
     assert!(!state.root().exists());
     assert_eq!(super::overview(&state).unwrap().enabled_count, 0);
 }
+
+// 117#3：白名单双向一致性——后端实发事件命名空间（Store::event 调用点的
+// 字符串字面量）必须 ⊆ EVENT_NAMESPACES ∪ {state}，反向白名单每项也须有
+// 实发事件（61#1「只含真实 emit」）；state.changed 是 replace_collection 的
+// 高频内部 UI 状态同步（载荷为全量快照），不作为插件面开放。前端
+// Integrations.tsx 的 namespaces 数组须与白名单同步。新增命名空间时同步
+// 三处：EVENT_NAMESPACES、Integrations.tsx、本测试自动跟随
+#[test]
+fn event_namespaces_cover_whitelist() {
+    let mut emitted: std::collections::BTreeSet<String> = Default::default();
+    let mut stack = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/backend")];
+    while let Some(directory) = stack.pop() {
+        for entry in std::fs::read_dir(&directory).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "rs")
+                && !path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().contains("tests"))
+            {
+                let content = std::fs::read_to_string(&path).unwrap();
+                for offset in content.match_indices("Store::event(").map(|(at, _)| at) {
+                    let after = &content.as_bytes()[offset + "Store::event(".len()..];
+                    // 字节级窗口（到 json! 或 240B 截止）——注释里的中文可能
+                    // 落在窗口内，字符串切片会切断 UTF-8 边界
+                    let window = &after[..after
+                        .windows(5)
+                        .position(|probe| probe == b"json!")
+                        .unwrap_or(after.len())
+                        .min(240)];
+                    let mut cursor = 0;
+                    while let Some(rel) = window[cursor..].iter().position(|&byte| byte == b'"') {
+                        let start = cursor + rel + 1;
+                        let Some(rel_end) = window[start..].iter().position(|&byte| byte == b'"')
+                        else {
+                            break;
+                        };
+                        let end = start + rel_end;
+                        let candidate = &window[start..end];
+                        if candidate.is_ascii() && !candidate.is_empty() {
+                            let name = std::str::from_utf8(candidate).unwrap();
+                            let mut parts = name.split('.');
+                            let looks_like_kind = name.contains('.')
+                                && parts.next().is_some_and(|head| {
+                                    !head.is_empty()
+                                        && head.starts_with(|c: char| c.is_ascii_lowercase())
+                                        && head.chars().all(|c| {
+                                            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
+                                        })
+                                })
+                                && parts.all(|part| {
+                                    !part.is_empty()
+                                        && part.chars().all(|c| {
+                                            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
+                                        })
+                                });
+                            if looks_like_kind {
+                                emitted.insert(name.to_string());
+                            }
+                        }
+                        cursor = end + 1;
+                    }
+                }
+            }
+        }
+    }
+    // 提取器自检：已知事件缺失说明扫描失效（如调用形态变化），测试不得静默通过
+    assert!(emitted.contains("plan.adopted"), "源码扫描未提取到已知事件，提取器失效：{emitted:?}");
+    let prefixes: std::collections::BTreeSet<&str> = emitted
+        .iter()
+        .map(|name| name.split('.').next().unwrap())
+        .collect();
+    for prefix in &prefixes {
+        assert!(
+            *prefix == "state" || EVENT_NAMESPACES.contains(prefix),
+            "实发事件命名空间 {prefix} 不在订阅白名单——同步 EVENT_NAMESPACES 与 Integrations.tsx（state.changed 为内部状态同步例外）"
+        );
+    }
+    for entry in EVENT_NAMESPACES {
+        assert!(
+            prefixes.contains(entry),
+            "白名单项 {entry} 无任何实发事件（61#1 只含真实 emit）"
+        );
+    }
+    // 前端同步：Integrations.tsx 的 namespaces 数组与白名单一致
+    let frontend = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/pages/Integrations.tsx"),
+    )
+    .unwrap();
+    let array = frontend
+        .split("const namespaces = [")
+        .nth(1)
+        .and_then(|rest| rest.split(']').next())
+        .expect("Integrations.tsx namespaces 数组缺失");
+    for entry in EVENT_NAMESPACES {
+        assert!(
+            array.contains(&format!("'{entry}'")),
+            "Integrations.tsx namespaces 缺少 {entry}——与后端白名单同步"
+        );
+    }
+}

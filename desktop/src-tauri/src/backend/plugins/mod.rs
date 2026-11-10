@@ -18,6 +18,36 @@ use time::OffsetDateTime;
 
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
+// 117#3：可订阅事件命名空间白名单——61#1「只含真实 emit 的命名空间」的
+// 双向口径（实发 ⊆ 白名单 ∪ {state} 且白名单 ⊆ 实发）由一致性回归测试
+// event_namespaces_cover_whitelist 固化；state.changed 是 replace_collection
+// 的高频内部 UI 状态同步（载荷为全量快照），不作为插件面开放。
+// 前端 Integrations.tsx 的 namespaces 数组须与本表同步
+pub(crate) const EVENT_NAMESPACES: &[&str] = &[
+    "plan",
+    "practice",
+    "review",
+    "material",
+    "agent",
+    "knowledge",
+    "community",
+    "provider",
+    "plugin",
+    "share",
+    "content",
+    "backup",
+    "sync",
+    "maintenance",
+    "focus",
+    "study",
+    "lecture",
+    "report",
+    "security",
+    "notifications",
+    "usage",
+    "project",
+];
+
 pub struct PluginState {
     database_path: PathBuf,
     #[cfg(test)]
@@ -291,25 +321,7 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
         let valid = if pattern == "*" {
             true
         } else if let Some(prefix) = pattern.strip_suffix(".*") {
-            // 61#1：白名单只含真实 emit 的命名空间——原含 app 但后端无任何
-            // app.* 事件，订阅它静默零投递
-            [
-                "plan",
-                "practice",
-                "review",
-                "material",
-                "agent",
-                "knowledge",
-                "community",
-                "provider",
-                "plugin",
-                "share",
-                "content",
-                "backup",
-                "sync",
-                "maintenance",
-            ]
-            .contains(&prefix)
+            EVENT_NAMESPACES.contains(&prefix)
         } else {
             false
         };
@@ -366,8 +378,11 @@ fn write_manifest(state: &PluginState, id: &str, content: &str) -> Result<PathBu
         .parent()
         .ok_or_else(|| BackendError::new("invalid_plugin_path", "插件路径无效"))?;
     fs::create_dir_all(directory)?;
-    let temporary = directory.join(format!(
-        ".manifest-{}.tmp",
+    // 117#2：tmp 写到 plugins/ 根层（与 maintenance 孤儿扫描同层）——原写在
+    // 插件目录内部使根层宽限防护成为死代码：并发清理删整目录时 tmp 与
+    // rename 前的毫秒窗均不受 modified_recently 保护
+    let temporary = state.root().join(format!(
+        ".manifest-{id}-{}.tmp",
         TEMP_ID.fetch_add(1, Ordering::Relaxed)
     ));
     let mut file = fs::OpenOptions::new()

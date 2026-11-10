@@ -475,3 +475,98 @@ fn imported_notes_strip_bom_crlf_and_do_not_lose_leading_divider_content() {
         "无元数据键的分隔线块不得被当 frontmatter 剥掉，实际内容：{content}"
     );
 }
+
+// 117#1 方向一：声明值伪造——中央目录与本地头的未压缩大小都改成 1 的
+// 66×1MB 归档必须被实读总量熔断拦下（声明口径 total=66B 永不触 64MB，
+// 修复前可全量驻留内存至 ~1GB 峰值）；拒绝后不产生部分导入与事件
+#[test]
+fn declared_size_lies_are_capped_by_real_total() {
+    let app = setup();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("lie.zip");
+    // 900KB/条：低于 note_source 序列化上限（1MB 含 JSON 转义），
+    // 76 条实读总量 >64MB——总量熔断必须先于任何写入触发
+    let payload = vec![b'0'; 900_000];
+    {
+        let file = std::fs::File::create(&path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        for index in 0..76u32 {
+            writer
+                .start_file(
+                    format!("notes/{index:03}.md"),
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+            writer.write_all(&payload).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+    // 诚实 deflate 归档（68MB 实数据压缩后 ~80KB）→ 二进制改写两处头部
+    // 的未压缩大小声明为 1：单条声明检查与声明总量全部通过
+    let mut raw = std::fs::read(&path).unwrap();
+    patch_declared_uncompressed_sizes(&mut raw, 1);
+    std::fs::write(&path, &raw).unwrap();
+    let error = ipc(
+        &app,
+        "import_notes",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "size_limit_exceeded");
+    assert_eq!(
+        error["message"], "笔记解压总量超过 64 MB 上限",
+        "必须按实读总量熔断，而非声明口径放行"
+    );
+    assert!(notes(&app).as_array().unwrap().is_empty());
+    assert_eq!(
+        ipc(&app, "events_since", json!({"lastId": 0})).unwrap()["events"],
+        json!([])
+    );
+}
+
+fn patch_declared_uncompressed_sizes(raw: &mut [u8], value: u32) {
+    let le_u16 = |raw: &[u8], at: usize| u16::from_le_bytes([raw[at], raw[at + 1]]) as usize;
+    let le_u32 = |raw: &[u8], at: usize| {
+        u32::from_le_bytes(raw[at..at + 4].try_into().unwrap()) as usize
+    };
+    let eocd = raw
+        .windows(4)
+        .rposition(|window| window == b"PK\x05\x06")
+        .expect("EOCD");
+    let count = le_u16(raw, eocd + 10);
+    let mut cursor = le_u32(raw, eocd + 16);
+    for _ in 0..count {
+        assert_eq!(&raw[cursor..cursor + 4], b"PK\x01\x02", "中央目录头");
+        let name_len = le_u16(raw, cursor + 28);
+        let extra_len = le_u16(raw, cursor + 30);
+        let comment_len = le_u16(raw, cursor + 32);
+        let local = le_u32(raw, cursor + 42);
+        // 中央目录 +24：未压缩大小；本地头 +22：未压缩大小（两处一致改写）
+        raw[cursor + 24..cursor + 28].copy_from_slice(&value.to_le_bytes());
+        assert_eq!(&raw[local..local + 4], b"PK\x03\x04", "本地文件头");
+        raw[local + 22..local + 26].copy_from_slice(&value.to_le_bytes());
+        cursor += 46 + name_len + extra_len + comment_len;
+    }
+}
+
+// 117#1 方向二：诚实高压缩比归档不再被拒——重复行密集的正常文本（deflate
+// 压缩比 >200:1）原先在声明压缩比检查被整条拒绝，报错还与「超过 1MB」
+// 混为一谈
+#[test]
+fn honest_high_ratio_note_imports() {
+    let app = setup();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("dense.zip");
+    let dense = "重复行密集的正常表格文本\n".repeat(25_000); // ~775KB，压缩后 <<1/200
+    archive(&path, &[("notes/dense.md", dense.as_bytes())]);
+    let result = ipc(
+        &app,
+        "import_notes",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    assert_eq!(result["imported"], 1);
+    let imported = notes(&app);
+    assert_eq!(imported[0]["title"], "dense");
+    assert_eq!(imported[0]["content"], dense);
+}
