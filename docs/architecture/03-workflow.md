@@ -34,7 +34,7 @@ flowchart LR
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，216 个测试串行全绿。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，225 个测试串行全绿。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:630-692 `mock_app/ipc` 辅助函数）。
@@ -274,4 +274,4 @@ flowchart LR
 
 ## 8. 命令与事件契约一致性
 
-前端 25 个客户端文件调用的命令名与 main.rs:168-368 注册表（190 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 38#2 起保留给 IPC 级测试作事件断言通道。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:460）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。
+前端 25 个客户端文件调用的命令名与 main.rs:219-421 注册表（189 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 92#1 起已从生产注册表移除（前端零调用），仅测试 mock 注册面仍在使用。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:460）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。

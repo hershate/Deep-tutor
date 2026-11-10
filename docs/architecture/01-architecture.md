@@ -14,7 +14,7 @@ graph TD
     end
     subgraph Rust 进程
         IP --> GH[security::guard_handler 命令守卫]
-        GH --> CMD[190 个 tauri::command]
+        GH --> CMD[189 个 tauri::command]
         CMD --> DOM[21 个域模块 backend/*]
         DOM --> ST[store.rs SQLite + 事件 outbox]
         DOM --> FS[应用数据目录文件区]
@@ -37,7 +37,7 @@ graph TD
 
 ## 2. 进程与运行时形态
 
-- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 190 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:142`）。
+- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 189 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:286`）。
 - `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:272-274`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:62-80`）。
 - 单实例防护（`main.rs:83-146`，46#1）：`CreateMutexW` 命名互斥体（`DeepTutor-SingleInstance-7f3a9c2e`，句柄泄漏给进程生命周期保管）；`GetLastError()==ERROR_ALREADY_EXISTS` 时 `FindWindowW` 按窗口标题定位既有主窗口，`ShowWindow(SW_RESTORE)`+`SetForegroundWindow` 前置后新进程直接退出，找不到窗口时静默退出。kernel32/user32 纯 FFI，零新依赖；verify 通道无窗口且按目录隔离，不占全局互斥体。
 - 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:309-331`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
@@ -89,7 +89,7 @@ graph TD
 核心函数：
 | 函数 | 位置 | 行为 |
 |---|---|---|
-| `Store::open(root, owner)` | store.rs:126 | 工作区路径解析、WAL/外键/busy_timeout=10s/synchronous=NORMAL（:172-179）、`max(user_version, meta.schema_version) > SCHEMA_VERSION(2)` 拒绝降级（:216-231，user_version 惯例只写 1、版本实际记录在 meta 表，双取最大防任一通道漏记）、建通用表、指纹不一致 `或` meta.schema_version < SCHEMA_VERSION(2) 双条件决定是否跑全部 `migrate`（:189-264，判定 :232） |
+| `Store::open(root, owner)` | store.rs:126 | 工作区路径解析、WAL/外键/busy_timeout=10s/synchronous=NORMAL（:172-179）、`max(user_version, meta.schema_version) > SCHEMA_VERSION(3)` 拒绝降级（:216-231，user_version 惯例只写 1、版本实际记录在 meta 表，双取最大防任一通道漏记）、建通用表、指纹不一致 `或` meta.schema_version < SCHEMA_VERSION(3) 双条件决定是否跑全部 `migrate`（:189-264，判定 :232） |
 | `schema_fingerprint(conn)` | store.rs:102 | sqlite_master 全量 SHA-256 |
 | `replace_collection(namespace, expected_revision, value)` | store.rs:544 | 校验→配额（`ensure_quota_in_tx` :359，写事务内复查）→事务内 DELETE+INSERT→revision 乐观锁（:334-345）→events 写 `state.changed`（:612） |
 | `event(conn, kind, payload)` | store.rs:492 | INSERT events 后同事务调 `plugins::dispatch`（:502） |
@@ -265,11 +265,11 @@ graph TD
 - 流式：`useAgent.ts:129-171` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId；快照合并带 deltaEpoch 世代号，旧周期快照不得覆盖已拼接增量。
 - 样式：单文件 styles.css 约 1890 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63，状态 Badge 深底亮字保留色调通道）；断点 640/700/1024/1080/1100/1180/1240/1280/1320（:281-:1023 各处）；Esc 经 UI.tsx `MODAL_STACK`（:87）栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 规则覆盖 smooth scroll，系统偏好经 matchMedia 跟随（App.tsx:251）。
 
-## 8. 命令注册总览（`main.rs:168-368`，共 190 个）
+## 8. 命令注册总览（`main.rs:219-421`，共 189 个）
 
 | 分组 | 数量 | 代表命令 |
 |---|---|---|
-| 启动/存储 | 15 | startup 5 + 通用命令 10：bootstrap、events_since、replace_collection、reset_application |
+| 启动/存储 | 14 | startup 5 + 通用命令 9：bootstrap、replace_collection、reset_application（events_since 已随 92#1 从生产注册表移除） |
 | 安全 | 10 | login_local_user、create_access_token、set_security_quota |
 | 供应商/路由/用量 | 21 | route_provider_chat（含工具调用）、stream_provider_chat、export_usage_csv_file（对话框版；内存版 export_usage_csv 已随 61 号删除） |
 | 材料/笔记 | 15 | import_material_archive、read_material_media_chunk（二进制 ipc::Response）、verify_material_media、import_notes |
@@ -279,4 +279,4 @@ graph TD
 | 备份/分享/同步/运维 | 20 | backup 3 + sharing 7 + sync 7 + maintenance 3：import_full_backup、read_shared_plan、restore_sync_version、vacuum_database |
 | 社区/插件/导出/报告/搜索 | 43 | community 12 + plugins 9 + export 2 + reports 11 + engagement 8 + web 1：install_plugin、export_content、export_learning_report、search_workspace（claim_community_reminders 由 App.tsx 每 60 秒轮询领取） |
 
-前端调用的命令名与注册表逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用）；`events_since` 自 38#2 起前端不再调用，保留给 IPC 级测试作事件断言通道。五个 `*_file`/`save_plugin_asset` 落盘命令（export_provider_config_file、export_usage_csv_file、export_practice_mistakes_file、read_shared_plan_file、save_plugin_asset；37#5）由原生保存对话框选定目的地后写入。
+前端调用的命令名与注册表逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用）；`events_since` 自 92#1 起从生产注册表移除（前端零调用），仅测试 mock 注册面仍在使用。五个 `*_file`/`save_plugin_asset` 落盘命令（export_provider_config_file、export_usage_csv_file、export_practice_mistakes_file、read_shared_plan_file、save_plugin_asset；37#5）由原生保存对话框选定目的地后写入。
