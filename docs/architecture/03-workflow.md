@@ -30,7 +30,7 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test]
 ```
 
-发布节奏证据：dist/ 下 1.0.0→1.1.3 十个安装包；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README 均为 1.1.3，check-versions.mjs 校验；安装包附 .sha256 摘要）。
+发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.7，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
@@ -183,7 +183,7 @@ flowchart TD
 - 知识库体检 `get_library_overview`（notes/library.rs:67）：未关联自由笔记、完全相同正文、缺失原件、解析失败四类真实项；支持打开对应记录；不自动删除。
 
 ### 3.7 社区与提醒（Community）
-预约 `reserve`（community/mod.rs:834）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`、写事务内查重叠（31#35）；`claim_due_reminders`（:969，IPC `claim_community_reminders` commands.rs:112）提供到期提醒领取（逐条置 delivered_at 并发 `community.reminder_due`），由 `App.tsx` 每 60 秒轮询领取（`community.ts:53` claimDueReminders），提醒投递闭环已生效；取消预约/房间同步删提醒（:905,:935）。
+预约 `reserve`（community/mod.rs:843）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`、写事务内查重叠（31#35）；`claim_due_reminders`（:985，IPC `claim_community_reminders` commands.rs:112）提供到期提醒领取——仅领 remind_at≤now、未投递且房间尚未结束（结束时间上界 `start_at+duration > now`，1.1.7/114#7，与 95#4 active 口径同公式）的行，逐条置 delivered_at 并发 `community.reminder_due`；由 `App.tsx` 每 60 秒轮询领取（`community.ts:53` claimDueReminders，免打扰时段只落通知中心不弹 toast，1.1.7/115#4）；取消预约/房间同步删提醒（:921,:951）。
 
 ```mermaid
 sequenceDiagram

@@ -22,7 +22,7 @@
 
 - Windows 与 WebView2。
 - Node.js 24+ 和 npm。
-- Rust/Cargo 与 MSVC 构建环境。
+- Rust/Cargo 与 GNU 工具链（rust-toolchain.toml 钉住 1.99.1，目标 x86_64-pc-windows-gnu；链接依赖 dlltool，Windows 上由 winlibs MinGW-w64 提供）。
 
 ### 命令
 
@@ -67,7 +67,7 @@ Deep-tutor/
 ├── plan/                    # 当前验证契约
 ├── .github/workflows/       # Tauri 2 无界面 CI
 ├── .githooks/pre-push       # 推送前执行 make check
-├── scripts/                 # 版本校验与第三方许可收集（lint/build 各步骤）
+├── scripts/                 # 版本校验、dev 冒烟与第三方许可收集
 ├── Makefile                 # 构建与检查入口
 ├── rust-toolchain.toml      # 钉住 Rust 1.99.1（CI 与本地一致）
 ├── LICENSE / LICENSE-REASONIX # 本仓库 Apache-2.0 与历史上游 MIT 许可全文
@@ -82,6 +82,7 @@ Deep-tutor/
 ```bash
 make lint                         # Rust 格式、六处版本校验与 TypeScript/Vite 构建
 make test                         # 原生后端全量测试，串行执行
+make dev-smoke                    # dev server 冒烟：起 vite（专用端口 43198）→ 断言 index 200 → 按 PID 停服
 make check                        # 上述全部检查
 make build                        # Tauri 2 NSIS 安装包
 make hooks                        # 启用 .githooks/pre-push（推送前 make check）

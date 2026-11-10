@@ -33,44 +33,44 @@ graph TD
 架构模式：
 - 分层 + 域模块化（module-per-domain，目录即限界）。
 - 事件溯源辅助的 CRUD：领域状态写领域表，同时向 `events` 表追加事件（`store.rs:490-503`），前端靠事件驱动刷新。
-- 每域状态机 + 断点续接：所有长任务（方案/讲义/练习/评分/Agent/同步/项目反馈）有 `running/cancelling/…/interrupted` 状态列与 `recover()` 恢复函数（`startup.rs:382-398` 统一拉起）。
+- 每域状态机 + 断点续接：所有长任务（方案/讲义/练习/评分/Agent/同步/项目反馈）有 `running/cancelling/…/interrupted` 状态列与 `recover()` 恢复函数（`startup.rs:451-471` 统一拉起）。
 
 ## 2. 进程与运行时形态
 
 - 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 189 个命令（`main.rs` generate_handler 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:286`）。
 - `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:272-274`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:62-80`）。
 - 单实例防护（`main.rs:83-146`，46#1）：`CreateMutexW` 命名互斥体（`DeepTutor-SingleInstance-7f3a9c2e`，句柄泄漏给进程生命周期保管）；`GetLastError()==ERROR_ALREADY_EXISTS` 时 `FindWindowW` 按窗口标题定位既有主窗口，`ShowWindow(SW_RESTORE)`+`SetForegroundWindow` 前置后新进程直接退出，找不到窗口时静默退出。kernel32/user32 纯 FFI，零新依赖；verify 通道无窗口且按目录隔离，不占全局互斥体。
-- 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:309-331`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
+- 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:362-402`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
 
 ## 3. 模块清单与规模
 
 | 模块 | 文件/行数 | 职责 | 关键状态结构 |
 |---|---|---|---|
-| backend（根） | 6 / 2870 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:87`：store Mutex + 10 个域 State） |
-| startup | 1 / 765 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
-| store | 1 / 1427 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:63`） |
-| security | 6 / 2670 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:228`） |
-| providers | 15 / 9803 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:193`） |
-| web | 4 / 1063 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 2957 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
-| notes | 4 / 1113 | 笔记归档导入、知识库体检 | 无 |
-| learning | 9 / 5012 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
-| planning | 3 / 986 | 周视图、强度、目标、排期 | 复用 LearningState |
-| knowledge | 3 / 1378 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:29`） |
-| practice | 9 / 4552 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
-| review | 2 / 940 | SM-2 式间隔复习 | 复用 SQLite 事务 |
-| projects | 3 / 1027 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 3496 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:47`） |
-| engagement | 3 / 1222 | 全局搜索、通知、档案、首页 | 复用 |
-| reports | 3 / 1795 | 专注会话、学习报告、日历 | 复用 |
-| community | 3 / 1595 | 本机讨论/小组/预约/提醒 | 复用 |
-| plugins | 3 / 1059 | 声明式事件插件 | `PluginState`（`mod.rs:21`） |
-| backup | 5 / 3160 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:141`） |
-| sharing | 3 / 1004 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
-| sync | 7 / 2358 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:28-29`） |
-| maintenance | 3 / 1004 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
-| export | 7 / 2112 | 8 格式导出（含自研 PDF/Anki） | 无 |
-| 前端 | 64 / 7456 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:16`） |
+| backend（根） | 6 / 3014 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:87`：store Mutex + 10 个域 State） |
+| startup | 1 / 913 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
+| store | 1 / 1667 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:63`） |
+| security | 6 / 3009 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:228`） |
+| providers | 15 / 10594 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:193`） |
+| web | 4 / 1203 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
+| materials | 5 / 3110 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
+| notes | 4 / 1143 | 笔记归档导入、知识库体检 | 无 |
+| learning | 9 / 5121 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
+| planning | 3 / 1000 | 周视图、强度、目标、排期 | 复用 LearningState |
+| knowledge | 3 / 1394 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:29`） |
+| practice | 9 / 4761 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
+| review | 2 / 952 | SM-2 式间隔复习 | 复用 SQLite 事务 |
+| projects | 3 / 1065 | 项目成果版本与量规反馈 | 复用 |
+| agent | 4 / 3834 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:47`） |
+| engagement | 3 / 1367 | 全局搜索、通知、档案、首页 | 复用 |
+| reports | 3 / 1893 | 专注会话、学习报告、日历 | 复用 |
+| community | 3 / 1685 | 本机讨论/小组/预约/提醒 | 复用 |
+| plugins | 3 / 1148 | 声明式事件插件 | `PluginState`（`mod.rs:21`） |
+| backup | 5 / 3557 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:141`） |
+| sharing | 3 / 1058 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
+| sync | 7 / 2536 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:28-29`） |
+| maintenance | 3 / 1424 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
+| export | 7 / 2227 | 8 格式导出（含自研 PDF/Anki） | 无 |
+| 前端 | 64 / 8319 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:16`） |
 
 ## 4. 横切层
 
@@ -175,7 +175,7 @@ sequenceDiagram
     G->>S: 重启 sync 调度线程
 ```
 - 工作区路径：`user_workspace_path(root,user_id) = root.parent()/users/{user_id}/<db名>`（`security/mod.rs:112`）；thread-local `PRINCIPAL`（:34）由 `with_user` 设置，`ScopedBuilder::spawn`（:85-98）把 principal 继承到后台线程；`Store::new` 读它决定 owner，无 principal 时返回 `store_unavailable`（生产 fail-closed，测试环境回退根库语义，`store.rs:74-88`）。tauri 把 async 命令体 spawn 到 tokio worker（`respond_async`），thread-local 到不了那里——18 个 `#[tauri::command(async)]`（providers 4、backup 3、materials 3、maintenance 3、knowledge 1、根 commands 1、engagement 1、sync 1、web 1；44#1/2 与 73 号批次重 IO 命令移出主线程，81#3 deep link 导入同款）改经 `session_principal`（`security/mod.rs:76`）从会话派生当前用户（与 guard `current()` 同源）再显式传播进 `spawn_blocking`。
-- 会话：JWT HS256 手写实现（签名 `security/mod.rs:506`，签发 `jwt()` :545，验证 `verify` :591 常量时间比对 :605），secret 与 session token 存系统密钥库（`session-{id}`，:578）；7 天有效期（`SESSION_SECONDS` :31）。单活动会话：`issue()`（:643）签发前撤销全部仍活跃会话并清理其凭据槽，`logout`（:969）撤销该用户全部会话——切换用户后登出不会回退到上一位用户的会话。
+- 会话：JWT HS256 手写实现（签名 `security/mod.rs` signature:544，签发 `jwt()` :583，验证 `verify` :638 常量时间比对），secret 与 session token 存系统密钥库（`session-{id}`）；7 天有效期（`SESSION_SECONDS` :31）。单活动会话：`issue()`（:690）签发前撤销全部仍活跃会话并清理其凭据槽，`logout`（:1036）撤销该用户全部会话——切换用户后登出不会回退到上一位用户的会话。
 - PAT：`random::token("dtp_")` 47 字符（`random.rs:68`，BCryptGenRandom），库中仅存 SHA-256（`mod.rs:1170`），明文只在创建响应出现一次；`authenticate_access_token` 验证通过后经 `issue()` 建立会话（前端 SecurityPanel 的 PAT 登录入口调用）。
 - 表（根库，`migrate` `mod.rs:392`）：`local_users`(role CHECK 管理员/成员)、`auth_sessions`、`access_tokens(token_hash UNIQUE)`、`security_quotas(PK(user_id,resource))`、`share_index`。
 

@@ -23,8 +23,8 @@ sequenceDiagram
 ```
 
 1. 目录决策（`startup.rs:18-36`）：读 `app_local_data_dir/storage-location.json`（≤4096B，version==1，`StoredLocation` :22-27）失败则回退 `app_data_dir`。`validate_location`（:91-135）拒绝：相对路径/根目录/`..` 段/UNC 网络目录/Windows 与 Program Files 目录。`prepare_directory`（:159）自动创建缺失目录，无对话框。
-2. `assemble`（:345-405）顺序：`SecurityState` → `prepare_directory` → `Store::at_user(&path, 1)`（显式以 user1 打开引导库，含旧版单库向 user1 工作区的迁移；后续 `with_user(principal)` 重建时才用 `Store::new`）→ 10 个域 State 构造（materials/providers/learning/knowledge/agent/practice/review/sharing/community/plugins）→ `BackendState` manage → `security::initialize_session`（无有效会话且存在活跃管理员时自动签发首位会话，`SEC/mod.rs` initialize :747）→ `with_user(principal)` 内重建 store 连接并逐模块 `recover`（materials→providers chats/routing→learning→agent→practice→projects→knowledge→sync→reports，`startup.rs:388-398`；reports 把残留 running/paused 专注会话收尾为 interrupted）→ 独立 `with_user` 启动 sync 调度线程（:399-401）。
-3. 失败语义：初始化线程 panic 被 catch（:312-320）置 `startup_failed`；前端 20 秒看门狗（`src/backend/useBackendState.ts` armTimeout :114）后显示 DataDirectoryPanel，提供重试（`retry_storage_initialization` 仅在未运行且无 pending 时重新 `initialize`，`startup.rs:448-468`）、改目录（写 pointer 原子替换 `.tmp`+rename，:225-240）、恢复默认（只删 pointer 不动数据，:244-256）、立即重启。
+2. `assemble`（:414-474）顺序：`SecurityState` → `prepare_directory` → `Store::at_user(&path, 1)`（显式以 user1 打开引导库，含旧版单库向 user1 工作区的迁移；后续 `with_user(principal)` 重建时才用 `Store::new`）→ 10 个域 State 构造（materials/providers/learning/knowledge/agent/practice/review/sharing/community/plugins）→ `BackendState` manage → `security::initialize_session`（无有效会话且存在活跃管理员时自动签发首位会话，`SEC/mod.rs` initialize :797）→ `with_user(principal)` 内重建 store 连接并逐模块 `recover`（materials→providers chats/routing→learning→agent→practice→projects→knowledge→sync→reports，`startup.rs:451-471`；reports 把残留 running/paused 专注会话收尾为 interrupted）→ 独立 `with_user` 启动 sync 调度线程（:472-474）。
+3. 失败语义：初始化线程 panic 被 catch（:312-320）置 `startup_failed`；前端 20 秒看门狗（`src/backend/useBackendState.ts` armTimeout :114）后显示 DataDirectoryPanel，提供重试（`retry_storage_initialization` 仅在未运行且无 pending 时重新 `initialize`，`startup.rs:527`）、改目录（写 pointer 原子替换 `.tmp`+rename，:225-240）、恢复默认（只删 pointer 不动数据，:244-256）、立即重启。
 4. 命令可用性：未就绪时守卫 `ensure_ready`（`SEC/guard.rs:150`）对除存储外的命令返回 `startup_not_ready`，前端据此继续轮询。
 
 启动目录决策与失败出口：
@@ -135,7 +135,7 @@ sequenceDiagram
 
 模型调用统一 `model_json`（pipeline.rs:263）：`begin_step` → `routing::stream_chat`（request_id=`plan-{id}-{步}-{attempt}`，L/mod.rs:673）→ `parse_model_json`（剥 ``` 围栏，:177）→ 校验 → 失败共 2 次尝试（1 次重试）。
 
-**断点续接**：done 步骤的产物持久化在 `steps.output_json` 与 `artifacts_json $.stepN`（`complete_step` L/mod.rs:698 json_set）；`run` 先经 `step_output`+`persisted_artifact`（pipeline.rs:391 起）还原再执行未完成步骤。`begin_step`（L/mod.rs:647-660）对 status==interrupted 且 `providers::completed_chat` 的请求**复用原 request_id/attempt**，不重调上游、不重复计费。恢复入口：用户 `resume_learning_plan`（failed/cancelled/interrupted → running，L/mod.rs:461-478）与重启 `recover`（:915，running/cancelling → interrupted/cancelled）。
+**断点续接**：done 步骤的产物持久化在 `steps.output_json` 与 `artifacts_json $.stepN`（`complete_step` L/mod.rs:698 json_set）；`run` 先经 `step_output`+`persisted_artifact`（pipeline.rs:391 起）还原再执行未完成步骤。`begin_step`（L/mod.rs:647-660）对 status==interrupted 且 `providers::completed_chat` 的请求**复用原 request_id/attempt**，不重调上游、不重复计费。恢复入口：用户 `resume_learning_plan`（failed/cancelled/interrupted → running，L/mod.rs:461-478）与重启 `recover`（:975，running/cancelling → interrupted/cancelled；1.1.7 起主行 UPDATE 带活跃态守卫，changed==0 跳过翻行与事件）。
 
 八步流水线与分支：
 
@@ -205,7 +205,7 @@ sequenceDiagram
 5. 候选循环（failover 队列）：`circuit_permit`（:626）——熔断 open 且冷却未到 → `circuit_open` 拒绝；到期 CAS 置 half_open（:634）；`save_attempt`（:729）逐试次落库 + `provider.route_attempt` 事件（携带 upstream_request_id，前端借此切换流匹配，`useAgent.ts:129`）；调用直连层（StreamPolicy 取自 circuit timeout/retries）；成功 `record_circuit`（:670）closed 复位 failures；失败且 `can_failover`（:592）→ 下一候选。熔断读-改-写在 IMMEDIATE 事务内，消除并发窗口。
 6. 全部不可用 → `all_providers_unavailable`（routing.rs:1127）。
 
-熔断状态机（`provider_circuits.state`）：closed→open（failures≥3）；open→half_open（冷却 60s 到期 CAS）；half_open→closed（成功）/→open（失败或重启恢复，recover routing.rs:1272）。
+熔断状态机（`provider_circuits.state`）：closed→open（failures≥3）；open→half_open（冷却 60s 到期 CAS）；half_open→closed（成功）/→open（失败或重启恢复，recover routing.rs:1427）。
 
 路由候选循环（**仅 routing 模式生效**；direct/aggregate 单上游直连：无熔断、无故障转移、无候选级重试，与界面文案一致）：
 
@@ -258,7 +258,7 @@ stateDiagram-v2
 - 工作线程 `run_job`（:796）：取消预检 → parsing/35 → 重读原件并哈希复核 → `parse`（parse.rs:42，PDF/docx/pptx/epub/txt/md/媒体元数据等）→ parsing/85 → 事务 UPSERT `material_text` + materials→parsed(或 degraded)/100 + jobs→done + `material.parsed`。
 - 队尾 `schedule_next`（:1146）：取下一个 queued 先 spawn 再移除本 id（接续登记先于旧任务移除，不能提前显示空闲）。
 - 取消（:1085 起）：排队中直接置 cancelled；运行中置 AtomicBool + `cancel_requested=1` + status='cancelling'。
-- 恢复：`recover`（:1179）对 queued/parsing/cancelling：cancel_requested=1 → cancelled，否则回置 queued 重新 spawn。
+- 恢复：`recover`（:1238）对 queued/parsing/cancelling：cancel_requested=1 → cancelled，否则回置 queued 重新 spawn；重排循环中 spawn 失败遇 job_active 跳过该行继续（1.1.7，112#2），其余错误上抛。
 
 ZIP 资料包（materials/archive.rs:125 `import_archive` → `read_archive` :19）：扩展名 zip → 1-50MB → 内存 `ZipArchive` → 条目≤64 → `enclosed_name` 防穿越 → 拒嵌套 zip（:72）→ 单项≤50MB、压缩比≤200× → 总解压≤200MB → 逐条 `stage_bytes` 复用导入链；不在文件系统解包。
 
@@ -524,7 +524,7 @@ stateDiagram-v2
 
 | 实体（表.列） | 状态集 | 终态 | 恢复函数 |
 |---|---|---|---|
-| learning_plans.status | running/cancelling → done/degraded/failed/cancelled；interrupted | done/degraded/failed/cancelled | recover L/mod.rs:915 |
+| learning_plans.status | running/cancelling → done/degraded/failed/cancelled；interrupted | done/degraded/failed/cancelled | recover L/mod.rs:975 |
 | learning_plan_steps.status | pending/running/done/failed/cancelled/interrupted | done/failed/cancelled | 同上 + begin_step 复用 |
 | learning_lectures.status | empty/running/cancelling → done/failed/cancelled；interrupted | done/failed/cancelled | lecture::recover :806 |
 | knowledge_sessions.status | running/cancelling → done/failed/cancelled；interrupted | done/failed/cancelled | K::recover :858 |
@@ -536,7 +536,7 @@ stateDiagram-v2
 | provider_requests.status | running → done/cancelled/failed；interrupted | done/cancelled/failed | recover_chats P/mod.rs:1264 |
 | provider_route_runs.status | running/cancelling → 终态；interrupted | done/failed/cancelled | routing::recover :1304 |
 | provider_circuits.state | closed/open/half_open | — | recover :1304 |
-| material_jobs.status | queued/parsing/cancelling → done/failed/cancelled | done/failed/cancelled | materials::recover :1179 |
+| material_jobs.status | queued/parsing/cancelling → done/failed/cancelled | done/failed/cancelled | materials::recover :1238 |
 | sync_jobs.status | running(stage:request/version/verify/retention)/cancelling → done/failed/cancelled；interrupted | done/failed/cancelled | sync::recover :858 |
 | focus_sessions.status | running ⇄ paused → completed/cancelled；崩溃残留由启动 recover 收尾为 interrupted | completed/cancelled/interrupted | — |
 | shared_plans（派生） | active → revoked/expired | revoked/expired | — |
@@ -577,7 +577,7 @@ flowchart TD
 
 ## 14. 前端运行原理要点
 
-- 启动：bootstrap 对 `startup_not_ready` 每 250ms 重试至 20s（useBackendState.ts 看门狗 armTimeout :114）；认证错误码集合切 loginRequired；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次（:96）不弹错。
+- 启动：bootstrap 对 `startup_not_ready` 每 250ms 重试至 20s（useBackendState.ts 看门狗 armTimeout）；认证错误码集合切 loginRequired；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次不弹错。错误页统一挂恢复轮询（single-flight）：startup_not_ready 档 1s 且观察 overview.error，其余错误页与 20s 超时档 3s 只等 overview.ready，就绪自动重跑 start()——DataDirectoryPanel 重试成功后无需切换窗口即回正（1.1.7/111#4/#5）。
 - 实时渲染：页面按事件 kind 前缀 + 业务 id 过滤后调用对应 get 命令刷新（如 PlanGenerator.tsx:105 起 `plan.*` → getLearningPlan；`provider.chat_delta` 按 requestId 命中后 getProviderChat 拉增量）。
 - 媒体预览：MediaPlayer.tsx `get_material_media_info`（后端 streaming_sha256 边读边算复核）→ 循环 `read_material_media_chunk`（≤256KiB，二进制 `tauri::ipc::Response` 通道返回原始字节，不再经 JSON number[] 数组往返，46#2）→ 拼 Blob → `verify_material_media` 复核哈希 → objectURL 渲染，卸载 revoke。
 - 主题/无障碍：preferences 经 `replace_collection('preferences')` 持久化，App.tsx:180-183 同步 `data-theme/large-text/high-contrast/reduce-motion` 到 `<html>`；reduce-motion 另经 matchMedia 跟随系统偏好（App.tsx:251），`html.reduce-motion` 规则同时关闭 smooth scroll。

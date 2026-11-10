@@ -77,7 +77,7 @@ explicitly declared, not inferred from a file name.
 - sensitive: desktop/src-tauri/src/backend/export/**   # PDF/Anki/文件写磁盘，与 backup/sharing 同属文件输出域
 - sensitive: desktop/src-tauri/src/backend/store.rs
 - sensitive: desktop/src-tauri/src/backend/*/commands.rs   # 域级 IPC 入口：参数映射与路径遏制
-- sensitive: desktop/src-tauri/src/backend/commands.rs     # 根级 IPC 入口（bootstrap/replace_collection/reset_application 等 10 命令）
+- sensitive: desktop/src-tauri/src/backend/commands.rs     # 根级 IPC 入口（bootstrap/replace_collection/reset_application 等 9 个生产命令；events_since 已移出注册表仅存测试面）
 - sensitive: desktop/src-tauri/src/startup.rs              # 启动与数据目录 IPC 入口（set/reset_storage_location、restart_application 等 5 命令）
 - sensitive: desktop/src-tauri/src/main.rs
 
@@ -97,8 +97,10 @@ or authority. Do not claim a security property without an enforcing implementati
 - `make test` runs `cargo test --release --locked -- --test-threads=1` in `desktop/src-tauri`.
 - The Rust toolchain is pinned to 1.99.1 via `rust-toolchain.toml` (CI pins the same
   version); do not bump it casually — local stable and pinned rustfmt rules may diverge.
-- `make check` runs both. `make build` collects third-party licenses
-  (`scripts/collect-licenses.mjs`) and produces the Tauri 2 NSIS installer.
+- `make check` runs lint, tests and a dev-server smoke (`scripts/dev-smoke.sh`:
+  starts vite on dedicated port 43198 with --strictPort, asserts `http://127.0.0.1:43198/`
+  returns 200, then kills only the listening PID). `make build` collects third-party
+  licenses (`scripts/collect-licenses.mjs`) and produces the Tauri 2 NSIS installer.
 - Real provider accounts, media-codec playback and interactive installation require separate
   acceptance; local protocol fixtures and compilation do not prove those environments.
 - Preserve `NOTICE` and `LICENSE-REASONIX`. Historical sources and deleted product routes
