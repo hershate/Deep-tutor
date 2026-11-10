@@ -184,31 +184,59 @@ impl Store {
         {
             fs::create_dir_all(parent)?;
         }
-        let _open = STORE_OPEN_LOCK
-            .lock()
-            .map_err(|_| BackendError::new("store_unavailable", "数据库初始化锁不可用"))?;
+        // 107#5：稳态打开（迁移已发生过或无需发生）不走全局锁——user1 首迁
+        // 整库复制（GB 级可达数十秒）原先让进程内所有 Store::new 排队，
+        // 每命令新开连接的模式进一步放大阻塞面；锁只保护迁移段，且锁内
+        // 复核条件（并发首开时后进线程看到前者已建好目标库即跳过）
         if owner == Some(1) && root != path && root.exists() && !path.exists() {
-            let source = Connection::open(&root)?;
-            source.pragma_update(None, "busy_timeout", 10000)?;
-            source.execute_batch("PRAGMA wal_checkpoint(FULL)")?;
-            // 96#2：复制期间持源库写锁——staged→rename 原子性只保证目标路径
-            // 完整，防不了源文件复制中途被并发写者触发 WAL 自动 checkpoint
-            // （默认 1000 页阈值）改写同页，拷出页级新旧混合的撕裂库
-            // （SecurityState 惰性创建后长存的账户连接即可触发）；BEGIN
-            // IMMEDIATE 阻塞其他写者直至复制完成，drop 后释放
-            source.execute_batch("BEGIN IMMEDIATE")?;
-            // 先写临时文件再原子改名：复制中途崩溃不会在正式路径留下截断的库
-            let staged = path.with_file_name(format!(
-                "{}.migration-tmp",
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("store")
-            ));
-            let copy_result = fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path));
-            drop(source);
-            if let Err(error) = copy_result {
-                let _ = fs::remove_file(&staged);
-                return Err(error.into());
+            let _open = STORE_OPEN_LOCK
+                .lock()
+                .map_err(|_| BackendError::new("store_unavailable", "数据库初始化锁不可用"))?;
+            if root.exists() && !path.exists() {
+                let source = Connection::open(&root)?;
+                source.pragma_update(None, "busy_timeout", 10000)?;
+                // 103#9：FULL checkpoint 需等齐所有读者，进行中的读事务（报表
+                // 聚合/备份/流式大读）会使 busy=1——execute_batch 丢弃结果行
+                // 后带着未回置的 WAL 帧复制主文件，会拷出缺失最近提交的库。
+                // 读 busy 列，短暂重试，仍忙则拒绝本次迁移（下次打开重试），
+                // 绝不带着未回置的 WAL 复制（maintenance 的 14#20 同款先例）
+                let mut checkpointed = false;
+                for _attempt in 0..20 {
+                    let (busy, _log, _checkpointed): (i64, i64, i64) =
+                        source.query_row("PRAGMA wal_checkpoint(FULL)", [], |row| {
+                            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                        })?;
+                    if busy == 0 {
+                        checkpointed = true;
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                if !checkpointed {
+                    return Err(BackendError::new(
+                        "store_busy",
+                        "数据库正被长任务读取，迁移暂时无法完成，请稍后重试",
+                    ));
+                }
+                // 96#2：复制期间持源库写锁——staged→rename 原子性只保证目标路径
+                // 完整，防不了源文件复制中途被并发写者触发 WAL 自动 checkpoint
+                // （默认 1000 页阈值）改写同页，拷出页级新旧混合的撕裂库
+                // （SecurityState 惰性创建后长存的账户连接即可触发）；BEGIN
+                // IMMEDIATE 阻塞其他写者直至复制完成，drop 后释放
+                source.execute_batch("BEGIN IMMEDIATE")?;
+                // 先写临时文件再原子改名：复制中途崩溃不会在正式路径留下截断的库
+                let staged = path.with_file_name(format!(
+                    "{}.migration-tmp",
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("store")
+                ));
+                let copy_result = fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path));
+                drop(source);
+                if let Err(error) = copy_result {
+                    let _ = fs::remove_file(&staged);
+                    return Err(error.into());
+                }
             }
         }
         let conn = Connection::open(&path)?;

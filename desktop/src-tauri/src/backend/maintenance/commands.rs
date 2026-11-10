@@ -68,7 +68,8 @@ pub async fn cleanup_orphan_files<R: Runtime + 'static>(
                 let _store = store(&state)?;
                 super::cleanup(&app, &MaintenanceService::new(&state.learning))
             })();
-            super::super::sync::scheduler::start_scheduler(app.clone());
+            // 107#1：停机后统一恢复点——重启调度器并复位资料解析闸门
+            super::super::security::guard::resume_background(&app);
             result
         })
     })
@@ -101,7 +102,8 @@ pub async fn vacuum_database<R: Runtime + 'static>(app: AppHandle<R>) -> Result<
                 let store = store(&state)?;
                 super::vacuum(&app, &store, &MaintenanceService::new(&state.learning))
             })();
-            super::super::sync::scheduler::start_scheduler(app.clone());
+            // 107#1：停机后统一恢复点——重启调度器并复位资料解析闸门
+            super::super::security::guard::resume_background(&app);
             result
         })
     })

@@ -231,18 +231,32 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         .write(true)
         .create_new(true)
         .open(&temporary)?;
-    std::io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()?;
+    // 107#3：写入/落盘失败（盘满等）须回收 temporary——与 materials 的
+    // 99#4 同口径，`?` 提前返回会残留 .tmp 部分文件
+    if let Err(error) = (|| -> std::io::Result<()> {
+        std::io::Write::write_all(&mut file, bytes)?;
+        file.sync_all()
+    })() {
+        drop(file);
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
     drop(file);
     let existed = path.exists();
     if existed {
-        fs::rename(path, &backup)?;
+        // 107#3：rename 失败同样回收 temporary（目标文件未被触碰）
+        if let Err(error) = fs::rename(path, &backup) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.into());
+        }
     }
     match fs::rename(&temporary, path) {
         Ok(()) => {
-            if existed {
-                fs::remove_file(backup)?;
-            }
+            // 107#2：清理 .previous 失败不应把已落盘的写入报为失败——
+            // `?` 上抛会让 DB 停留旧哈希，此后 read/promote 永久
+            // artifact_modified_externally；残留 .previous 由维护孤儿
+            // 扫描兜底回收（与 59#1 的 atomic_export 语义对齐）
+            let _ = fs::remove_file(backup);
             Ok(())
         }
         Err(error) => {

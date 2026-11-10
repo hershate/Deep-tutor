@@ -1322,9 +1322,7 @@ pub fn authenticate_token<R: Runtime>(
         }
         issue(app, state, user_id, &store)
     })??;
-    with_user(user_id, || {
-        super::sync::scheduler::start_scheduler(app.clone())
-    });
+    with_user(user_id, || guard::resume_background(&app));
     let store = state.store()?;
     user(&store.conn, user_id, user_id)
 }

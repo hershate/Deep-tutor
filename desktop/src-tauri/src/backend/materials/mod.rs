@@ -92,6 +92,12 @@ impl MaterialState {
         self.database_path.clone()
     }
 
+    // 107#1 测试用：accepting 闸门探针（与 shared() 克隆共享同一 AtomicBool）
+    #[cfg(test)]
+    pub fn accepting_gate(&self) -> bool {
+        self.accepting.load(Ordering::Acquire)
+    }
+
     fn store(&self) -> Result<Store> {
         Store::new(self.database_path.clone())
     }

@@ -169,6 +169,9 @@ pub async fn reset_application<R: Runtime + 'static>(app: AppHandle<R>) -> Resul
                             let _ = std::fs::remove_dir_all(sync_dir);
                         });
                     }
+                    // 107#1：重置停机后同样走统一恢复点——复位资料解析闸门，
+                    // 同会话内新库可继续解析（原先进程不重启就静默停摆）
+                    super::security::guard::resume_background(&app);
                     finish(&app, mutation)
                 }
                 Err(error) => {

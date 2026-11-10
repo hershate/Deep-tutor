@@ -84,7 +84,13 @@ pub(crate) fn due(anchor: OffsetDateTime, last_failed: bool, now: OffsetDateTime
 #[cfg(not(test))]
 pub fn start_scheduler<R: Runtime + 'static>(app: AppHandle<R>) {
     let mut scheduler = SCHEDULER.lock().unwrap_or_else(|error| error.into_inner());
-    if scheduler.is_some() && !STOP.load(Ordering::Acquire) {
+    // 107#4：旧句柄已死（栈溢出/OOM 等极端情形线程死亡但 STOP 未置位）
+    // 时原先恒 early-return，auto_sync 静默停摆到进程重启——探活后替换重启
+    let alive = scheduler
+        .as_ref()
+        .map(|handle| !handle.is_finished())
+        .unwrap_or(false);
+    if alive && !STOP.load(Ordering::Acquire) {
         return;
     }
     STOP.store(false, Ordering::Release);

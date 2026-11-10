@@ -96,6 +96,20 @@ pub(crate) fn stop_all(state: &BackendState) -> Result<()> {
     }
 }
 
+// 107#1：switch/PAT/维护/重置等停机路径原先只重启同步调度器，materials 的
+// accepting 闸门停在 false——同会话内资料解析静默停摆（新导入永远「排队中」，
+// 无进度无报错）直到进程重启。统一恢复点：重启调度器 + 复位闸门并重排
+// queued 任务（与冷启动 startup.rs 的 materials::recover 同口径）
+pub(crate) fn resume_background<R: Runtime + 'static>(app: &AppHandle<R>) {
+    super::super::sync::scheduler::start_scheduler(app.clone());
+    if let Some(state) = app.try_state::<BackendState>() {
+        if let Err(error) = super::super::materials::recover(app, &state.learning.material_state())
+        {
+            eprintln!("resume_background: materials 恢复未完成 {}", error.code);
+        }
+    }
+}
+
 fn current<R: Runtime>(app: &AppHandle<R>) -> Result<i64> {
     let security = app.state::<SecurityState>();
     Ok(initialize(app, &security)?.0.id)
@@ -160,9 +174,7 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
     };
     let resume = |user| {
         if let Some(user) = user {
-            with_user(user, || {
-                super::super::sync::scheduler::start_scheduler(app.clone())
-            });
+            with_user(user, || resume_background(&app));
         }
     };
     let backend = app.try_state::<BackendState>();
@@ -282,5 +294,53 @@ where
             }),
             Err(error) => reject(invoke, error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::BackendState;
+
+    // 107#1：switch/PAT/维护/重置停机后 materials 的 accepting 闸门必须经
+    // resume_background 复位——原先停机路径只重启同步调度器，闸门停在
+    // false，同会话内资料解析静默停摆（新导入永远「排队中」）到进程重启
+    #[test]
+    fn resume_background_resets_materials_accepting_gate() {
+        let guard = tempfile::tempdir().unwrap();
+        let path = guard.path().join("app.db");
+        let materials = super::super::super::materials::MaterialState::new(&path).unwrap();
+        let probe = materials.shared();
+        let providers = super::super::super::providers::ProviderState::new(&path).unwrap();
+        let learning =
+            super::super::super::learning::LearningState::new(&path, &providers, &materials);
+        let agent = super::super::super::agent::AgentState::new(&path, &providers, &learning);
+        let practice =
+            super::super::super::practice::PracticeState::new(&path, &providers, &learning);
+        let review = super::super::super::review::ReviewState::new(&path, &learning);
+        let sharing = super::super::super::sharing::SharingState::new(&learning);
+        let knowledge =
+            super::super::super::knowledge::KnowledgeState::new(&path, &providers, &materials);
+        let app = tauri::test::mock_builder()
+            .manage(BackendState {
+                store: std::sync::Mutex::new(crate::backend::store::Store::new(&path).unwrap()),
+                materials,
+                providers,
+                learning,
+                agent,
+                practice,
+                review,
+                knowledge,
+                community: super::super::super::community::CommunityState::new(&path),
+                plugins: super::super::super::plugins::PluginState::new(&path).unwrap(),
+                sharing,
+            })
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        assert!(probe.accepting_gate());
+        stop_all(&app.state::<BackendState>()).unwrap();
+        assert!(!probe.accepting_gate(), "停机后闸门应落下");
+        resume_background(app.handle());
+        assert!(probe.accepting_gate(), "统一恢复点应复位闸门");
     }
 }
