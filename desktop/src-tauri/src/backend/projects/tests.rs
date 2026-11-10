@@ -339,4 +339,12 @@ fn completed_feedback_respects_late_cancellation() {
         |row| row.get(0),
     ).unwrap();
     assert_eq!(completed_events, 0, "取消交叠不得发 feedback_completed");
+    // 121#1：取消交叠的终态必须发 feedback_cancelled——原先静默提交，
+    // 前端只认 project.* 事件刷新，UI 停留「正在取消」双按钮锁死
+    let cancelled_events: i64 = store.conn.query_row(
+        "SELECT COUNT(*) FROM events WHERE kind = 'project.feedback_cancelled' AND json_extract(payload, '$.versionId') = ?1",
+        params![cancelling_id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(cancelled_events, 1, "取消交叠终态必须发 feedback_cancelled");
 }

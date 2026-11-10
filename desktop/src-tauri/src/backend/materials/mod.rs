@@ -6,7 +6,7 @@ pub mod parse;
 use super::commands::emit;
 use super::error::{BackendError, Result};
 use super::store::Store;
-use parse::{parse_with_progress, MAX_FILE_BYTES};
+use parse::{parse_with_progress, ParsedDocument, MAX_FILE_BYTES};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -886,33 +886,80 @@ fn run_job<R: Runtime>(
         ));
     }
     transition(&app, &store, &root, id, job_id, "parsing", 85, None)?;
+    finish_parse(&app, &store, id, job_id, &parsed)
+}
+
+/// 126#1/#2：解析终态落库收敛为独立函数（供回归测试直调）——终态 UPDATE
+/// 带活跃态守卫，取消交叠（cancelling）映射终态 cancelled 且解析结果
+/// 照存（对齐 98#5 与 lecture/projects 的 1.1.8 口径）；事件按真实终态
+/// 生成并携带 warning
+pub(crate) fn finish_parse<R: Runtime>(
+    app: &AppHandle<R>,
+    store: &Store,
+    id: i64,
+    job_id: i64,
+    parsed: &ParsedDocument,
+) -> Result<()> {
     let tx = store.conn.unchecked_transaction()?;
+    // warning 取解析阶段与入库阶段先到者：网页导入的截断警示不被
+    // 纯文本解析的“无警告”覆盖（10#25）
+    let final_status = if parsed.warning.is_some() {
+        "degraded"
+    } else {
+        "parsed"
+    };
+    // 126#1：终态 UPDATE 带活跃态守卫——最后一次取消检查（:882）到本事务
+    // 提交之间的取消提交（cancelling）不再被覆写为 parsed/degraded（对齐
+    // 98#5 与 lecture/projects 的 1.1.8 口径，materials 是同族第三个域）；
+    // 取消交叠时解析结果照存（material_text/长度/模式均写入，镜像「已生成
+    // 单元保留」）但终态记 cancelled
     let changed = tx.execute(
-        // warning 取解析阶段与入库阶段先到者：网页导入的截断警示不被
-        // 纯文本解析的“无警告”覆盖（10#25）
-        "UPDATE materials SET status = ?2, progress = 100, text_length = ?3, parse_mode = ?4, warning = COALESCE(?5, warning), error_code = NULL, error_message = NULL, updated_at = ?6 WHERE id = ?1",
-        params![id, if parsed.warning.is_some() { "degraded" } else { "parsed" }, parsed.text.chars().count() as i64, parsed.mode, parsed.warning, now()?],
+        "UPDATE materials SET status = ?2, progress = 100, text_length = ?3, parse_mode = ?4, warning = COALESCE(?5, warning), error_code = NULL, error_message = NULL, updated_at = ?6 WHERE id = ?1 AND status IN ('queued', 'parsing')",
+        params![id, final_status, parsed.text.chars().count() as i64, parsed.mode, parsed.warning, now()?],
     )?;
-    if changed == 0 {
-        return Err(BackendError::new(
-            "material_deleted",
-            "资料已删除，未提交解析结果",
-        ));
-    }
+    let effective_status = if changed == 0 {
+        let row_status: Option<String> = tx
+            .query_row(
+                "SELECT status FROM materials WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if row_status.as_deref() != Some("cancelling") {
+            return Err(BackendError::new(
+                "material_deleted",
+                "资料已删除或已写入终态，未提交解析结果",
+            ));
+        }
+        // 取消交叠：终态 cancelled，结果照存
+        tx.execute(
+            "UPDATE materials SET status = 'cancelled', progress = 100, text_length = ?2, parse_mode = ?3, warning = COALESCE(?4, warning), error_code = 'cancelled', error_message = '解析完成前已请求取消，结果已保留', updated_at = ?5 WHERE id = ?1 AND status = 'cancelling'",
+            params![id, parsed.text.chars().count() as i64, parsed.mode, parsed.warning, now()?],
+        )?;
+        tx.execute(
+            "UPDATE material_jobs SET status = 'cancelled', error_code = 'cancelled', error_message = '解析完成前已请求取消，结果已保留', updated_at = ?1 WHERE id = ?2",
+            params![now()?, job_id],
+        )?;
+        "cancelled"
+    } else {
+        tx.execute(
+            "UPDATE material_jobs SET status = 'done', updated_at = ?1 WHERE id = ?2",
+            params![now()?, job_id],
+        )?;
+        final_status
+    };
     tx.execute(
         "INSERT INTO material_text (material_id, content, mode, updated_at) VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(material_id) DO UPDATE SET content = excluded.content, mode = excluded.mode, updated_at = excluded.updated_at",
         params![id, parsed.text, "native", now()?],
     )?;
-    tx.execute(
-        "UPDATE material_jobs SET status = 'done', updated_at = ?1 WHERE id = ?2",
-        params![now()?, job_id],
-    )?;
     sync_resources(&tx)?;
+    // 126#2：事件 kind/payload 按真实终态生成（原先硬编码 material.parsed/
+    // "parsed"——degraded 与取消交叠对事件流消费方失真），并携带 warning
     let event = Store::event(
         &tx,
-        "material.parsed",
-        json!({"materialId": id, "jobId": job_id, "status": "parsed", "progress": 100}),
+        &format!("material.{effective_status}"),
+        json!({"materialId": id, "jobId": job_id, "status": effective_status, "progress": 100, "warning": parsed.warning}),
     )?;
     tx.commit()?;
     emit(&app, &event);
@@ -1940,5 +1987,147 @@ mod tests {
                 worker.join().unwrap().unwrap();
             }
         });
+    }
+
+    // 126#1/#2：解析终态守卫回归——取消交叠（cancelling）不被覆写为
+    // parsed/degraded，终态 cancelled 且解析结果照存；事件按真实终态生成
+    //（degraded 不再恒报 material.parsed/parsed）并携带 warning
+    #[test]
+    fn parse_terminal_respects_late_cancellation_and_true_event_kind() {
+        let (_directory, app, events) = setup();
+        let state = app.state::<MaterialState>();
+        let ingest = import_text(
+            app.handle(),
+            &state,
+            "取消竞态".into(),
+            "真实解析内容".into(),
+        )
+        .unwrap();
+        let id = ingest.material.id;
+        let store = state.store().unwrap();
+        let timestamp = now().unwrap();
+        let seed = |status: &str| {
+            store
+                .conn
+                .execute(
+                    "UPDATE materials SET status = ?2, progress = 85 WHERE id = ?1",
+                    params![id, status],
+                )
+                .unwrap();
+            store.conn.execute(
+                "INSERT INTO material_jobs (material_id, kind, attempt, status, created_at, updated_at) VALUES (?1, 'parse', 1, ?2, ?3, ?3)",
+                params![id, status, timestamp],
+            ).unwrap();
+            store.conn.last_insert_rowid()
+        };
+        let clean = |job_id: i64| {
+            store
+                .conn
+                .execute("DELETE FROM material_jobs WHERE id = ?1", params![job_id])
+                .unwrap();
+            store.conn.execute("DELETE FROM events", []).unwrap();
+            events.lock().unwrap().clear();
+        };
+        // 对照组一：parsing → parsed + material.parsed（warning 为 null）
+        let job = seed("parsing");
+        finish_parse(
+            app.handle(),
+            &store,
+            id,
+            job,
+            &ParsedDocument {
+                text: "真实解析内容".into(),
+                mode: "plain".into(),
+                warning: None,
+            },
+        )
+        .unwrap();
+        let detail_row = detail(&state, id).unwrap();
+        assert_eq!(detail_row.material.status, "parsed");
+        assert_eq!(detail_row.text.as_deref(), Some("真实解析内容"));
+        let kinds: Vec<String> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap().to_string())
+            .collect();
+        assert!(
+            kinds.iter().any(|kind| kind == "material.parsed"),
+            "{kinds:?}"
+        );
+        clean(job);
+        // 对照组二：degraded 终态的事件必须是 material.degraded（126#2）
+        let job = seed("parsing");
+        finish_parse(
+            app.handle(),
+            &store,
+            id,
+            job,
+            &ParsedDocument {
+                text: "部分内容".into(),
+                mode: "plain".into(),
+                warning: Some("截断警示".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(detail(&state, id).unwrap().material.status, "degraded");
+        let kinds: Vec<String> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap().to_string())
+            .collect();
+        assert!(
+            kinds.iter().any(|kind| kind == "material.degraded"),
+            "{kinds:?}"
+        );
+        clean(job);
+        // 实验组：cancelling → 终态 cancelled，结果照存，事件 material.cancelled
+        let job = seed("cancelling");
+        finish_parse(
+            app.handle(),
+            &store,
+            id,
+            job,
+            &ParsedDocument {
+                text: "取消前完成的内容".into(),
+                mode: "plain".into(),
+                warning: None,
+            },
+        )
+        .unwrap();
+        let detail_row = detail(&state, id).unwrap();
+        assert_eq!(
+            detail_row.material.status, "cancelled",
+            "取消不得被覆写为 parsed"
+        );
+        assert_eq!(
+            detail_row.text.as_deref(),
+            Some("取消前完成的内容"),
+            "取消交叠时解析结果照存"
+        );
+        assert_eq!(
+            detail_row.material.error.as_ref().unwrap().code,
+            "cancelled"
+        );
+        let kinds: Vec<String> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap().to_string())
+            .collect();
+        assert!(
+            kinds.iter().any(|kind| kind == "material.cancelled"),
+            "{kinds:?}"
+        );
+        let job_status: String = store
+            .conn
+            .query_row(
+                "SELECT status FROM material_jobs WHERE id = ?1",
+                params![job],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(job_status, "cancelled");
     }
 }

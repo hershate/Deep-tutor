@@ -411,8 +411,17 @@ fn complete<R: Runtime>(
     let changed = tx.execute("UPDATE project_versions SET status = 'done', feedback_json = ?1, error_code = NULL, error_message = NULL, updated_at = ?2, completed_at = ?2 WHERE id = ?3 AND status = 'running'", params![serde_json::to_string(feedback)?, timestamp, id])?;
     if changed == 0 {
         let cancelled = tx.execute("UPDATE project_versions SET status = 'cancelled', feedback_json = ?1, error_code = 'cancelled', error_message = '评价完成前已请求取消，结果已保留', updated_at = ?2 WHERE id = ?3 AND status = 'cancelling'", params![serde_json::to_string(feedback)?, timestamp, id])?;
+        // 121#1：取消交叠的终态必须发事件——原先静默提交，前端只认 project.*
+        // 事件刷新，UI 停留「正在取消」且取消/恢复按钮双锁死（cancel() 发的
+        // cancel_requested 是非终态事件）；对齐 fail() 的 feedback_cancelled
         if cancelled > 0 {
+            let event = Store::event(
+                &tx,
+                "project.feedback_cancelled",
+                json!({"versionId": id, "projectId": version(&tx, id)?.project_id, "error": {"code": "cancelled", "message": "评价完成前已请求取消，结果已保留"}}),
+            )?;
             tx.commit()?;
+            emit(app, &event);
         } else {
             // 已被并发路径写入终态——保持现状
             tx.commit()?;
