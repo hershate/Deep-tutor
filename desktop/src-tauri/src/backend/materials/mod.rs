@@ -1266,7 +1266,16 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &MaterialState) -> Result<
             )?;
         } else {
             transition(app, &store, &state.root(), id, job_id, "queued", 10, None)?;
-            spawn_job(app.clone(), state, id, job_id, false)?;
+            // 112#2：spawn 失败改 continue——job_active（stop_all 失败后仍有
+            // 活跃解析）原先经 ? 上抛中断整个 recover 循环，排在后面的其余
+            // queued 任务不被重排，闸门已复位却停在半途；active 命中时跳过
+            // 该行（活跃解析结束后 schedule_next 会补起），其余错误仍上抛
+            if let Err(cause) = spawn_job(app.clone(), state, id, job_id, false) {
+                if cause.code == "job_active" {
+                    continue;
+                }
+                return Err(cause);
+            }
         }
     }
     Ok(())

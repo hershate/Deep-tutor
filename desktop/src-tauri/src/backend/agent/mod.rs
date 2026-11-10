@@ -1307,7 +1307,11 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &AgentState) -> Result<()>
             )
         };
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute("UPDATE agent_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5", params![status, error.code, error.message, now()?, id])?;
+        // 112#1：同 learning——活跃态守卫防仍存活线程的终态被 interrupted 覆写
+        let changed = tx.execute("UPDATE agent_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id])?;
+        if changed == 0 {
+            continue;
+        }
         // 56#5：崩溃残留的工具调用行一并收口——run 已判 interrupted，其
         // running 态的 agent_tool_calls 永无人翻（同 id 重放还会撞 tool_active）
         tx.execute(

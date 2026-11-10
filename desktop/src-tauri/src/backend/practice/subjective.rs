@@ -700,7 +700,11 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &PracticeState) -> Result<
             )
         };
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute("UPDATE practice_answers SET status = ?1, error_code = ?2, error_message = ?3 WHERE id = ?4", params![status, error.code, error.message, id])?;
+        // 112#1：同 learning——活跃态守卫防仍存活线程的终态被覆写
+        let changed = tx.execute("UPDATE practice_answers SET status = ?1, error_code = ?2, error_message = ?3 WHERE id = ?4 AND status IN ('grading', 'cancelling')", params![status, error.code, error.message, id])?;
+        if changed == 0 {
+            continue;
+        }
         let event = Store::event(
             &tx,
             if cancelled {

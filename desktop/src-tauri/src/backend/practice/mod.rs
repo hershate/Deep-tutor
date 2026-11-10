@@ -1633,7 +1633,11 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &PracticeState) -> Result<
             )
         };
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute("UPDATE practice_sets SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5", params![status, error.code, error.message, now()?, id])?;
+        // 112#1：同 learning——活跃态守卫防仍存活线程的终态被覆写
+        let changed = tx.execute("UPDATE practice_sets SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5 AND status IN ('generating', 'cancelling')", params![status, error.code, error.message, now()?, id])?;
+        if changed == 0 {
+            continue;
+        }
         let event = Store::event(
             &tx,
             if cancelled {
