@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { ArrowRight, CheckCircle2, CircleAlert, Lightbulb, PenLine, RefreshCw, SlidersHorizontal } from 'lucide-react'
-import { Badge, Button, Modal, ProgressBar, SectionHeader } from './UI'
+import { ArrowRight, CheckCircle2, CircleAlert, Lightbulb, PenLine, RefreshCw, SlidersHorizontal, XCircle } from 'lucide-react'
+import { Badge, Button, ConfirmDialog, Modal, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace, deltaThrottle } from '../backend/client'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeSet } from '../backend/practice'
 import { statusName } from '../status'
@@ -116,6 +116,16 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
       notify('已从保存的作答恢复评分')
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
+  // 123#7：评分永久失败的终局出口——放弃该题按 0 分计（不可逆，确认后执行）
+  const [abandonOpen, setAbandonOpen] = useState(false)
+  const abandon = async () => {
+    if (!answer || busy) return
+    setBusy(true)
+    try {
+      onUpdated(await practiceBackend.abandonAnswer(answer.id))
+      notify('已放弃该题评分，按 0 分计')
+    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
+  }
   const generate = async () => {
     if (busy || !input.planId) return
     setBusy(true)
@@ -146,7 +156,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
       <textarea rows={question.kind === 'essay' ? 9 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} onChange={event => { const next = clampToBytes(event.target.value, 30000); if (question) draftByQuestion.current[question.id] = next; setDraft(next) }} disabled={recorded || busy} placeholder="先组织自己的回答，再由后端按评分要点评价…" aria-label={`作答：${question.prompt}`} />
       {hint && !recorded && <div className="hint-box"><Lightbulb size={17} /><p>{question.hint}</p></div>}
       {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>{answer.status === 'cancelling' ? '正在取消评分' : '正在按评分要点判分'}</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancel()} disabled={busy || answer.status === 'cancelling'}>取消评分</Button></div>}
-      {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><CircleAlert size={21} /><h3>评分尚未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分任务已停止'}</p><p>原始作答已保留，恢复不会重复提交答案。</p><Button onClick={() => void resume()} disabled={busy}>恢复评分<RefreshCw size={17} /></Button></div>}
+      {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><CircleAlert size={21} /><h3>评分尚未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分任务已停止'}</p><p>原始作答已保留，恢复不会重复提交答案；模型持续失败时可放弃该题按 0 分计。</p><Button onClick={() => void resume()} disabled={busy}>恢复评分<RefreshCw size={17} /></Button><Button variant="secondary" onClick={() => setAbandonOpen(true)} disabled={busy}>放弃本题，按 0 分计<XCircle size={17} /></Button></div>}
       {recorded && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>本组全部题目判分完成后统一显示得分、要点与解析。</p></div>}
       {answer?.status === 'done' && <div className="subjective-rubric"><div><CheckCircle2 size={20} /><h3>{answer.score === null ? '评分已保存，按当前设置仅显示提示' : answer.correct ? '达到本题掌握阈值' : '本题仍需巩固'}</h3>{answer.score !== null && <strong>{answer.score.toFixed(2)} / {answer.maxScore?.toFixed(2)}</strong>}</div>
         {answer.feedback.overallFeedback && <p>{answer.feedback.overallFeedback}</p>}
@@ -168,5 +178,6 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
   </section><aside className="practice-side"><section className="surface"><SectionHeader title="主观题历史" description="点击恢复保存的作答与评分" /><div className="practice-history-list">{history.filter(item => item.kinds.some(kind => ['short', 'essay'].includes(kind))).map(item => <button key={item.id} disabled={busy || selecting} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>第 {item.attempt} 次尝试 · {statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</div></section><section className="surface"><SectionHeader title="评分原则" /><p className="side-copy">每题 1 分，按保存的评分要点加权。针对练习默认 80% 为掌握阈值，模拟考试按所配通过线判定；低于阈值的作答进入真实错题记录。模型必须返回资料原文引用，无效评分不会被保存为成绩。</p></section></aside>
 
     <Modal open={setupOpen} onClose={() => setSetupOpen(false)} title="生成简答与论述题"><div className="form-stack"><label>学习方案<select value={input.planId} onChange={event => setInput({ ...input, planId: event.target.value, stageId: null })}><option value="" disabled>选择已采用的方案</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.goal}</option>)}</select></label><label>练习范围<select value={input.stageId ?? ''} onChange={event => setInput({ ...input, stageId: event.target.value || null })}><option value="">整个学习方案</option>{selectedPlan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>难度<select value={input.difficulty} onChange={event => setInput({ ...input, difficulty: event.target.value as PracticeInput['difficulty'] })}><option value="adaptive">自适应</option><option value="basic">基础</option><option value="advanced">进阶</option><option value="comprehensive">综合</option></select></label><label>反馈方式<select value={input.feedbackMode} onChange={event => setInput({ ...input, feedbackMode: event.target.value as PracticeInput['feedbackMode'] })}><option value="immediate">每题判分后显示分项反馈</option><option value="deferred">全部判分后统一显示</option><option value="hints">只给提示，不显示标准答案</option></select></label><p className="form-help">默认生成简答与论述各 1 道，每题含 2 至 6 项评分要点。</p><Button onClick={() => void generate()} disabled={busy || !input.planId}>开始真实生成<ArrowRight size={17} /></Button></div></Modal>
+    <ConfirmDialog open={abandonOpen} onClose={() => setAbandonOpen(false)} onConfirm={() => { setAbandonOpen(false); void abandon() }} title="放弃该题评分？" description="该题将按 0 分计入本组练习并标记为已放弃，不可撤销；原始作答保留，不会伪造模型评分。" confirmLabel="放弃本题，按 0 分计" busy={busy} />
   </div>
 }

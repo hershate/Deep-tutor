@@ -18,6 +18,11 @@ use tauri::{AppHandle, Runtime};
 
 pub const GRADING_SYSTEM: &str = "你是学习测评评分器。只能依据题目、学生作答、给定评分要点和资料原文评分，不增加评分项，不迎合学生，不虚构资料。只返回要求的 JSON 对象。";
 
+/// 123#4：同时在飞的主观评分上限——整卷快速提交时线程/连接/模型请求
+/// 按题扇出原先无界；4 与生成域单 worker 口径同量级，评分请求本身
+/// 有独立的取消与超时约束
+pub const MAX_CONCURRENT_GRADING: usize = 4;
+
 fn ensure_column(conn: &Connection, table: &str, name: &str, declaration: &str) -> Result<()> {
     // 59#3：与 variants 共用 store 的幂等补列实现（46#4），消除域内复制漂移面
     store::ensure_column(conn, table, name, declaration)
@@ -225,22 +230,57 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &PracticeState, answer_id: i64) 
     let result = super::super::security::thread_builder()
         .name(format!("practice-grade-{answer_id}"))
         .spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                grade(&worker_app, &worker_state, answer_id)
-            }));
-            match result {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => {
-                    let _ = fail(&worker_app, &worker_state, answer_id, error);
+            // 123#4：并发闸——在飞评分压到 MAX_CONCURRENT_GRADING，多余的
+            // 在此排队；排队期间取消/停机照常生效（标志命中即按取消收尾，
+            // stop 的 15 秒等待窗不会被永久的许可等待卡死）
+            let mut held = false;
+            loop {
+                {
+                    let mut running = worker_state
+                        .grading_permits
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if *running < MAX_CONCURRENT_GRADING {
+                        *running += 1;
+                        held = true;
+                        break;
+                    }
                 }
-                Err(_) => {
-                    let _ = fail(
-                        &worker_app,
-                        &worker_state,
-                        answer_id,
-                        BackendError::new("task_panicked", "主观评分任务异常终止"),
-                    );
+                if cancelled(&worker_state, answer_id).unwrap_or(true) {
+                    break;
                 }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if held {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    grade(&worker_app, &worker_state, answer_id)
+                }));
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
+                        let _ = fail(&worker_app, &worker_state, answer_id, error);
+                    }
+                    Err(_) => {
+                        let _ = fail(
+                            &worker_app,
+                            &worker_state,
+                            answer_id,
+                            BackendError::new("task_panicked", "主观评分任务异常终止"),
+                        );
+                    }
+                }
+                let mut running = worker_state
+                    .grading_permits
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                *running = running.saturating_sub(1);
+            } else {
+                let _ = fail(
+                    &worker_app,
+                    &worker_state,
+                    answer_id,
+                    BackendError::new("cancelled", "主观评分已取消"),
+                );
             }
             // 90#11：锁中毒恢复继续用（73#16 语义）——静默跳过会让 grading
             // 残留死键，恢复/重试被误判「评分进行中」
@@ -631,6 +671,91 @@ pub fn cancel<R: Runtime>(
     super::detail(state, task.set_id)
 }
 
+/// 123#7：主观评分永久失败的终局出口——恢复评分是首选，但模型反复
+/// invalid_model_output 时作答既不能重答（question_id 已占用）也没有
+/// 删除命令，考试被 grading_in_progress 永久挡在交卷外。显式放弃把该
+/// 作答按 0 分收尾：用户主动选择、feedback 标记 abandoned、不写模型
+/// 评分——不违反「不伪造评分结果」。与未作答同口径不进错题本
+///（03#13-27：无判分依据的 0 分 ≠ 做错）。
+pub fn abandon<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &PracticeState,
+    answer_id: i64,
+) -> Result<PracticeSetDetail> {
+    let store = state.store()?;
+    let task = task(&store.conn, answer_id)?;
+    match task.status.as_str() {
+        "done" => {
+            return Err(BackendError::new("answer_already_graded", "这道题已判分"));
+        }
+        "grading" | "cancelling" => {
+            return Err(BackendError::new(
+                "grading_in_progress",
+                "评分仍在进行，请先取消或等待结束再放弃",
+            ));
+        }
+        "failed" | "cancelled" | "interrupted" => {}
+        _ => {
+            return Err(BackendError::new(
+                "invalid_answer_status",
+                "作答状态不支持放弃",
+            ));
+        }
+    }
+    let tx = store.conn.unchecked_transaction()?;
+    let timestamp = now()?;
+    let changed = tx.execute(
+        "UPDATE practice_answers SET status = 'done', score = 0, max_score = 1, correct = 0, feedback_json = ?1, error_code = NULL, error_message = NULL WHERE id = ?2 AND status IN ('failed', 'cancelled', 'interrupted')",
+        params![
+            serde_json::to_string(&json!({"abandoned": true, "message": "已放弃该题评分，按 0 分计。"}))?,
+            answer_id
+        ],
+    )?;
+    if changed == 0 {
+        return Err(BackendError::new(
+            "answer_already_graded",
+            "这道题的评分状态已改变，请刷新后重试",
+        ));
+    }
+    // 与 grade() 同守卫：hints 遮蔽不写 evidence；考试延迟到交卷补写
+    //（finalize 的 done 行回填会把本题按 0 分计入）
+    if task.feedback_mode != "hints" && task.mode != "exam" {
+        let nodes: Vec<String> = serde_json::from_str(&task.node_ids)?;
+        for node in nodes {
+            tx.execute(
+                "INSERT INTO learning_node_evidence (plan_id, node_id, kind, score, max_score, details_json, created_at, evidence_key) VALUES (?1, ?2, 'practice', 0, 1, ?3, ?4, ?5) ON CONFLICT(plan_id, node_id, evidence_key) DO UPDATE SET score = excluded.score, max_score = excluded.max_score, details_json = excluded.details_json, created_at = excluded.created_at",
+                params![
+                    task.plan_id,
+                    node,
+                    serde_json::to_string(&json!({"setId": task.set_id, "questionId": task.question_id, "answerId": answer_id, "abandoned": true}))?,
+                    timestamp,
+                    format!("practice-answer-{answer_id}")
+                ],
+            )?;
+        }
+    }
+    let answered: u32 = tx.query_row(
+        "SELECT COUNT(*) FROM practice_answers WHERE set_id = ?1 AND status = 'done'",
+        params![task.set_id],
+        |row| row.get(0),
+    )?;
+    let set = set_row(&tx, task.set_id)?;
+    let completed = answered == set.total_questions && set.mode != "exam";
+    if completed {
+        tx.execute("UPDATE practice_sets SET status = 'completed', score = (SELECT COALESCE(SUM(score), 0) FROM practice_answers WHERE set_id = practice_sets.id AND status = 'done'), completed_at = ?1, updated_at = ?1 WHERE id = ?2", params![timestamp, task.set_id])?;
+    } else {
+        tx.execute("UPDATE practice_sets SET score = (SELECT COALESCE(SUM(score), 0) FROM practice_answers WHERE set_id = practice_sets.id AND status = 'done'), updated_at = ?1 WHERE id = ?2", params![timestamp, task.set_id])?;
+    }
+    let event = Store::event(
+        &tx,
+        "practice.answer_abandoned",
+        json!({"setId": task.set_id, "questionId": task.question_id, "answerId": answer_id, "answered": answered}),
+    )?;
+    tx.commit()?;
+    emit(app, &event);
+    super::detail(state, task.set_id)
+}
+
 pub fn stop(state: &PracticeState) -> Result<()> {
     let flags = state
         .grading_active
@@ -655,7 +780,14 @@ pub fn stop(state: &PracticeState) -> Result<()> {
             }
         }
     }
-    let deadline = Instant::now() + Duration::from_secs(15);
+    // 123#4：等待窗按在飞评分数放宽——固定 15 秒在并发闸排队的整卷
+    // 提交场景可能不够（每个在飞请求各自需要收到取消并收尾）
+    let running: usize = state
+        .grading_permits
+        .lock()
+        .map(|count| *count)
+        .unwrap_or(0);
+    let deadline = Instant::now() + Duration::from_secs(15 + 15 * running as u64);
     while Instant::now() < deadline {
         if state
             .grading_active

@@ -111,6 +111,16 @@ fn exam_config_deferred_feedback_unanswered_scores_and_idempotent_finish_are_rea
     assert_eq!(answer.answer.correct, None);
     assert_eq!(answer.set.status, "ready");
     assert_eq!(answer.set.answered_questions, 1);
+    // 123#1：考试进行中 set 级分数遮蔽——逐题提交实时累计 practice_sets.score，
+    // 若随 detail/AnswerResult 原样返回，考生 diff 两次响应即可推断每题对错
+    // （98#1/101#4 同族旁路：载荷在场即泄露面，不看 UI 是否渲染）
+    assert_eq!(answer.set.score, None);
+    assert_eq!(answer.set.max_score, None);
+    assert_eq!(detail(&state, generated.set.id).unwrap().set.score, None);
+    assert_eq!(
+        detail(&state, generated.set.id).unwrap().set.max_score,
+        None
+    );
     assert!(detail(&state, generated.set.id).unwrap().answers.is_empty());
     assert_eq!(
         detail(&state, generated.set.id)
@@ -296,4 +306,62 @@ fn exam_schema_migration_adds_persistent_timer_configuration() {
         |row| row.get(0),
     ).unwrap();
     assert_eq!(columns, 4);
+}
+
+#[test]
+fn abandoning_a_permanently_failed_grading_unblocks_finalize() {
+    // 123#7：主观评分永久失败的考试原先无法交卷（grading_in_progress 死锁，
+    // 作答不能重答也没有删除命令）——显式放弃后 pending=0，交卷按 0 分计
+    let (app, state, _server, plan_id) = prepare();
+    let started = generate(
+        app.handle(),
+        &state,
+        exam_input(&plan_id, 2, vec!["short", "essay"]),
+    )
+    .unwrap();
+    let generated = wait_set(&state, started.set.id);
+    assert_eq!(generated.set.status, "ready", "{:?}", generated.set.error);
+    let first = generated.questions[0].id;
+    subjective::submit(
+        app.handle(),
+        &state,
+        generated.set.id,
+        first,
+        json!("评分溢出"),
+    )
+    .unwrap();
+    let (status, _) = wait_for_grading(&state, first);
+    assert_eq!(status, "failed");
+    assert_eq!(
+        exams::finalize(app.handle(), &state, generated.set.id)
+            .unwrap_err()
+            .code,
+        "grading_in_progress"
+    );
+    // 恢复评分入口同源：失败作答经详情枚举（pending_answers）
+    let failed_id = detail(&state, generated.set.id)
+        .unwrap()
+        .answers
+        .iter()
+        .find(|answer| answer.question_id == first)
+        .unwrap()
+        .id;
+    let abandoned = subjective::abandon(app.handle(), &state, failed_id).unwrap();
+    assert_eq!(abandoned.set.status, "ready");
+    let finished = exams::finalize(app.handle(), &state, generated.set.id).unwrap();
+    assert_eq!(finished.set.status, "completed");
+    assert_eq!(finished.set.score, Some(0.0));
+    assert_eq!(finished.set.max_score, Some(2.0));
+    // 交卷补写把放弃题与未作答题都按 0 分计入证据（101#4 回填路径）
+    let store = state.store().unwrap();
+    let scores: Vec<f64> = store
+        .conn
+        .prepare("SELECT score FROM learning_node_evidence WHERE kind = 'exam' ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(scores.len(), 2);
+    assert!(scores.iter().all(|score| *score == 0.0));
 }

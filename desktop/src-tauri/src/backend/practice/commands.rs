@@ -145,3 +145,13 @@ pub fn resume_practice_answer<R: Runtime>(
 ) -> Result<PracticeSetDetail> {
     super::subjective::resume(&app, &state.practice, answer_id)
 }
+
+/// 123#7：主观评分永久失败的终局出口——显式放弃该题按 0 分收尾
+#[tauri::command]
+pub fn abandon_practice_answer<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    answer_id: i64,
+) -> Result<PracticeSetDetail> {
+    super::subjective::abandon(&app, &state.practice, answer_id)
+}

@@ -43,6 +43,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
             super::commands::set_practice_mistake_mastered,
             super::commands::cancel_practice_answer,
             super::commands::resume_practice_answer,
+            super::commands::abandon_practice_answer,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();

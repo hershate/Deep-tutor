@@ -410,3 +410,55 @@ fn hints_mode_subjective_wrong_answer_stays_out_of_mistakes() {
         "hints 模式主观题错答不得进入错题本"
     );
 }
+
+#[test]
+fn abandoning_a_failed_grading_closes_the_answer_at_zero() {
+    // 123#7：主观评分永久失败缺终局出口——作答不能重答也不能删除，
+    // 练习组永远差一题判分；显式放弃按 0 分收尾，feedback 标记 abandoned，
+    // 不伪造模型评分
+    let (app, state, _server, plan_id) = prepare();
+    let generated = generate_subjectives(&app, &state, &plan_id, "immediate");
+    let question = &generated.questions[0];
+    let pending = subjective::submit(
+        app.handle(),
+        &state,
+        generated.set.id,
+        question.id,
+        json!("评分溢出"),
+    )
+    .unwrap();
+    let failed = wait_answer(&state, generated.set.id, question.id);
+    assert_eq!(failed.status, "failed");
+    let abandoned = subjective::abandon(app.handle(), &state, pending.answer.id).unwrap();
+    assert_eq!(abandoned.set.answered_questions, 1);
+    let view = abandoned
+        .answers
+        .iter()
+        .find(|answer| answer.id == pending.answer.id)
+        .unwrap();
+    assert_eq!(view.status, "done");
+    assert_eq!(view.score, Some(0.0));
+    assert_eq!(view.correct, Some(false));
+    assert_eq!(view.feedback["abandoned"], true);
+    // 与未作答同口径（03#13-27）：无判分依据的 0 分不进错题本
+    assert!(mistakes(app.handle(), &state).unwrap().is_empty());
+    let store = state.store().unwrap();
+    let (score, evidence): (f64, i64) = store
+        .conn
+        .query_row(
+            "SELECT (SELECT COALESCE(SUM(score), 0) FROM practice_answers WHERE set_id = ?1 AND status = 'done'), (SELECT COUNT(*) FROM learning_node_evidence WHERE kind = 'practice' AND details_json LIKE '%\"abandoned\":true%')",
+            params![generated.set.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(score, 0.0);
+    assert!(evidence >= 1, "放弃的作答按 0 分写入掌握度证据");
+    drop(store);
+    // 已判分（done）再放弃：类型化拒绝
+    assert_eq!(
+        subjective::abandon(app.handle(), &state, pending.answer.id)
+            .unwrap_err()
+            .code,
+        "answer_already_graded"
+    );
+}

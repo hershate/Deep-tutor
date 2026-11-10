@@ -126,5 +126,7 @@ export const practiceBackend = {
   masterMistake: (questionId: number, mastered: boolean) => invoke<void>('set_practice_mistake_mastered', { questionId, mastered }),
   cancelAnswer: (answerId: number) => invoke<PracticeDetail>('cancel_practice_answer', { answerId }),
   resumeAnswer: (answerId: number) => invoke<PracticeDetail>('resume_practice_answer', { answerId }),
+  // 123#7：主观评分永久失败的终局出口——显式放弃该题按 0 分收尾
+  abandonAnswer: (answerId: number) => invoke<PracticeDetail>('abandon_practice_answer', { answerId }),
   submitExam: (id: number) => invoke<PracticeDetail>('submit_exam', { id }),
 }

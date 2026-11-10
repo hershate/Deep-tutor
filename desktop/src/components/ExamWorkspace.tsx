@@ -40,7 +40,11 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   const recorded = question ? exam?.answeredQuestionIds.includes(question.id) ?? false : false
   const plan = exam ? plans.find(item => item.id === exam.set.planId) : undefined
   const selectedPlan = plans.find(item => item.id === input.planId)
-  const pending = exam?.answers.some(item => ['grading', 'cancelling'].includes(item.status)) ?? false
+  // 123#5：交卷 pending 与后端 exams::finalize 同口径（status != 'done'）——
+  // 评分 failed/cancelled/interrupted 时交卷必报 grading_in_progress，原先
+  // 只认 grading/cancelling 会让按钮亮着可点；题面上的「恢复评分」入口
+  // 才是这些状态的出路
+  const pending = exam?.answers.some(item => item.status !== 'done') ?? false
   const activeRequest = exam && ['generating', 'cancelling'].includes(exam.set.status) ? exam.set.requestId : answer && ['grading', 'cancelling'].includes(answer.status) ? answer.requestId : null
   const completed = exam?.set.status === 'completed'
   const selectedValue = selected ?? (typeof answer?.response === 'number' ? answer.response : null)
@@ -168,6 +172,13 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     setBusy(true)
     try { onUpdated(await practiceBackend.resumeAnswer(answer.id)) } catch (error) { if (!isCancelRace(error)) reportBackendError(error) } finally { setBusy(false) }
   }
+  // 123#7：评分永久失败的终局出口——放弃该题按 0 分计（不可逆，确认后执行）
+  const [abandonOpen, setAbandonOpen] = useState(false)
+  const abandonAnswer = async () => {
+    if (!answer || busy) return
+    setBusy(true)
+    try { onUpdated(await practiceBackend.abandonAnswer(answer.id)) } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
+  }
   // 76#1：历史切换序号守卫——慢响应后到不再静默覆盖已选卷（对齐父页 51#1）；
   // 切换期间禁用提交与历史，防止提交写到「非所见卷」
   const selectSeq = useRef(0)
@@ -207,7 +218,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
           {question.rubric.length > 0 && <div className="rubric-preview"><strong>评分要点</strong>{question.rubric.map(criterion => <div key={criterion.id}><span>{criterion.description}</span><small>{criterion.points.toFixed(2)} 分</small></div>)}</div>}
           {recorded && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>交卷后统一显示得分与解析。</p></div>}
           {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>正在按评分要点判分</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancelAnswer()} disabled={busy || answer.status === 'cancelling'}>{busy ? '正在取消…' : '取消评分'}</Button></div>}
-          {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><h3>评分未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分已停止'}</p><Button onClick={() => void resumeAnswer()}>恢复评分<RefreshCw size={17} /></Button></div>}
+          {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><h3>评分未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分已停止'}</p><p>可恢复评分重试；模型持续失败时可放弃该题按 0 分交卷。</p><Button onClick={() => void resumeAnswer()}>恢复评分<RefreshCw size={17} /></Button><Button variant="secondary" onClick={() => setAbandonOpen(true)} disabled={busy}>放弃本题，按 0 分计<XCircle size={17} /></Button></div>}
           {completed && answer && <div className="subjective-rubric"><div><CheckCircle2 size={20} /><h3>{answer.feedback.unanswered ? '未作答，按 0 分计' : answer.correct ? '达到本题掌握阈值' : '本题仍需巩固'}</h3>{answer.score !== null && <strong>{answer.score.toFixed(2)} / {answer.maxScore?.toFixed(2)}</strong>}</div>
             {answer.feedback.overallFeedback && <p>{answer.feedback.overallFeedback}</p>}
             {answer.feedback.criteria?.map(criterion => <div className="rubric-result" key={criterion.id}><span>{criterion.description}</span><strong>{criterion.score.toFixed(2)} / {criterion.maxScore.toFixed(2)}</strong><p>{criterion.feedback}</p><small>评分依据：{criterion.evidence}</small></div>)}
@@ -223,6 +234,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   </div><aside className="surface exam-history"><SectionHeader title="真实测评历史" description="成绩来自已保存的交卷结果" />{history.filter(item => item.mode === 'exam').map(item => <button key={item.id} disabled={busy || selecting} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>{item.completedAt ? new Date(item.completedAt).toLocaleString() : statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</aside>
 
     <ConfirmDialog open={finalizeOpen} onClose={() => setFinalizeOpen(false)} onConfirm={() => { setFinalizeOpen(false); void finalize() }} title="交卷并查看结果？" description={`交卷后不可重考：未作答的题按 0 分计并写入知识证据；当前已判分 ${exam?.set.answeredQuestions ?? 0} / ${exam?.set.totalQuestions ?? 0} 题。`} confirmLabel="确认交卷" busy={busy} />
+    <ConfirmDialog open={abandonOpen} onClose={() => setAbandonOpen(false)} onConfirm={() => { setAbandonOpen(false); void abandonAnswer() }} title="放弃该题评分？" description="该题将按 0 分计入本次考试并标记为已放弃，不可撤销；原始作答保留，不会伪造模型评分。" confirmLabel="放弃本题，按 0 分计" busy={busy} />
     <Modal open={setupOpen} onClose={() => setSetupOpen(false)} title="配置模拟考试"><div className="form-stack"><label>学习方案<select value={input.planId} onChange={event => setInput({ ...input, planId: event.target.value, stageId: null })}><option value="" disabled>选择已采用的方案</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.goal}</option>)}</select></label><label>考试范围<select value={input.stageId ?? ''} onChange={event => setInput({ ...input, stageId: event.target.value || null })}><option value="">整个学习方案</option>{selectedPlan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><div className="form-grid"><label>题目数量<select value={input.count} onChange={event => setInput({ ...input, count: Number(event.target.value) })}>{[5, 10, 20].map(count => <option value={count} key={count}>{count} 题</option>)}</select></label><label>考试时长（分钟）<input type="number" min={1} max={240} value={input.timeLimitMinutes} onChange={event => setInput({ ...input, timeLimitMinutes: Math.round(Math.min(240, Math.max(1, Number(event.target.value) || 1))) })} /></label></div><label>建议通过百分比<input type="number" min={1} max={100} value={input.passScorePercent} onChange={event => setInput({ ...input, passScorePercent: Math.round(Math.min(100, Math.max(1, Number(event.target.value) || 1))) })} /></label><fieldset className="question-type-field"><legend>题型覆盖</legend>{(['choice', 'fill', 'short', 'essay'] as const).map(kind => <label key={kind}><input type="checkbox" checked={input.kinds.includes(kind)} onChange={event => setInput({ ...input, kinds: event.target.checked ? [...input.kinds, kind] : input.kinds.filter(item => item !== kind) })} />{kindNames[kind]}</label>)}</fieldset><p className="form-help">题目就绪后开始计时。交卷前统一隐藏答案；未作答按 0 分计，正在评分的作答需完成后才能交卷。</p><Button onClick={() => void generate()} disabled={busy || !input.planId || !input.kinds.length}>生成模拟考试<ArrowRight size={17} /></Button></div></Modal>
   </div>
 }

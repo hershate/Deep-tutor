@@ -379,6 +379,7 @@ fn main() {
             practice::commands::set_practice_mistake_mastered,
             practice::commands::cancel_practice_answer,
             practice::commands::resume_practice_answer,
+            practice::commands::abandon_practice_answer,
             knowledge::commands::search_knowledge,
             knowledge::commands::ask_knowledge,
             knowledge::commands::list_knowledge_sessions,

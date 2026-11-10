@@ -189,6 +189,13 @@ pub fn finalize<R: Runtime>(
         params![id],
         |row| row.get(0),
     )?;
+    // 123#1：遮蔽后 initial.max_score 在进行中为 None——事件载荷的 maxScore
+    // 从行内直读，交卷事件本就发生在统一反馈时刻
+    let max_score: f64 = tx.query_row(
+        "SELECT max_score FROM practice_sets WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    )?;
     tx.execute(
         "UPDATE practice_sets SET status = 'completed', score = ?1, completed_at = ?2, updated_at = ?2 WHERE id = ?3 AND status = 'ready'",
         params![score, timestamp, id],
@@ -197,7 +204,7 @@ pub fn finalize<R: Runtime>(
         &tx,
         "practice.exam_completed",
         json!({
-            "setId": id, "score": score, "maxScore": initial.max_score,
+            "setId": id, "score": score, "maxScore": max_score,
             "passScorePercent": initial.pass_score_percent,
             "unanswered": unanswered, "expired": expired,
         }),

@@ -22,12 +22,21 @@ use time::OffsetDateTime;
 
 const GENERATION_SYSTEM: &str = "你是学习测评命题器。只能依据给定知识节点与资料原文命题，只返回符合要求的 JSON 对象。所有引用必须逐字来自资料，不能虚构概念、学习证据、链接或答案。";
 
+/// 123#2：单份资料进入 prompt 的上限（原有口径不变）
+const MAX_SOURCE_CHARS: usize = 12_000;
+/// 123#2：跨资料总预算，对齐 knowledge 域 10#23 的 64k 总闸口径
+const MAX_TOTAL_SOURCE_CHARS: usize = 64_000;
+
 pub struct PracticeState {
     database_path: PathBuf,
     providers: ProviderState,
     learning: LearningState,
     active: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
     grading_active: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
+    /// 123#4：主观评分并发闸——整卷主观题快速提交原先按题无界扇出
+    /// 线程/连接/模型请求；在飞评分计数压到 MAX_CONCURRENT_GRADING，
+    /// 多余 worker 在线程内排队等许可（提交仍即时返回 grading 状态）
+    grading_permits: Arc<Mutex<usize>>,
 }
 
 impl PracticeState {
@@ -38,6 +47,7 @@ impl PracticeState {
             learning: learning.shared(),
             active: Arc::new(Mutex::new(HashMap::new())),
             grading_active: Arc::new(Mutex::new(HashMap::new())),
+            grading_permits: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -50,6 +60,7 @@ impl PracticeState {
             learning,
             active: Arc::new(Mutex::new(HashMap::new())),
             grading_active: Arc::new(Mutex::new(HashMap::new())),
+            grading_permits: Arc::new(Mutex::new(0)),
         })
     }
 
@@ -60,6 +71,7 @@ impl PracticeState {
             learning: self.learning.shared(),
             active: Arc::clone(&self.active),
             grading_active: Arc::clone(&self.grading_active),
+            grading_permits: Arc::clone(&self.grading_permits),
         }
     }
 
@@ -413,13 +425,29 @@ fn generation_prompt(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let source_data = sources
-        .iter()
-        .map(|source| {
-            let text = source.text.chars().take(12_000).collect::<String>();
-            json!({"materialId": source.id, "title": source.title, "text": text})
-        })
-        .collect::<Vec<_>>();
+    // 123#2：跨资料总预算——原先逐份截 12000 字全部拼入，8 份资料即
+    // 96000 字符单请求（超模型窗口或质量退化且无提示）；对齐 knowledge
+    // 域 10#23 口径：总量 64k、逐份扣减、预算耗尽的资料整体不进请求，
+    // 截断经 truncated 字段引导模型不得据此推断未提供内容
+    let mut truncated = false;
+    let mut source_data = Vec::new();
+    let mut remaining = MAX_TOTAL_SOURCE_CHARS;
+    for source in sources {
+        if remaining == 0 {
+            truncated = true;
+            break;
+        }
+        let per_source = MAX_SOURCE_CHARS.min(remaining);
+        let count = source.text.chars().count();
+        let take = per_source.min(count);
+        truncated |= count > take;
+        remaining = remaining.saturating_sub(take);
+        source_data.push(json!({
+            "materialId": source.id, "title": source.title,
+            "text": source.text.chars().take(take).collect::<String>(),
+            "truncated": count > take,
+        }));
+    }
     let subjective = input
         .kinds
         .as_deref()
@@ -450,6 +478,9 @@ fn generation_prompt(
     // 复现，注入 CSPRNG 批次标识使每次请求文本唯一（random.rs 单一入口）
     let nonce = &super::random::token("")?[..8];
     prompt = format!("{prompt}\n生成批次标识：{nonce}");
+    if truncated {
+        prompt = format!("{prompt}\n资料总量超过本次生成预算，仅提供部分内容（truncated 标记）；不得据此推断未提供的内容，引用只能来自已提供的原文。");
+    }
     if let Some(source) = variant {
         Ok(format!("{prompt}\n变式练习：保持原考点与原题型：{}，改变设问情境、数值或论证角度，不得只换几个词或复制原题。原题与错误原因：{}", source.kind, source.prompt_json()?))
     } else {
@@ -543,6 +574,24 @@ pub fn generate<R: Runtime>(
         .unwrap_or_else(|| "immediate".into());
     if let Some(source_id) = input.variant_of {
         let source = variants::source(state, source_id, &input.plan_id)?;
+        // 123#6：同一错题的变式生成频次闸——生成任务在飞（generating）期间
+        // 重复点击各自触发一次 8192 tokens 模型请求；活跃守卫按错题拒重，
+        // 不限制完成后的再次巩固（对齐域内其他 active guard 口径）
+        let generating: bool = state
+            .store()?
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM practice_sets WHERE variant_of = ?1 AND status = 'generating')",
+                params![source_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if generating {
+            return Err(BackendError::new(
+                "variant_generation_active",
+                "这道错题的变式正在生成，请等待完成后再试",
+            ));
+        }
         if input
             .kinds
             .as_ref()
@@ -865,6 +914,11 @@ fn generate_questions<R: Runtime>(
         .filter(|prefix| !variant_source_prefixes.contains(prefix))
         .collect();
     let tx = store.conn.unchecked_transaction()?;
+    // 123#3：「每类至少 1 道」只是提示词约束，模型可全返回单一类别——
+    // 按请求记录的 kinds_json 会虚标，侧栏「题型」与实际不符；按实际
+    // 题目回填（保持请求顺序，过滤未出现类别）
+    let requested_kinds: Vec<String> = serde_json::from_str(&kinds)?;
+    let mut actual_kinds: Vec<String> = Vec::new();
     for (index, question) in drafts.questions.iter().enumerate() {
         // 101#7：写入事务内对本方案全量（排除当前集）再查一次前缀命中——
         // 预填窗口只取最近 200 题，且并发生成时两个 worker 在对方写入前
@@ -970,18 +1024,31 @@ fn generate_questions<R: Runtime>(
             }
         }
         validate_citations(&question.citations, &sources)?;
+        if !actual_kinds.contains(&question.kind) {
+            actual_kinds.push(question.kind.clone());
+        }
         tx.execute(
             "INSERT INTO practice_questions (set_id, position, kind, prompt, options_json, answer_json, hint, explanation, citations_json, node_ids_json, difficulty, rubric_json, variant_of) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![id, index as i64, question.kind, question.prompt, serde_json::to_string(&question.options)?, serde_json::to_string(&question.answer)?, question.hint, question.explanation, serde_json::to_string(&question.citations)?, serde_json::to_string(&question.node_ids)?, question.difficulty.unwrap_or(3), serde_json::to_string(&question.rubric)?, input.variant_of],
         )?;
     }
+    let ordered_kinds: Vec<String> = requested_kinds
+        .iter()
+        .filter(|kind| actual_kinds.contains(kind))
+        .cloned()
+        .collect();
+    let effective_kinds = if ordered_kinds.is_empty() {
+        actual_kinds
+    } else {
+        ordered_kinds
+    };
     // 47#1：考试计时不再从「生成完成」起算——生成耗时（数十秒到数分钟，
     // 失败重试双倍）与学生等待都吃掉考试时长，超时即 exam_deadline_exceeded
     // 拒答。exam_started_at/exam_deadline 留空，待学生首次拉卷时
     // 惰性起算（start_exam_timer）；从未开考的试卷也不再有过期悬空态
     let changed = tx.execute(
-        "UPDATE practice_sets SET status = 'ready', max_score = ?1, error_code = NULL, error_message = NULL, updated_at = ?2, exam_started_at = NULL, exam_deadline = NULL WHERE id = ?3 AND status = 'generating'",
-        params![count, now()?, id],
+        "UPDATE practice_sets SET status = 'ready', max_score = ?1, kinds_json = ?2, error_code = NULL, error_message = NULL, updated_at = ?3, exam_started_at = NULL, exam_deadline = NULL WHERE id = ?4 AND status = 'generating'",
+        params![count, serde_json::to_string(&effective_kinds)?, now()?, id],
     )?;
     if changed == 0 {
         return Err(BackendError::new(
@@ -1008,10 +1075,18 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
             let feedback_mode: String = row.get(6)?;
             let code: Option<String> = row.get(13)?;
             let message: Option<String> = row.get(14)?;
+            let mode: String = row.get(0)?;
+            let status: String = row.get(1)?;
+            // 03#2：hints 模式遮蔽 set 级分数，完成后也不公布总分与正确率。
+            // 123#1：考试承诺「交卷后统一反馈」——逐题提交会实时累计
+            // practice_sets.score，进行中（completed 之前）原样返回即可被
+            // 考生 diff 两次响应推断每题对错（98#1/101#4 同族旁路，修法
+            // 一致：载荷在场即泄露面）；交卷（finalize 置 completed）后公布
+            let visible = feedback_mode != "hints" && !(mode == "exam" && status != "completed");
             Ok((PracticeSet {
                 id,
-                mode: row.get(0)?,
-                status: row.get(1)?,
+                mode,
+                status,
                 plan_id: format!("plan-{plan_id}"),
                 stage_id: row.get(3)?,
                 node_id: row.get(23)?,
@@ -1026,9 +1101,8 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
                 pass_score_percent: row.get::<_, Option<i64>>(22)?.map(|value| value as u8),
                 total_questions: row.get(8)?,
                 answered_questions: 0,
-                // 03#2：hints 模式遮蔽 set 级分数，完成后也不公布总分与正确率
-                score: (feedback_mode != "hints").then(|| row.get(9)).transpose()?,
-                max_score: (feedback_mode != "hints").then(|| row.get(10)).transpose()?,
+                score: visible.then(|| row.get(9)).transpose()?,
+                max_score: visible.then(|| row.get(10)).transpose()?,
                 attempt: row.get(11)?,
                 request_id: row.get(12)?,
                 error: code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("练习生成失败"))),
