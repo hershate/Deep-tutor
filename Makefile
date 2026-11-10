@@ -17,7 +17,7 @@ endif
 CARGO ?= cargo
 NPM ?= npm
 
-.PHONY: build lint test check hooks
+.PHONY: build lint test check dev-smoke hooks
 
 build:
 	# 许可收集挂在 tauri beforeBuildCommand（npm run build:bundle，49#1），
@@ -37,7 +37,13 @@ test:
 	# 串行执行：多个测试共享进程级全局（如 sync DEFER 标志），并行会互相污染
 	cd desktop/src-tauri && $(CARGO) test --release --locked -- --test-threads=1
 
-check: lint test
+check: lint test dev-smoke
+
+# 116#3：dev server 冒烟——111#2 实证过 vite 配置错误可让 check 全绿而
+# dev 工作流 403，门禁盲区自此补上。专用高位端口（43198，strictPort）与
+# 开发者常驻 dev server（1420）隔离；按 netstat 找到的监听 PID 精确停服
+dev-smoke:
+	bash scripts/dev-smoke.sh
 
 hooks:
 	git config core.hooksPath .githooks
