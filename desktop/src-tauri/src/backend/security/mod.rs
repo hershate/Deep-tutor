@@ -665,32 +665,11 @@ fn issue<R: Runtime>(
     store: &Store,
 ) -> Result<SessionView> {
     active_user(&store.conn, user_id)?;
-    // 23#6：签发新会话前撤销全部仍活跃的旧会话（本机同一时刻只保留一个
-    // 活动会话）——否则"登录用户1 → 切换用户2 → 登出"后 current() 会命中
-    // 用户1 的旧会话，以他人身份静默续用；凭据槽一并清理
-    {
-        let retired: Vec<String> = {
-            let mut statement = store
-                .conn
-                .prepare("SELECT id FROM auth_sessions WHERE revoked_at IS NULL")?;
-            let rows = statement
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            drop(statement);
-            rows
-        };
-        if !retired.is_empty() {
-            let tx = store.conn.unchecked_transaction()?;
-            tx.execute(
-                "UPDATE auth_sessions SET revoked_at = ?1 WHERE revoked_at IS NULL",
-                params![timestamp(now()?)?],
-            )?;
-            tx.commit()?;
-            for id in retired {
-                let _ = state.credentials.delete(&format!("session-{id}"));
-            }
-        }
-    }
+    // 96#1：签发顺序重排——原先先撤销全部旧会话并提交，之后才做 JWT 生成
+    // 与 keyring 写入，任一失败即「库内零活跃会话」，配合 login() 预先清除
+    // 的 logged_out 标记，下一条命令的 initialize() 自动以管理员签发新会话，
+    // 静默违背用户刚选择的身份。现在新会话插入、旧会话撤销、last_login
+    // 与事件在同一事务原子提交；keyring 读写在任何库变更之前完成
     let issued = OffsetDateTime::from_unix_timestamp(now()?.unix_timestamp())
         .map_err(|_| BackendError::new("invalid_time", "无法建立会话时间"))?;
     let expires = issued + Duration::seconds(SESSION_SECONDS);
@@ -708,9 +687,26 @@ fn issue<R: Runtime>(
         expires_at: timestamp(expires)?,
     };
     state.credentials.set(&format!("session-{id}"), &token)?;
+    // 23#6：签发新会话时撤销全部仍活跃的旧会话（本机同一时刻只保留一个
+    // 活动会话）——否则"登录用户1 → 切换用户2 → 登出"后 current() 会命中
+    // 用户1 的旧会话，以他人身份静默续用
+    let retired: Vec<String> = {
+        let mut statement = store
+            .conn
+            .prepare("SELECT id FROM auth_sessions WHERE revoked_at IS NULL")?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(statement);
+        rows
+    };
     let result = (|| {
         let tx = store.conn.unchecked_transaction()?;
         tx.execute("INSERT INTO auth_sessions (id, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)", params![id, user_id, view.created_at, view.expires_at])?;
+        tx.execute(
+            "UPDATE auth_sessions SET revoked_at = ?1 WHERE revoked_at IS NULL AND id != ?2",
+            params![view.created_at.clone(), id],
+        )?;
         tx.execute(
             "UPDATE local_users SET last_login_at = ?1 WHERE id = ?2",
             params![view.created_at, user_id],
@@ -724,7 +720,14 @@ fn issue<R: Runtime>(
         emit(app, &event);
         Ok(view)
     })();
-    if result.is_err() {
+    if result.is_ok() {
+        // 撤销后的旧凭据槽清理（尽力而为——槽以会话 id 命名，残留无引用）
+        for old in retired {
+            if old != id {
+                let _ = state.credentials.delete(&format!("session-{old}"));
+            }
+        }
+    } else {
         let _ = state.credentials.delete(&format!("session-{id}"));
     }
     result
@@ -976,10 +979,22 @@ pub fn login<R: Runtime>(
 ) -> Result<SecurityOverview> {
     let store = state.store()?;
     ensure_accounts(&store.conn)?;
+    // 96#1：留取原值——原先无条件先清除 logged_out，签发中途失败（keyring/
+    // 时间原语故障）时库内零活跃会话且标记为 false，下一条命令的
+    // initialize() 自动以管理员签发新会话，静默违背用户显式选择的身份；
+    // 失败恢复原值，「登出不被下一条命令抵消」的撤销防线（23#6/31#7）
+    // 在失败路径同样成立
+    let previous_logged_out = state.logged_out.load(std::sync::atomic::Ordering::Acquire);
     state
         .logged_out
         .store(false, std::sync::atomic::Ordering::Release);
-    issue(app, state, user_id, &store)?;
+    let issued = issue(app, state, user_id, &store);
+    if let Err(error) = issued {
+        state
+            .logged_out
+            .store(previous_logged_out, std::sync::atomic::Ordering::Release);
+        return Err(error);
+    }
     drop(store);
     overview_from(state)
 }
