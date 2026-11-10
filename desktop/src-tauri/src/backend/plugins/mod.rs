@@ -676,6 +676,18 @@ pub fn uninstall<R: Runtime>(app: &AppHandle<R>, state: &PluginState, id: String
     // 14#16：先删目录再提交 DB 删除——目录删除失败（Windows 文件占用）时
     // 保持两边一致可重试；原顺序会“已卸载却报错”，重试即 not_found 且
     // 磁盘残留无入口清理。DB 无记录但目录存在时顺手清掉残留目录。
+    // 96#5：删目录前先以独立小事务停用行——并发 IPC/长事务占库时，目录
+    // 删成功而随后的 DELETE/commit 失败会留下 enabled=1 的磁盘缺失行：
+    // dispatch 照常投递、reload 永远 plugin_manifest_missing；先停用后，
+    // 该失败窗口内行不再投递，重试卸载可收尾
+    if exists {
+        let disable = store.conn.unchecked_transaction()?;
+        disable.execute(
+            "UPDATE plugins SET enabled = 0 WHERE id = ?1",
+            params![id],
+        )?;
+        disable.commit()?;
+    }
     if let Some(directory) = path.parent() {
         if directory.exists() {
             fs::remove_dir_all(directory)?;

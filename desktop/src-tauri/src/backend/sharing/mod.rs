@@ -294,7 +294,11 @@ pub fn create<R: Runtime>(
     let expires_at = created_at + Duration::days(i64::from(days));
     let expires_at = expires_at.format(&Rfc3339)?;
     let payload = serde_json::to_string(&snapshot)?;
-    if payload.len() > MAX_PACKAGE_BYTES {
+    // 96#4：read_package 按整包长度（含 token/checksum/expires_at 与字段名，
+    // 约 +250 字节）校验同一上限——原先 create 只量 snapshot，落在
+    // [2MB−250, 2MB] 的快照创建成功但读取/导出被拒，不可自愈；预检预留
+    // 512 字节外层开销，写库前拒绝
+    if payload.len() + 512 > MAX_PACKAGE_BYTES {
         return Err(BackendError::new(
             "share_snapshot_too_large",
             "方案快照超过 2 MB 分享上限",

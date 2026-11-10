@@ -188,7 +188,12 @@ impl Store {
             let source = Connection::open(&root)?;
             source.pragma_update(None, "busy_timeout", 10000)?;
             source.execute_batch("PRAGMA wal_checkpoint(FULL)")?;
-            drop(source);
+            // 96#2：复制期间持源库写锁——staged→rename 原子性只保证目标路径
+            // 完整，防不了源文件复制中途被并发写者触发 WAL 自动 checkpoint
+            // （默认 1000 页阈值）改写同页，拷出页级新旧混合的撕裂库
+            // （SecurityState 惰性创建后长存的账户连接即可触发）；BEGIN
+            // IMMEDIATE 阻塞其他写者直至复制完成，drop 后释放
+            source.execute_batch("BEGIN IMMEDIATE")?;
             // 先写临时文件再原子改名：复制中途崩溃不会在正式路径留下截断的库
             let staged = path.with_file_name(format!(
                 "{}.migration-tmp",
@@ -196,7 +201,10 @@ impl Store {
                     .and_then(|name| name.to_str())
                     .unwrap_or("store")
             ));
-            if let Err(error) = fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path)) {
+            let copy_result =
+                fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path));
+            drop(source);
+            if let Err(error) = copy_result {
                 let _ = fs::remove_file(&staged);
                 return Err(error.into());
             }

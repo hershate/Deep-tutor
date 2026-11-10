@@ -190,7 +190,9 @@ pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8
                     now_ms,
                     format!(" {} ", card.tag.replace([' ', '\n', '\r'], "_")),
                     format!("{}\u{1f}{}", field(&card.front), field(&card.back)),
-                    card.front,
+                    // 96#6：sfld 与 flds 同源过滤控制符（31#26）——原先直接用
+                    // 原始 front，含 \u{1F} 等控制符时与 flds 口径不一致
+                    field(&card.front),
                     checksum
                 ],
             )?;

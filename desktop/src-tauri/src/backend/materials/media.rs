@@ -175,8 +175,18 @@ pub fn verify(state: &MaterialState, id: i64) -> Result<()> {
 /// JS 再解析出 26 万个 Number），50MB 视频的预览内存峰值约 3–4×；
 /// offset/total/mime 元数据由前端从 info() 与应答长度推导
 pub fn chunk_bytes(state: &MaterialState, id: i64, offset: u64, length: u64) -> Result<Vec<u8>> {
-    let (_material, path) = source(state, id)?;
+    let (material, path) = source(state, id)?;
     let total = path.metadata()?.len();
+    // 96#3：投递层一致性检查——46#2 的复核只在传输完成后挡播放，info 与
+    // chunk 之间原件被替换为硬链接指向的受害文件时（硬链接使 canonicalize
+    // 解析为自身、绕过目录围栏），与导入时记录的大小不符的替换在此先行
+    // 拒绝；完整闭合需跨 chunk 的增量哈希（见 96 号问题集边界记录）
+    if total != material.size {
+        return Err(BackendError::new(
+            "media_integrity_failed",
+            "媒体原件大小与导入记录不一致，已停止读取",
+        ));
+    }
     if offset > total || length == 0 || length > MAX_CHUNK_BYTES {
         return Err(BackendError::invalid(
             "invalid_media_range",
