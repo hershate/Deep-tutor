@@ -309,7 +309,6 @@ fn commit_artifact<R: Runtime>(
     }
     let bytes = serde_json::to_vec_pretty(content)?;
     let hash = format!("{:x}", Sha256::digest(&bytes));
-    atomic_write(&target, &bytes)?;
     let store = state.store()?;
     let timestamp = now()?;
     let expires = (time::OffsetDateTime::now_utc() + time::Duration::days(1))
@@ -324,7 +323,11 @@ fn commit_artifact<R: Runtime>(
         .optional()?;
     // 97#4：已提升的路径冻结——原先覆盖同名产物无条件把行状态重置回
     // committed（promoted→committed 非单调转移），提升痕迹只存于
-    // lecture 版本表，产物视图回退为草稿；复用已提升路径要求换新 path
+    // lecture 版本表，产物视图回退为草稿；复用已提升路径要求换新 path。
+    // 101#1：检查必须在 atomic_write 之前——原先先覆盖 scratch 文件再报
+    // artifact_promoted，DB 行仍是 promoted+旧哈希，此后 read/promote 走
+    // read_artifact 哈希校验永久 artifact_modified_externally，新草稿
+    // 只存在于无行指向的孤儿文件
     if let Some((_, status)) = &existing {
         if status == "promoted" {
             return Err(BackendError::new(
@@ -333,6 +336,7 @@ fn commit_artifact<R: Runtime>(
             ));
         }
     }
+    atomic_write(&target, &bytes)?;
     let id = if let Some((id, _)) = existing {
         tx.execute("UPDATE agent_artifacts SET plan_id = ?1, stage_id = ?2, unit_index = ?3, content_json = ?4, sha256 = ?5, status = 'committed', expires_at = ?6 WHERE id = ?7", params![session.plan_id, stage_id, unit_index as i64, serde_json::to_string(content)?, hash, expires, id])?;
         id
@@ -739,15 +743,19 @@ pub fn execute<R: Runtime>(
             json!({"status": "failed", "error": {"code": error.code, "message": error.message}})
         }
     };
-    let result = cap_tool_result(result);
-    let status = result
+    // 101#3：cap 预览只落持久层（agent_tool_calls）与事件副本——返回
+    // 原始结果给 run_loop，模型份额沿用 truncate_for_model 的 16KB 截断
+    //（97#2 前的行为）；原先模型对 >64KB 结果只能看到 2048 字符头部预览，
+    // 回答质量回归且重复抓取同一页面反复命中同一截断
+    let persisted = cap_tool_result(result.clone());
+    let status = persisted
         .get("status")
         .and_then(Value::as_str)
         .unwrap_or("failed");
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute(
         "UPDATE agent_tool_calls SET status = ?1, result_json = ?2, finished_at = ?3 WHERE id = ?4 AND status = 'running'",
-        params![status, serde_json::to_string(&result)?, now()?, call.id],
+        params![status, serde_json::to_string(&persisted)?, now()?, call.id],
     )?;
     if changed == 0 {
         return Err(BackendError::new(
@@ -758,7 +766,7 @@ pub fn execute<R: Runtime>(
     let event = Store::event(
         &tx,
         "agent.tool_completed",
-        json!({"runId": run_id, "toolCallId": call.id, "name": call.name, "status": status, "result": result}),
+        json!({"runId": run_id, "toolCallId": call.id, "name": call.name, "status": status, "result": persisted}),
     )?;
     tx.commit()?;
     emit(app, &event);
@@ -901,10 +909,23 @@ fn promote<R: Runtime>(
     // 97#3：产物已提升（或已取消/过期）时拒绝再次 promote——同一产物的
     // 第二条审批（去重缝隙漏入或历史遗留）原先检查全通过，重复批准造成
     // 相同内容双重版本提升
+    // 101#2：拒绝分支同步 resolve 审批为 expired——原先直接 return，该
+    // 审批永久停留 pending，用户批准反复「批准失败」只能手动取消
+    // （与 97#8 的 purge 分支对称收口）
     if artifact.4 != "committed" {
+        let tx = store.conn.unchecked_transaction()?;
+        if resolve_pending(&tx, approval_id, "expired", &now()?).is_ok() {
+            let event = Store::event(
+                &tx,
+                "agent.approval_expired",
+                json!({"approvalId": approval_id, "artifactId": artifact_id}),
+            )?;
+            tx.commit()?;
+            emit(app, &event);
+        }
         return Err(BackendError::new(
             "artifact_not_committed",
-            "产物已处理（提升/取消/过期），不能重复提升",
+            "产物已处理（提升/取消/过期），审批已过期，不能重复提升",
         ));
     }
     if time::OffsetDateTime::parse(&artifact.2, &time::format_description::well_known::Rfc3339)

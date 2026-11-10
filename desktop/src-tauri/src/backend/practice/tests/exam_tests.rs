@@ -121,9 +121,9 @@ fn exam_config_deferred_feedback_unanswered_scores_and_idempotent_finish_are_rea
     // 98#1：考试进行中错题本与错题导出不得泄露解析——deferred 承诺
     // 「交卷后统一反馈」，错题行虽在逐题提交时已落库（reason 为完整解析），
     // 但未交卷集合被 mistakes() 过滤，客观题与主观题评分共用该过滤
-    assert_eq!(mistakes(&state).unwrap().len(), 0);
+    assert_eq!(mistakes(app.handle(), &state).unwrap().len(), 0);
     assert_eq!(
-        export_mistakes(&state).unwrap()["mistakes"]
+        export_mistakes(app.handle(), &state).unwrap()["mistakes"]
             .as_array()
             .unwrap()
             .len(),
@@ -141,7 +141,7 @@ fn exam_config_deferred_feedback_unanswered_scores_and_idempotent_finish_are_rea
     assert_eq!(finished["answers"][1]["feedback"]["unanswered"], true);
     assert_eq!(finished["answers"][1]["score"], 0.0);
     // 03#13-27：未作答不再写入错题本，只保留真实答错的一道
-    assert_eq!(mistakes(&state).unwrap().len(), 1);
+    assert_eq!(mistakes(app.handle(), &state).unwrap().len(), 1);
     let store = state.store().unwrap();
     let evidence: i64 = store
         .conn
@@ -270,7 +270,11 @@ fn exam_waits_for_subjective_grading_before_finishing() {
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
-    assert_eq!(scores, vec![0.8, 0.0]);
+    // 101#4：考试 evidence 统一在交卷时补写（原顺序 0.8 先写自主观评分
+    // 即时路径，现按答案行序回填）——断言改为顺序无关
+    let mut scores = scores;
+    scores.sort_by(|left, right| left.total_cmp(right));
+    assert_eq!(scores, vec![0.0, 0.8]);
 }
 
 #[test]

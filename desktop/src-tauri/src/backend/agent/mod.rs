@@ -35,8 +35,10 @@ fn truncate_for_model(content: &str) -> String {
     while !content.is_char_boundary(cut) {
         cut -= 1;
     }
+    // 101#3：提示如实——超限结果不再全量入库（工具调用记录只留头部预览），
+    // 「完整结果已保存在会话记录中」对 >64KB 结果不成立
     format!(
-        "{}…[工具输出已截断至 {} 字节，完整结果已保存在会话记录中，需要时可用工具分段读取]",
+        "{}…[工具输出已截断至 {} 字节；超长结果的完整原文不会保留，如需其余内容请缩小读取范围后重试]",
         &content[..cut],
         MODEL_TOOL_CONTENT_LIMIT
     )
@@ -1087,7 +1089,10 @@ fn run_loop<R: Runtime>(
             // resume/send；执行后立即复查标志（与调用前检查对称），结果已
             // 落库、按取消语义保留部分输出
             if cancel_requested(state, run_id)? {
-                let content = serde_json::to_string(&outcome)?;
+                // 101#3：消息层按模型可见口径（16KB 截断）存储——execute 返回
+                // 原始结果（cap 预览只落 agent_tool_calls/事件副本），不回涨
+                // 256KB 全文入库，也不把模型份额缩水到 2048 字符预览
+                let content = truncate_for_model(&serde_json::to_string(&outcome)?);
                 save_message(
                     app,
                     state,
@@ -1104,7 +1109,7 @@ fn run_loop<R: Runtime>(
                 )?;
                 return Err(BackendError::new("cancelled", "Agent 运行已取消"));
             }
-            let content = serde_json::to_string(&outcome)?;
+            let content = truncate_for_model(&serde_json::to_string(&outcome)?);
             save_message(
                 app,
                 state,
@@ -1121,8 +1126,8 @@ fn run_loop<R: Runtime>(
             )?;
             messages.push(ChatMessage {
                 role: "tool".into(),
-                // 完整结果已持久化；发给模型的历史按上限截断，避免上下文随步数线性膨胀
-                content: truncate_for_model(&content),
+                // 发给模型的历史按上限截断，避免上下文随步数线性膨胀
+                content,
                 tool_call_id: Some(call.id.clone()),
                 name: Some(call.name.clone()),
                 ..Default::default()

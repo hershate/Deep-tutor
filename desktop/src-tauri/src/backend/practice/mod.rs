@@ -730,6 +730,8 @@ fn generate_questions<R: Runtime>(
             .map(|prompt| prompt.chars().take(80).collect())
             .collect()
     };
+    // 101#7：写入事务内查重用数字 plan id（下方 plan_id 被改写为 plan-N 形态）
+    let numeric_plan_id = plan_id;
     let plan_id = format!("plan-{plan_id}");
     let (plan, sources, nodes) = sources(state, &plan_id)?;
     let input = GenerateInput {
@@ -835,19 +837,50 @@ fn generate_questions<R: Runtime>(
         ));
     }
     // 98#2：seen 预填历史题干——模型照抄历史题即整批拒绝（与批内重复同
-    // 口径），配合提示词负约束与批次标识，跨集合重复随重试显著下降
-    let mut seen: HashSet<String> = historical.into_iter().collect();
+    // 口径），配合提示词负约束与批次标识，跨集合重复随重试显著下降。
+    // 101#6：变式生成按惯例保留题干主干（改变设问情境/数值），原错题的
+    // 前缀在 seen 预填中会把整批变式误判重复拒绝——变式请求从预填排除
+    // 变式源集合的题干（原题全等比对保留在下方条件中）
+    let variant_source_prefixes: HashSet<String> = match variant_of {
+        Some(source) => {
+            let prompts: Vec<String> = {
+                let mut statement = store
+                    .conn
+                    .prepare("SELECT prompt FROM practice_questions WHERE set_id = ?1")?;
+                let rows = statement.query_map(params![source], |row| row.get::<_, String>(0))?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()?
+            };
+            prompts
+                .into_iter()
+                .map(|prompt| prompt.trim().chars().take(80).collect::<String>())
+                .collect()
+        }
+        None => HashSet::new(),
+    };
+    let mut seen: HashSet<String> = historical
+        .into_iter()
+        .filter(|prefix| !variant_source_prefixes.contains(prefix))
+        .collect();
     let tx = store.conn.unchecked_transaction()?;
     for (index, question) in drafts.questions.iter().enumerate() {
+        // 101#7：写入事务内对本方案全量（排除当前集）再查一次前缀命中——
+        // 预填窗口只取最近 200 题，且并发生成时两个 worker 在对方写入前
+        // 读 historical 互相盲区；事务串行化后的复核关掉长尾与并发两个缺口
+        let trimmed_prompt = question.prompt.trim();
+        let duplicate_in_plan: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM practice_questions q JOIN practice_sets s ON s.id = q.set_id WHERE s.plan_id = ?1 AND s.id != ?2 AND substr(q.prompt, 1, 160) = substr(?3, 1, 160))",
+            params![numeric_plan_id, id, trimmed_prompt],
+            |row| row.get(0),
+        )?;
         if !input
             .kinds
             .as_deref()
             .unwrap_or_default()
             .contains(&question.kind)
-            || question.prompt.trim().is_empty()
+            || trimmed_prompt.is_empty()
             || variant
                 .as_ref()
-                .is_some_and(|source| source.prompt.trim() == question.prompt.trim())
+                .is_some_and(|source| source.prompt.trim() == trimmed_prompt)
             || question.prompt.len() > 6000
             || question.hint.len() > 2000
             || question.explanation.len() > 6000
@@ -856,11 +889,18 @@ fn generate_questions<R: Runtime>(
             || question
                 .difficulty
                 .is_some_and(|difficulty| !(1..=5).contains(&difficulty))
-            || !seen.insert(question.prompt.trim().chars().take(80).collect::<String>())
         {
             return Err(BackendError::new(
                 "invalid_model_output",
-                "模型返回了无效、重复或未请求的题型",
+                "模型返回了无效或未请求的题型",
+            ));
+        }
+        // 101#6：重复单独报错并明确指出与已有题目重复（原先与无效混在
+        // 一起，用户重试无指引）；批内重复与跨集合重复同口径
+        if duplicate_in_plan || !seen.insert(trimmed_prompt.chars().take(80).collect::<String>()) {
+            return Err(BackendError::new(
+                "invalid_model_output",
+                "模型返回的题目与本方案已有题目重复，请重试生成",
             ));
         }
         match question.kind.as_str() {
@@ -1258,13 +1298,16 @@ pub fn submit<R: Runtime>(
         )?;
     }
     // 31#12：hints 遮蔽旁路——evidence 照写真实得分会让知识图谱页
-    //「N 项测评记录 · 0/1」反推对错；与错题本同口径跳过
-    if set.feedback_mode != "hints" {
+    //「N 项测评记录 · 0/1」反推对错；与错题本同口径跳过。
+    // 101#4：考试承诺「交卷后统一反馈」，逐题提交即写 evidence 会经
+    // 知识图谱掌握度在交卷前泄露对错（考试强制 deferred，hints 跳过
+    // 不覆盖此面）——进行中的考试统一延迟到交卷（exams::finalize）补写
+    if set.feedback_mode != "hints" && set.mode != "exam" {
         let nodes: Vec<String> = serde_json::from_str(&nodes)?;
         for node in nodes {
             tx.execute(
                 "INSERT INTO learning_node_evidence (plan_id, node_id, kind, score, max_score, details_json, created_at, evidence_key) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7) ON CONFLICT(plan_id, node_id, evidence_key) DO UPDATE SET score = excluded.score, max_score = excluded.max_score, details_json = excluded.details_json, created_at = excluded.created_at",
-                params![learning::plan_id(&set.plan_id)?, node, if set.mode == "exam" { "exam" } else { "practice" }, if correct { 1.0 } else { 0.0 }, serde_json::to_string(&json!({"setId": set_id, "questionId": question_id, "answerId": answer_id}))?, timestamp, format!("practice-answer-{answer_id}")],
+                params![learning::plan_id(&set.plan_id)?, node, "practice", if correct { 1.0 } else { 0.0 }, serde_json::to_string(&json!({"setId": set_id, "questionId": question_id, "answerId": answer_id}))?, timestamp, format!("practice-answer-{answer_id}")],
             )?;
         }
     }
@@ -1345,7 +1388,30 @@ pub fn history(state: &PracticeState) -> Result<Vec<PracticeSet>> {
     ids.into_iter().map(|id| set_row(&store.conn, id)).collect()
 }
 
-pub fn mistakes(state: &PracticeState) -> Result<Vec<Mistake>> {
+/// 101#5：到期未交且不再打开卷面详情的考试，惰性收卷原先只挂在
+/// get_practice_set——错题本/导出长期缺该卷错题；读取错题面前对全部
+/// 到期考试批量收卷（13#24 同语义，仍评分中的集合按 23#3 跳过）
+pub fn finalize_expired_exams<R: Runtime>(app: &AppHandle<R>, state: &PracticeState) -> Result<()> {
+    let conn = state.store()?.conn;
+    let expired: Vec<i64> = {
+        let mut statement =
+            conn.prepare("SELECT id FROM practice_sets WHERE mode = 'exam' AND status = 'ready' AND exam_deadline IS NOT NULL")?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows
+    };
+    for id in expired {
+        if let Err(error) = lazy_finalize_expired_exam(app, state, id) {
+            eprintln!("expired exam {id} finalize failed: {}", error.code);
+        }
+    }
+    Ok(())
+}
+
+pub fn mistakes<R: Runtime>(app: &AppHandle<R>, state: &PracticeState) -> Result<Vec<Mistake>> {
+    // 101#5：先批量收卷到期考试，未交卷过滤才不会长期遮蔽该卷错题
+    finalize_expired_exams(app, state)?;
     let store = state.store()?;
     // 80#3：上限 500——原先无界返回，每答错一行永不清理，长用的库错题本
     // 渲染节点数无上限（对照 Dashboard 100/历史 50 的有界口径；按最近错误排序）。
@@ -1382,8 +1448,8 @@ pub fn mistakes(state: &PracticeState) -> Result<Vec<Mistake>> {
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
-pub fn export_mistakes(state: &PracticeState) -> Result<Value> {
-    Ok(json!({"version": 1, "exportedAt": now()?, "mistakes": mistakes(state)?}))
+pub fn export_mistakes<R: Runtime>(app: &AppHandle<R>, state: &PracticeState) -> Result<Value> {
+    Ok(json!({"version": 1, "exportedAt": now()?, "mistakes": mistakes(app, state)?}))
 }
 
 pub fn bookmark<R: Runtime>(

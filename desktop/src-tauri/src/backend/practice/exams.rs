@@ -155,6 +155,35 @@ pub fn finalize<R: Runtime>(
         }
         unanswered += 1;
     }
+    // 101#4：进行中的考试逐题提交不再即时写 evidence（对错信号会经知识
+    // 图谱掌握度在交卷前泄露）——交卷时统一按已答行补写（含本次插入的
+    // 未作答行；evidence_key 同为 practice-answer-{answerId}，ON CONFLICT
+    // DO NOTHING 对旧版已即时写过的行幂等）
+    {
+        let mut answered_rows = tx.prepare(
+            "SELECT a.id, a.question_id, a.score, q.node_ids_json FROM practice_answers a JOIN practice_questions q ON q.id = a.question_id WHERE a.set_id = ?1 AND a.status = 'done'",
+        )?;
+        let evidence = answered_rows
+            .query_map(params![id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, f64>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(answered_rows);
+        for (answer_id, question_id, score, nodes) in evidence {
+            let nodes: Vec<String> = serde_json::from_str(&nodes).unwrap_or_default();
+            for node in nodes {
+                tx.execute(
+                    "INSERT INTO learning_node_evidence (plan_id, node_id, kind, score, max_score, details_json, created_at, evidence_key) VALUES (?1, ?2, 'exam', ?3, 1, ?4, ?5, ?6) ON CONFLICT(plan_id, node_id, evidence_key) DO NOTHING",
+                    params![plan_id, node, score, serde_json::to_string(&json!({"examId": id, "questionId": question_id, "answerId": answer_id}))?, timestamp, format!("practice-answer-{answer_id}")],
+                )?;
+            }
+        }
+    }
     let score: f64 = tx.query_row(
         "SELECT COALESCE(SUM(score), 0) FROM practice_answers WHERE set_id = ?1 AND status = 'done'",
         params![id],

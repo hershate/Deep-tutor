@@ -71,8 +71,11 @@ pub fn submit_exam<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn list_practice_mistakes(state: State<'_, BackendState>) -> Result<Vec<Mistake>> {
-    super::mistakes(&state.practice)
+pub fn list_practice_mistakes<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+) -> Result<Vec<Mistake>> {
+    super::mistakes(&app, &state.practice)
 }
 
 /// 37#5：错题 JSON 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）；
@@ -83,7 +86,7 @@ pub fn export_practice_mistakes_file<R: Runtime>(
     state: State<'_, BackendState>,
     destination: String,
 ) -> Result<Value> {
-    let content = super::export_mistakes(&state.practice)?;
+    let content = super::export_mistakes(&app, &state.practice)?;
     let bytes = serde_json::to_vec_pretty(&content).map_err(|_| {
         super::super::error::BackendError::new("export_failed", "错题内容序列化失败")
     })?;

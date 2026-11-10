@@ -26,7 +26,8 @@ export type ProjectVersion = {
   updatedAt: string
   completedAt: string | null
 }
-export type ProjectWorkspace = { versions: ProjectVersion[] }
+/** 101#8：窗口内损坏跳过的版本行数（用户可见，避免「最新版本消失」无解释） */
+export type ProjectWorkspace = { versions: ProjectVersion[]; skippedVersions: number }
 export type ProjectSubmission = { projectId: number; content: string; milestoneId: number | null; materialId: number | null }
 
 export const projectsBackend = {

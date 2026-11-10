@@ -79,7 +79,7 @@ fn objective_variants_preserve_lineage_and_update_the_original_mistake_atomicall
     let first = generated.questions[0].id;
     let answer = submit(app.handle(), &state, generated.set.id, first, json!(0)).unwrap();
     assert_eq!(answer.answer.correct, Some(true));
-    let original_mistake = mistakes(&state)
+    let original_mistake = mistakes(app.handle(), &state)
         .unwrap()
         .into_iter()
         .find(|item| item.question_id == source)
@@ -102,19 +102,19 @@ fn objective_variants_preserve_lineage_and_update_the_original_mistake_atomicall
 
     let second = generated.questions[1].id;
     submit(app.handle(), &state, generated.set.id, second, json!(1)).unwrap();
-    let original_mistake = mistakes(&state)
+    let original_mistake = mistakes(app.handle(), &state)
         .unwrap()
         .into_iter()
         .find(|item| item.question_id == source)
         .unwrap();
     assert!(original_mistake.mastered);
     assert_eq!(original_mistake.mastered_question_id, Some(first));
-    assert!(mistakes(&state)
+    assert!(mistakes(app.handle(), &state)
         .unwrap()
         .iter()
         .any(|item| item.question_id == second && !item.mastered));
     set_mistake_mastered(app.handle(), &state, source, false).unwrap();
-    let original_mistake = mistakes(&state)
+    let original_mistake = mistakes(app.handle(), &state)
         .unwrap()
         .into_iter()
         .find(|item| item.question_id == source)
@@ -122,7 +122,7 @@ fn objective_variants_preserve_lineage_and_update_the_original_mistake_atomicall
     assert!(!original_mistake.mastered);
     assert_eq!(original_mistake.mastered_question_id, None);
     set_mistake_mastered(app.handle(), &state, source, true).unwrap();
-    let original_mistake = mistakes(&state)
+    let original_mistake = mistakes(app.handle(), &state)
         .unwrap()
         .into_iter()
         .find(|item| item.question_id == source)
@@ -206,7 +206,7 @@ fn subjective_variants_use_the_same_rubric_mastery_evidence() {
     .unwrap();
     let answer = wait_subjective(&state, variant.set.id, question);
     assert_eq!(answer.correct, Some(true));
-    let original_mistake = mistakes(&state)
+    let original_mistake = mistakes(app.handle(), &state)
         .unwrap()
         .into_iter()
         .find(|item| item.question_id == source)
@@ -281,7 +281,7 @@ fn variant_mastery_propagates_up_the_chain_to_the_original_mistake() {
     let graded = submit(app.handle(), &state, v1_set.set.id, v2, json!(0)).unwrap();
     assert_eq!(graded.answer.correct, Some(true));
     // 03#13-25：掌握沿 variant_of 链传播——V1 与原错题一并标记掌握
-    let rows = mistakes(&state).unwrap();
+    let rows = mistakes(app.handle(), &state).unwrap();
     for question in [source, v1] {
         let row = rows
             .iter()

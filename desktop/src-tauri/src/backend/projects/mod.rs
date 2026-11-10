@@ -90,6 +90,9 @@ pub struct ProjectVersion {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectWorkspace {
     pub versions: Vec<ProjectVersion>,
+    /// 101#8：窗口内损坏跳过的版本行数——原先仅 eprintln，用户看到的
+    /// 「最新版本消失」无解释且不知占用 200 条窗口名额
+    pub skipped_versions: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -199,7 +202,10 @@ pub fn workspace(state: &ProjectState) -> Result<ProjectWorkspace> {
     if skipped > 0 {
         eprintln!("project workspace: {skipped} 行损坏已跳过");
     }
-    Ok(ProjectWorkspace { versions })
+    Ok(ProjectWorkspace {
+        versions,
+        skipped_versions: skipped,
+    })
 }
 
 fn project(state: &ProjectState, id: i64) -> Result<Value> {

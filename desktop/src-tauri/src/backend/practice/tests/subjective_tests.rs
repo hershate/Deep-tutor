@@ -122,8 +122,8 @@ fn subjective_rubrics_scores_citations_and_evidence_are_real() {
     assert_eq!(completed.set.score, Some(1.0));
     assert_eq!(completed.set.max_score, Some(2.0));
     assert_eq!(completed.answered_question_ids.len(), 2);
-    assert_eq!(mistakes(&state).unwrap().len(), 1);
-    assert!(mistakes(&state).unwrap()[0]
+    assert_eq!(mistakes(app.handle(), &state).unwrap().len(), 1);
+    assert!(mistakes(app.handle(), &state).unwrap()[0]
         .reason
         .contains("未说明先验概率"));
     let store = state.store().unwrap();
@@ -362,7 +362,7 @@ fn invalid_model_scores_never_become_learning_evidence() {
     assert_eq!(failed.status, "failed");
     assert_eq!(failed.request_id.as_deref(), Some("practice-grade-1-2"));
     assert_eq!(server.request_count(), calls + 1);
-    assert!(mistakes(&state).unwrap().is_empty());
+    assert!(mistakes(app.handle(), &state).unwrap().is_empty());
 }
 
 #[test]
@@ -406,7 +406,7 @@ fn hints_mode_subjective_wrong_answer_stays_out_of_mistakes() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(
-        mistakes(&state).unwrap().is_empty(),
+        mistakes(app.handle(), &state).unwrap().is_empty(),
         "hints 模式主观题错答不得进入错题本"
     );
 }

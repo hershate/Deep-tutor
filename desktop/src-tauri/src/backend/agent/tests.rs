@@ -1258,7 +1258,12 @@ fn oversized_tool_results_are_capped_before_persisting() {
         "history.load",
         json!({"limit": 40}),
     );
-    assert_eq!(result["truncated"], json!(true), "超限结果必须被截断");
+    // 101#3：cap 预览只落持久层/事件副本——execute 返回原始结果（模型份额
+    // 由 run_loop 的 truncate_for_model 统一 16KB 截断），不再带 truncated 标记
+    assert!(
+        result.get("truncated").is_none(),
+        "返回值应为原始结果，截断只作用于持久层副本"
+    );
     let store = state.store().unwrap();
     let persisted: i64 = store
         .conn
