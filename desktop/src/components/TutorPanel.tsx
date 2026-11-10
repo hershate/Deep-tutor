@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, BookOpen, Lightbulb, LoaderCircle, MessageCircleQuestion, RotateCcw, Sparkles, Square, X } from 'lucide-react'
 import { IconButton, Button } from './UI'
-import { clampToBytes } from '../limits'
+import { clampToBytes, utf8Bytes } from '../limits'
 import { useAgent } from '../backend/useAgent'
 
 const modes = ['讲解', '提示', '练习', '反馈']
@@ -28,10 +28,15 @@ export default function TutorPanel({ compact = false, onClose, planId, contextLa
   }, [messages.length, stream.text])
   useEffect(() => { setMode(hintsOnly ? '提示' : '讲解') }, [hintsOnly])
 
+  // 91#2：后端对拼接前缀后的整条 content 校验 32000 字节——输入钳制须
+  // 按当前模式的实际前缀长度预留，否则贴近上限的输入发送时必超限，
+  // 报错文案（32000）与界面所见限额口径矛盾且前缀不可见无法自查
+  const prefix = `【辅导模式：${mode}】请依据当前方案的真实内容辅导我，不要编造来源或学习效果。${mode === '提示' ? '只给引导提示，不直接给完整答案。' : mode === '练习' ? '给出练习并等待我的回答，不要代替我作答。' : mode === '反馈' ? '针对我的答案指出具体依据、问题和下一步。' : '优先帮助我理解概念并检查我的理解。'}我的输入：`
+  const inputBudget = 32000 - utf8Bytes(prefix)
   const submit = async (value = input) => {
     const clean = value.trim()
     if (!clean || running || busy === 'send' || busy === 'create') return
-    const instruction = `【辅导模式：${mode}】请依据当前方案的真实内容辅导我，不要编造来源或学习效果。${mode === '提示' ? '只给引导提示，不直接给完整答案。' : mode === '练习' ? '给出练习并等待我的回答，不要代替我作答。' : mode === '反馈' ? '针对我的答案指出具体依据、问题和下一步。' : '优先帮助我理解概念并检查我的理解。'}我的输入：${clean}`
+    const instruction = prefix + clean
     if (await send(instruction)) setInput('')
   }
   const newSession = async () => { await createSession('知舟导师', planId) }
@@ -52,7 +57,7 @@ export default function TutorPanel({ compact = false, onClose, planId, contextLa
     </div>
     {!messages.some(message => message.role === 'user') && !running && <div className="tutor-suggestions"><button onClick={() => void submit(`请解释「${context}」的核心概念`)}>解释当前内容</button><button onClick={() => void submit('只给我一个理解当前内容的提示')}>只给一点提示</button><button onClick={() => void submit('依据当前学习内容出一道练习，并等待我回答')}>检查我的理解</button></div>}
     {running && <div className="agent-running"><LoaderCircle size={15} className="spin" /><span>第 {activeRun.steps} / 25 步</span><button disabled={activeRun.status === 'cancelling' || busy === 'cancel'} onClick={() => void cancel(activeRun.id)}><Square size={13} />取消</button></div>}
-    <form className="tutor-composer" onSubmit={event => { event.preventDefault(); void submit() }}><textarea value={input} onChange={event => setInput(clampToBytes(event.target.value, 32000))} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} placeholder={mode === '反馈' ? '贴入你的答案，我会给出反馈…' : '提问，或描述你卡住的地方…'} aria-label="向知舟导师提问" rows={2} /><div className="composer-bottom"><span><MessageCircleQuestion size={14} />{mode}模式 · 原生后端实时输出</span><button type="submit" aria-label="发送问题" disabled={!input.trim() || running || busy === 'send' || busy === 'create'}><ArrowUp size={18} /></button></div></form>
+    <form className="tutor-composer" onSubmit={event => { event.preventDefault(); void submit() }}><textarea value={input} onChange={event => setInput(clampToBytes(event.target.value, inputBudget))} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} placeholder={mode === '反馈' ? '贴入你的答案，我会给出反馈…' : '提问，或描述你卡住的地方…'} aria-label="向知舟导师提问" rows={2} /><div className="composer-bottom"><span><MessageCircleQuestion size={14} />{mode}模式 · 原生后端实时输出</span><button type="submit" aria-label="发送问题" disabled={!input.trim() || running || busy === 'send' || busy === 'create'}><ArrowUp size={18} /></button></div></form>
     <div className="tutor-foot"><Lightbulb size={13} />导师会优先引导思考；工具调用与引用可在 Agent 工作台核查。</div>
   </div>
 }

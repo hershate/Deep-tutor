@@ -11,18 +11,40 @@ export function Button({ children, variant = 'primary', size = 'md', className =
 // 72#1：Markdown 渲染的链接拦截——ReactMarkdown 默认渲染裸 <a href>，点击触发
 // WebView 顶层导航且 Tauri 默认放行，无地址栏窗口可被讲义/笔记里的外域链接
 // 整窗替换（钓鱼窗）。非锚点 href 一律 preventDefault 后走系统浏览器打开；
-// capabilities 的 https scope 是强制层，非 https 链接在此报类型化错误
+// capabilities 的 https scope 是强制层，非 https 链接在此报类型化错误。
+// 91#1：按 scheme 分流——https 正常可点；http 为非加密链接，点击给出中文
+// 说明（原先点击后被 capability 拒绝，toast 弹插件原始英文串且永远打不开）；
+// mailto/ftp/锚点在应用内无处理器，渲染为纯文本并说明，不再是「可点击但
+// 必然无反应」的死端
 export function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
-  return (
-    <a
-      href={href}
-      {...props}
-      onClick={event => {
-        event.preventDefault()
-        if (href && !href.startsWith('#')) openExternalUrl(href).catch(reportBackendError)
-      }}
-    >{children}</a>
-  )
+  const target = typeof href === 'string' ? href : ''
+  if (target.startsWith('https://')) {
+    return (
+      <a
+        href={target}
+        {...props}
+        onClick={event => {
+          event.preventDefault()
+          openExternalUrl(target).catch(reportBackendError)
+        }}
+      >{children}</a>
+    )
+  }
+  if (target.startsWith('http://')) {
+    return (
+      <a
+        href={target}
+        {...props}
+        aria-disabled="true"
+        title="非加密链接，已阻止打开"
+        onClick={event => {
+          event.preventDefault()
+          reportBackendError({ code: 'insecure_link_blocked', message: '已阻止打开非加密链接（http）：请让资料提供方改用 https 地址。' })
+        }}
+      >{children}</a>
+    )
+  }
+  return <span {...props} title={target.startsWith('#') ? '应用内不支持锚点跳转' : '该链接类型不支持在应用内打开'}>{children}</span>
 }
 
 export function IconButton({ label, children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: ReactNode }) {

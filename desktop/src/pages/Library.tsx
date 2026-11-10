@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { clampToBytes } from '../limits'
-import { BookOpen, Check, ChevronRight, Download, File, FileArchive, FileAudio, FileText, Film, Folder, Globe2, Link2, NotebookPen, Search, ShieldCheck, Tag, Trash2, Upload, X } from 'lucide-react'
+import { BookOpen, Check, ChevronRight, Download, File, FileArchive, FileAudio, FileText, Film, Folder, Globe2, Link2, LoaderCircle, NotebookPen, Search, ShieldCheck, Tag, Trash2, Upload, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -242,20 +242,24 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   // 51#4：打开序号守卫——快速连点笔记 A 再 B 时两次 getDraft 并发，A 后到
   // 会把整个编辑器覆盖回 A，用户在「以为是 B」的界面继续打字并保存进 A
   const openingNoteSeq = useRef(0)
+  // 91#6：getDraft IPC 往返期间（慢盘数百 ms）卡片原先无任何响应外观，
+  // 用户感知为「点了没反应」可能连点——按卡片显示 pending 态
+  const [openingNoteId, setOpeningNoteId] = useState<number | 'new' | null>(null)
   const openNote = (note?: Note) => {
     const ticket = ++openingNoteSeq.current
     const key = `deep-tutor-draft-${note?.id || 'new'}`
+    setOpeningNoteId(note?.id ?? 'new')
     backend.getDraft<{ title: string; content: string; tag: string }>(key).then(({ value: draft, revision }) => {
       draftRevisionRef.current = revision
       if (ticket !== openingNoteSeq.current) return
       setActiveNote(note || null); setDraftRestored(Boolean(draft))
       if (draft) { setNoteTitle(draft.title); setNoteContent(draft.content); setNoteTag(draft.tag); setDirty(true) }
       else { setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || '概率论'); setDirty(false) }
-      setNoteOpen(true)
+      setNoteOpen(true); setOpeningNoteId(null)
     }).catch(error => {
       if (ticket !== openingNoteSeq.current) return
       reportBackendError(error)
-      setActiveNote(note || null); setDraftRestored(false); setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || '概率论'); setDirty(false); setNoteOpen(true)
+      setActiveNote(note || null); setDraftRestored(false); setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || '概率论'); setDirty(false); setNoteOpen(true); setOpeningNoteId(null)
     })
   }
   // 82#4：冲突冻结时给出明确出口——原先 draftBlocked 下 closeNote 直接
@@ -361,7 +365,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     <div className="page-heading"><div><h1>笔记与 Wiki</h1><p>自由笔记、原始资料与可核验的库内引用问答。</p></div><div className="heading-actions">{tab === '笔记' && <Button variant="secondary" disabled={importing} onClick={() => { void importNotes() }}><FileArchive size={17} />{importing ? '正在导入…' : '批量导入'}</Button>}{tab === '笔记' ? <Button onClick={() => openNote()}><NotebookPen size={18} />新建笔记</Button> : <Button disabled={importing} onClick={() => { void importMaterials() }}><Upload size={18} />{importing ? '正在导入…' : '导入资料'}</Button>}</div></div>
     <div className="library-toolbar"><div className="library-tabs">{['笔记', '资料库', 'Wiki 问答'].map(item => <button key={item} className={tab === item ? 'active' : ''} aria-pressed={tab === item} onClick={() => { setTab(item); setFilter('全部') }}>{item === '笔记' ? <NotebookPen size={17} /> : item === '资料库' ? <Folder size={17} /> : <BookOpen size={17} />}{item}<span>{item === '笔记' ? notes.length : item === '资料库' ? resources.length : ''}</span></button>)}</div>{tab !== 'Wiki 问答' && <div className="search-field"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={`搜索${tab}…`} aria-label={`搜索${tab}`} />{query && <button aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div>}</div>
     {tab !== 'Wiki 问答' && <div className="filter-row">{(tab === '笔记' ? ['全部', ...noteTags] : ['全部', 'PDF', '视频', '网页', '音频', '文件']).map(item => <button className={filter === item ? 'active' : ''} aria-pressed={filter === item} key={item} onClick={() => setFilter(item)}>{item}</button>)}<span />{tab === '笔记' && <Button variant="ghost" size="sm" disabled={exportBusy !== ''} onClick={() => { void exportNotes() }}>{exportBusy === 'notes' ? '正在等待选择保存位置…' : <><Download size={16} />ZIP 导出</>}</Button>}</div>}
-    {tab === '笔记' && <>{filteredNotes.length ? <div className="notes-grid">{filteredNotes.map(note => <button className="note-card" key={note.id} onClick={() => openNote(note)}><div className="note-card-top"><Badge tone="neutral">{note.tag}</Badge><span>{formatUpdated(note.updated)}</span></div><h2>{note.title}</h2><p>{note.excerpt}</p><div className="note-card-bottom"><span><Link2 size={14} />{libraryOverview?.notes.find(item => item.noteId === note.id)?.links.length ? `关联 ${libraryOverview.notes.find(item => item.noteId === note.id)?.links.length} 个知识节点` : '未关联知识节点'}</span><ChevronRight size={17} /></div></button>)}</div> : <EmptyState title="没有找到匹配的笔记" description="尝试清除搜索词或切换标签，也可以现在创建一条新笔记。" action={<Button onClick={() => openNote()}>新建笔记</Button>} />}</>}
+    {tab === '笔记' && <>{filteredNotes.length ? <div className="notes-grid">{filteredNotes.map(note => <button className="note-card" key={note.id} disabled={openingNoteId === note.id} onClick={() => openNote(note)}><div className="note-card-top"><Badge tone="neutral">{note.tag}</Badge><span>{formatUpdated(note.updated)}</span></div><h2>{note.title}</h2><p>{note.excerpt}</p><div className="note-card-bottom"><span><Link2 size={14} />{openingNoteId === note.id ? '正在打开…' : libraryOverview?.notes.find(item => item.noteId === note.id)?.links.length ? `关联 ${libraryOverview.notes.find(item => item.noteId === note.id)?.links.length} 个知识节点` : '未关联知识节点'}</span>{openingNoteId === note.id ? <LoaderCircle size={16} className="spin" /> : <ChevronRight size={17} />}</div></button>)}</div> : <EmptyState title="没有找到匹配的笔记" description="尝试清除搜索词或切换标签，也可以现在创建一条新笔记。" action={<Button onClick={() => openNote()}>新建笔记</Button>} />}</>}
     {tab === '资料库' && <>{filteredResources.length ? <div className="resource-list">{filteredResources.map(resource => <button className="resource-row" key={resource.id} onClick={() => { void openMaterial(resource.id) }}><span className="resource-type">{resource.type === 'PDF' ? <FileText size={22} /> : resource.type === '视频' ? <Film size={22} /> : resource.type === '网页' ? <Globe2 size={22} /> : resource.type === '音频' ? <FileAudio size={22} /> : <File size={22} />}</span><div className="resource-copy"><div><Badge tone="neutral">{resource.type}</Badge><span>{resource.meta}</span></div><h3>{resource.title}</h3><ProgressBar value={resource.progress} /></div><span className="resource-percent">{resource.progress}%</span><ChevronRight size={18} /></button>)}</div> : <EmptyState title="这里还没有匹配的资料" description="通过原生文件选择器导入资料，原件暂存后可开始解析。" action={<Button disabled={importing} onClick={() => { void importMaterials() }}><Upload size={17} />导入资料</Button>} />}</>}
     {tab === 'Wiki 问答' && <WikiPanel resources={resources} notify={notify} />}
     <section className="library-bottom"><div><Tag size={18} /><span>资料库概览</span></div><p><strong>{notes.length + resources.length}</strong> 个条目 · <strong>{libraryOverview?.linkedNodes ?? 0}</strong> 个已关联知识节点 · 笔记、原件及解析文本由原生后端管理</p><button onClick={() => setCheckOpen(true)}>检查资料库<ShieldCheck size={16} /></button></section>

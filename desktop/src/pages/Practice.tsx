@@ -6,6 +6,7 @@ import ExamWorkspace from '../components/ExamWorkspace'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace, deltaThrottle } from '../backend/client'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeMistake, type PracticeSet, type PracticeTarget } from '../backend/practice'
 import { statusName } from '../status'
+import { clampToBytes } from '../limits'
 
 type Tab = 'practice' | 'subjective' | 'mistakes' | 'exam'
 const emptyInput: PracticeInput = { planId: '', stageId: null, count: 5, difficulty: 'adaptive', feedbackMode: 'immediate', kinds: ['choice', 'fill'] }
@@ -249,7 +250,7 @@ export default function Practice({ notify, target, onTargetConsumed }: { notify:
             const isCorrect = correctOption === optionIndex
             const isWrong = answered && selected === optionIndex && answer?.correct === false
             return <button key={`${optionIndex}-${option}`} disabled={answered || busy} className={`${selected === optionIndex ? 'selected' : ''} ${isCorrect ? 'correct' : ''} ${isWrong ? 'wrong' : ''}`} onClick={() => setSelected(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span><strong>{option}</strong>{isCorrect && <CheckCircle2 size={20} aria-label="正确选项" />}{isWrong && <XCircle size={20} aria-label="你的错误选择" />}</button>
-          })}</div> : <input className="practice-fill-input" aria-label={`填空作答：${question.prompt}`} value={textAnswer} disabled={answered || busy} onChange={event => setTextAnswer(event.target.value)} placeholder="填写资料中的准确术语" />}
+          })}</div> : <input className="practice-fill-input" aria-label={`填空作答：${question.prompt}`} value={textAnswer} disabled={answered || busy} onChange={event => setTextAnswer(clampToBytes(event.target.value, 30000))} placeholder="填写资料中的准确术语" />}
           {hint && !answered && <div className="hint-box"><Lightbulb size={18} /><p>{question.hint}</p></div>}
           {answered && answer && <div className={`answer-feedback ${answer.correct === true ? 'is-correct' : answer.correct === false ? 'is-wrong' : ''}`}><div>{answer.correct === true ? <CheckCircle2 size={21} /> : <CircleAlert size={21} />}<h3>{answer.correct === true ? '回答正确' : answer.correct === false ? '回答错误，解析与资料依据如下' : '答案已保存'}</h3></div><p>{answer.feedback.explanation ?? answer.feedback.hint ?? (detail.set.feedbackMode === 'deferred' ? '全部题目提交后统一显示答案与解析。' : '本组只提供提示，不显示标准答案。')}</p></div>}
           {answered && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>全部题目提交后统一显示答案与解析。</p></div>}
