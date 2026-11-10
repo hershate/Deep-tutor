@@ -854,8 +854,32 @@ fn finish_run<R: Runtime>(
     error: Option<BackendError>,
 ) -> Result<()> {
     let store = state.store()?;
+    // 97#5：终态守卫——cancel() 在流式响应尾段落库 cancelling 后，工作
+    // 线程的 finish_run('done') 原先无条件覆写，事件序列出现
+    // run_cancel_requested 后紧跟 run_completed、run_cancelled 永不出现；
+    // 遇 cancelling 落 cancelled（输出已计费但取消意图优先），已终态的
+    // 行不再覆写也不重复发终态事件
+    let current: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT status FROM agent_runs WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if !matches!(current.as_deref(), Some("running") | Some("cancelling")) {
+        return Ok(());
+    }
+    let status = if status == "done" && current.as_deref() == Some("cancelling") {
+        "cancelled"
+    } else {
+        status
+    };
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE agent_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5", params![status, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), now()?, id])?;
+    let changed = tx.execute("UPDATE agent_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5 AND status IN ('running', 'cancelling')", params![status, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), now()?, id])?;
+    if changed == 0 {
+        return Ok(());
+    }
     let event = Store::event(
         &tx,
         match status {
@@ -871,6 +895,16 @@ fn finish_run<R: Runtime>(
     Ok(())
 }
 
+/// 97#7 复用：读取 run 的取消标志（内存 map）
+fn cancel_requested(state: &AgentState, run_id: i64) -> Result<bool> {
+    Ok(state
+        .active
+        .lock()
+        .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?
+        .get(&run_id)
+        .is_some_and(|flag| flag.load(Ordering::Acquire)))
+}
+
 fn run_loop<R: Runtime>(
     app: &AppHandle<R>,
     state: &AgentState,
@@ -882,13 +916,7 @@ fn run_loop<R: Runtime>(
     let catalog = tools::catalog();
     loop {
         let run = get_run(state, run_id)?;
-        if state
-            .active
-            .lock()
-            .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?
-            .get(&run_id)
-            .is_some_and(|flag| flag.load(Ordering::Acquire))
-        {
+        if cancel_requested(state, run_id)? {
             return Err(BackendError::new("cancelled", "Agent 运行已取消"));
         }
         if session_output_tokens(state, session_id)? >= session.budget_tokens {
@@ -978,14 +1006,7 @@ fn run_loop<R: Runtime>(
                 "单步工具调用超过 8 个上限",
             ));
         }
-        if !request.tool_calls.is_empty()
-            && state
-                .active
-                .lock()
-                .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?
-                .get(&run_id)
-                .is_some_and(|flag| flag.load(Ordering::Acquire))
-        {
+        if !request.tool_calls.is_empty() && cancel_requested(state, run_id)? {
             save_message(
                 app,
                 state,
@@ -1057,16 +1078,32 @@ fn run_loop<R: Runtime>(
             name: None,
         });
         for call in &request.tool_calls {
-            if state
-                .active
-                .lock()
-                .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?
-                .get(&run_id)
-                .is_some_and(|flag| flag.load(Ordering::Acquire))
-            {
+            if cancel_requested(state, run_id)? {
                 return Err(BackendError::new("cancelled", "Agent 运行已取消"));
             }
             let outcome = tools::execute(app, state, run_id, &session, call, step)?;
+            // 97#7：工具执行期间无取消检查点——最坏路径 web.search 10 次候选
+            // 验证 × 12s 超时约 2 分钟，取消后 run 停留 cancelling 且不可
+            // resume/send；执行后立即复查标志（与调用前检查对称），结果已
+            // 落库、按取消语义保留部分输出
+            if cancel_requested(state, run_id)? {
+                let content = serde_json::to_string(&outcome)?;
+                save_message(
+                    app,
+                    state,
+                    session_id,
+                    run_id,
+                    step,
+                    "tool",
+                    content,
+                    String::new(),
+                    &[],
+                    Some(call.id.clone()),
+                    Some(call.name.clone()),
+                    false,
+                )?;
+                return Err(BackendError::new("cancelled", "Agent 运行已取消"));
+            }
             let content = serde_json::to_string(&outcome)?;
             save_message(
                 app,
@@ -1286,15 +1323,21 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &AgentState) -> Result<()>
 
 pub fn delete_session<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> Result<()> {
     let id = numeric_id(id)?;
-    let store = state.store()?;
-    let running: bool = store.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_runs WHERE session_id = ?1 AND status IN ('running', 'cancelling'))", params![id], |row| row.get(0))?;
+    let mut store = state.store()?;
+    // 97#6：运行检查并入 DELETE 同一 IMMEDIATE 事务——原先检查在事务外，
+    // 与 send() 的 IMMEDIATE 插入构成 TOCTOU：删除提交后并发 run 照常
+    // 执行并计费（provider_requests.agent_session_id 无 FK，账单行残留
+    // 悬空引用），FK CASCADE 删掉的 run 行使 finish_run 发出悬空事件
+    let tx = store
+        .conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let running: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_runs WHERE session_id = ?1 AND status IN ('running', 'cancelling'))", params![id], |row| row.get(0))?;
     if running {
         return Err(BackendError::new(
             "run_active",
             "请先取消并等待 Agent 任务结束，再删除会话",
         ));
     }
-    let tx = store.conn.unchecked_transaction()?;
     tx.execute("DELETE FROM agent_sessions WHERE id = ?1", params![id])?;
     let event = Store::event(&tx, "agent.session_deleted", json!({"sessionId": id}))?;
     tx.commit()?;

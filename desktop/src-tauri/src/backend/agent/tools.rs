@@ -303,12 +303,23 @@ fn commit_artifact<R: Runtime>(
     let tx = store.conn.unchecked_transaction()?;
     let existing = tx
         .query_row(
-            "SELECT id FROM agent_artifacts WHERE session_id = ?1 AND path = ?2",
+            "SELECT id, status FROM agent_artifacts WHERE session_id = ?1 AND path = ?2",
             params![session.id, path],
-            |row| row.get::<_, i64>(0),
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?;
-    let id = if let Some(id) = existing {
+    // 97#4：已提升的路径冻结——原先覆盖同名产物无条件把行状态重置回
+    // committed（promoted→committed 非单调转移），提升痕迹只存于
+    // lecture 版本表，产物视图回退为草稿；复用已提升路径要求换新 path
+    if let Some((_, status)) = &existing {
+        if status == "promoted" {
+            return Err(BackendError::new(
+                "artifact_promoted",
+                "该路径产物已提升为正式讲义，请新路径保存新草稿",
+            ));
+        }
+    }
+    let id = if let Some((id, _)) = existing {
         tx.execute("UPDATE agent_artifacts SET plan_id = ?1, stage_id = ?2, unit_index = ?3, content_json = ?4, sha256 = ?5, status = 'committed', expires_at = ?6 WHERE id = ?7", params![session.plan_id, stage_id, unit_index as i64, serde_json::to_string(content)?, hash, expires, id])?;
         id
     } else {
@@ -359,8 +370,23 @@ fn approval<R: Runtime>(
     payload: Value,
 ) -> Result<Value> {
     let store = state.store()?;
+    let payload_text = serde_json::to_string(&payload)?;
+    // 97#3：同 kind+payload 的 pending 审批复用同一行——模型在两个步骤各
+    // 调一次 artifact.promote（或重试）会产出两条 pending，用户先后批准
+    // 造成同一内容双重版本提升；取消另一条又把已提升产物翻成 cancelled
+    let existing: Option<i64> = store
+        .conn
+        .query_row(
+            "SELECT id FROM agent_approvals WHERE session_id = ?1 AND kind = ?2 AND payload_json = ?3 AND status = 'pending'",
+            params![session.id, kind, payload_text],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(id) = existing {
+        return Ok(json!({"status": "approval_required", "approvalId": id, "kind": kind, "reused": true}));
+    }
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("INSERT INTO agent_approvals (session_id, kind, payload_json, status, created_at) VALUES (?1, ?2, ?3, 'pending', ?4)", params![session.id, kind, serde_json::to_string(&payload)?, now()?])?;
+    tx.execute("INSERT INTO agent_approvals (session_id, kind, payload_json, status, created_at) VALUES (?1, ?2, ?3, 'pending', ?4)", params![session.id, kind, payload_text, now()?])?;
     let id = tx.last_insert_rowid();
     let event = Store::event(
         &tx,
@@ -395,6 +421,28 @@ fn memory_value(value: &str) -> Result<String> {
         ));
     }
     Ok(value.into())
+}
+
+/// 97#2：工具结果统一上限。此前完整结果原样入库并整包进事件 payload——
+/// web.fetch 的 256KB 正文会三级放大（DB 行 → 事件 → history.load 再读回
+/// 再落库，存储随步数滚雪球）。超 64KB 的结果替换为状态 + 头部预览并
+/// 注明截断；发往模型的份额另有 truncate_for_model 的 16KB 二级截断，
+/// 模型可见内容不变，仅持久层/事件面收敛
+fn cap_tool_result(result: Value) -> Value {
+    let serialized = match serde_json::to_string(&result) {
+        Ok(text) => text,
+        Err(_) => return json!({"status": "failed", "error": {"code": "invalid_tool_result", "message": "工具结果无法序列化"}}),
+    };
+    if serialized.len() <= 64 * 1024 {
+        return result;
+    }
+    let preview: String = serialized.chars().take(2048).collect();
+    json!({
+        "status": result.get("status").cloned().unwrap_or_else(|| json!("done")),
+        "truncated": true,
+        "notice": "工具结果超过 64KB 上限，已截断为头部预览；请缩小读取范围（如 history.load 降低条数）后重试",
+        "preview": preview,
+    })
 }
 
 /// 把登记为 running 的工具调用收尾为 failed（参数校验失败路径专用）。
@@ -673,6 +721,7 @@ pub fn execute<R: Runtime>(
             json!({"status": "failed", "error": {"code": error.code, "message": error.message}})
         }
     };
+    let result = cap_tool_result(result);
     let status = result
         .get("status")
         .and_then(Value::as_str)
@@ -812,7 +861,34 @@ fn promote<R: Runtime>(
     expected_sha256: &str,
 ) -> Result<()> {
     let store = state.store()?;
-    let artifact = store.conn.query_row("SELECT stage_id, unit_index, expires_at, sha256 FROM agent_artifacts WHERE id = ?1 AND session_id = ?2", params![artifact_id, session.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?))).optional()?.ok_or_else(|| BackendError::new("not_found", "待提升产物不存在"))?;
+    // 97#8：产物行已被维护 purge 物理删除时，同步 resolve 审批为 expired，
+    // 不留死 pending 条目（promote 自身的 24h 过期路径会 resolve，
+    // 产物行被删的路径原先不会）
+    let artifact = match store.conn.query_row("SELECT stage_id, unit_index, expires_at, sha256, status FROM agent_artifacts WHERE id = ?1 AND session_id = ?2", params![artifact_id, session.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?))).optional() {
+        Ok(Some(artifact)) => artifact,
+        Ok(None) => {
+            let tx = store.conn.unchecked_transaction()?;
+            if resolve_pending(&tx, approval_id, "expired", &now()?).is_ok() {
+                let event = Store::event(&tx, "agent.approval_expired", json!({"approvalId": approval_id, "artifactId": artifact_id}))?;
+                tx.commit()?;
+                emit(app, &event);
+            }
+            return Err(BackendError::new(
+                "not_found",
+                "待提升产物已被清理，审批已过期",
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    // 97#3：产物已提升（或已取消/过期）时拒绝再次 promote——同一产物的
+    // 第二条审批（去重缝隙漏入或历史遗留）原先检查全通过，重复批准造成
+    // 相同内容双重版本提升
+    if artifact.4 != "committed" {
+        return Err(BackendError::new(
+            "artifact_not_committed",
+            "产物已处理（提升/取消/过期），不能重复提升",
+        ));
+    }
     if time::OffsetDateTime::parse(&artifact.2, &time::format_description::well_known::Rfc3339)
         .map_err(|_| BackendError::new("invalid_artifact_expiry", "产物过期时间格式无效"))?
         <= time::OffsetDateTime::now_utc()
@@ -907,8 +983,11 @@ pub fn cancel_approval<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &
     resolve_pending(&tx, id, "cancelled", &now()?)?;
     if kind == "artifact.promote" {
         if let Some(artifact_id) = payload.get("artifactId").and_then(Value::as_i64) {
+            // 97#3：仅在产物仍为 committed 时置 cancelled——另一条审批已把
+            // 产物提升为 promoted 后取消本条，原先无条件 UPDATE 把提升过
+            // 的产物翻成 cancelled，状态与「讲义版本已实际提升」相反
             tx.execute(
-                "UPDATE agent_artifacts SET status = 'cancelled' WHERE id = ?1",
+                "UPDATE agent_artifacts SET status = 'cancelled' WHERE id = ?1 AND status = 'committed'",
                 params![artifact_id],
             )?;
         }

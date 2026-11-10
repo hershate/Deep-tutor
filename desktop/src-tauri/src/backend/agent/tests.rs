@@ -1197,6 +1197,84 @@ fn long_history_is_capped_and_survives_validate_messages() {
 }
 
 #[test]
+fn duplicate_pending_approvals_reuse_the_same_row() {
+    // 97#3：同 kind+payload 的 pending 审批复用同一行——模型分两步请求同一
+    // 操作原先产出两条 pending，先后批准造成同一内容双重执行/版本提升，
+    // 取消另一条又把已处理产物状态翻错
+    let (app, state, _server, session) = prepare();
+    let run = deferred_run(&app, &state, &session);
+    let first = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "memory-dup-1",
+        "memory.save",
+        json!({"key": "dup-key", "value": "同一操作的两次请求"}),
+    );
+    assert_eq!(first["status"], "approval_required");
+    let second = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "memory-dup-2",
+        "memory.save",
+        json!({"key": "dup-key", "value": "同一操作的两次请求"}),
+    );
+    assert_eq!(
+        second["approvalId"], first["approvalId"],
+        "同 kind+payload 必须复用 pending 审批行"
+    );
+    assert_eq!(second["reused"], json!(true));
+    let view = get(&state, &session.id.to_string()).unwrap();
+    assert_eq!(view.approvals.len(), 1, "pending 审批只应有一行");
+}
+
+#[test]
+fn oversized_tool_results_are_capped_before_persisting() {
+    // 97#2：工具结果在入库与进事件前统一 64KB 上限——web.fetch 的 256KB
+    // 正文原先三级放大（DB 行 → 事件 payload → history.load 再读回再落库）
+    let (app, state, _server, session) = prepare();
+    let run = deferred_run(&app, &state, &session);
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    for index in 0..40 {
+        store
+            .conn
+            .execute(
+                "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, partial, created_at) VALUES (?1, ?4, 1, 'user', ?2, '', 0, ?3)",
+                params![session.id, format!("第{index}条：{}", "长内容".repeat(2000)), timestamp, run.id],
+            )
+            .unwrap();
+    }
+    drop(store);
+    let result = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "history-huge",
+        "history.load",
+        json!({"limit": 40}),
+    );
+    assert_eq!(result["truncated"], json!(true), "超限结果必须被截断");
+    let store = state.store().unwrap();
+    let persisted: i64 = store
+        .conn
+        .query_row(
+            "SELECT LENGTH(result_json) FROM agent_tool_calls WHERE id = 'history-huge'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        persisted <= 64 * 1024 + 512,
+        "入库结果必须落在 64KB 上限附近：{persisted}"
+    );
+}
+
+#[test]
 fn multi_step_tool_loop_retrims_the_window_before_each_model_request() {
     // 97#1：34#8 的窗口裁剪只在 run 启动时执行一次；多步工具循环每步追加
     // assistant + tool 消息，贴上限（64 条）的会话第二个模型请求即
