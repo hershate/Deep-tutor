@@ -255,8 +255,28 @@ where
                     if let Some(reason) = candidate.get("finishReason").and_then(Value::as_str) {
                         output.finish_reason = Some(reason.into());
                         done = true;
-                        if reason == "SAFETY" {
-                            return Err(output.error("content_blocked", "供应商因安全策略停止生成"));
+                        // 99#2：拦截类 finishReason 全部按 content_blocked 报告——
+                        // 原先只有 SAFETY 可见，RECITATION（复读）/BLOCKLIST
+                        // （违禁词）/PROHIBITED_CONTENT/SPII 有部分文本时静默
+                        // 按 done 收尾（无提示的截断答案），无文本时退化为泛化
+                        // empty_completion，真实拦截原因对用户完全丢失
+                        if matches!(
+                            reason,
+                            "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII"
+                        ) {
+                            let label = match reason {
+                                "RECITATION" => "因与受版权保护的内容过度相似而停止生成",
+                                "BLOCKLIST" => "因包含违禁词汇而停止生成",
+                                "PROHIBITED_CONTENT" | "SPII" => "因包含受限内容而停止生成",
+                                _ => "因安全策略停止生成",
+                            };
+                            return Err(output.error("content_blocked", label));
+                        }
+                        if reason == "OTHER" {
+                            // 99#2：未分类拦截不冒充成功截断，按 incomplete_stream
+                            // 归类（与无终止符断流同口径）
+                            return Err(output
+                                .error("incomplete_stream", "供应商返回未分类的中断原因"));
                         }
                     }
                 }

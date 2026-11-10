@@ -246,6 +246,16 @@ fn full_backup_round_trip_remaps_ids_and_restores_real_files_without_secrets() {
         .iter()
         .any(|note| note["id"] == 3 && note["title"] == "第二条源笔记"));
     assert_eq!(state["tasks"].as_array().unwrap().len(), 1);
+    // 99#1：资料镜像（kv resources）必须包含导入的资料——原先镜像在
+    // materials 行插入前重建，导入完成后资料库页缺条目直到任意资料操作
+    // 触发全量重建才自愈
+    let resources = state["resources"].as_array().unwrap();
+    assert!(
+        resources
+            .iter()
+            .any(|item| item["id"] == 2 && item["title"] == "原始资料.txt"),
+        "资料镜像缺少导入的资料：{state}"
+    );
     let plans = crate::backend::learning::list(&target).unwrap();
     let imported = plans.iter().find(|plan| plan.id != "plan-1").unwrap();
     assert_eq!(imported.material_ids, [2]);

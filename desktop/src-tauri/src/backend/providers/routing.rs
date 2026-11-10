@@ -1098,15 +1098,21 @@ pub fn stream_chat<R: Runtime>(
                 )?;
                 // 34#13：本地错误（预算超限/provider_disabled 等）也要回写熔断
                 // 状态——原先只有 Ok 分支调 record_circuit，半开探测被本地
-                // Err 打断后 half_open 无人翻转，该供应商卡死到重启
-                record_circuit(
-                    app,
-                    state,
-                    &candidate.id,
-                    false,
-                    Some(error.clone()),
-                    &settings.circuit,
-                )?;
+                // Err 打断后 half_open 无人翻转，该供应商卡死到重启。
+                // 99#3：熔断计数按模式收窄到 routing（circuit_permit 只在
+                // routing 检查）——direct/aggregate 模式下持续 5xx 原先照常
+                // 累计开闸，切到 routing 后「从没配过路由却熔断」；计数与
+                // 消费对称后语义一致（aggregate 为单选无替补，属既有口径）
+                if mode == "routing" {
+                    record_circuit(
+                        app,
+                        state,
+                        &candidate.id,
+                        false,
+                        Some(error.clone()),
+                        &settings.circuit,
+                    )?;
+                }
                 finish_error(app, state, request_id, &error)?;
                 return Err(error);
             }
@@ -1123,14 +1129,17 @@ pub fn stream_chat<R: Runtime>(
                     result.latency_ms,
                     result.error.clone(),
                 )?;
-                record_circuit(
-                    app,
-                    state,
-                    &candidate.id,
-                    result.status == "done",
-                    result.error.clone(),
-                    &settings.circuit,
-                )?;
+                // 99#3：同上，计数收窄到 routing 模式
+                if mode == "routing" {
+                    record_circuit(
+                        app,
+                        state,
+                        &candidate.id,
+                        result.status == "done",
+                        result.error.clone(),
+                        &settings.circuit,
+                    )?;
+                }
                 let retry = mode == "routing"
                     && result.status == "failed"
                     && result.output.is_empty()

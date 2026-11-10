@@ -1123,8 +1123,6 @@ fn import_kv(transfer: &mut Transfer, tx: &Connection) -> Result<()> {
         Store::next_revision(tx, namespace)?;
         *transfer.counts.entry(namespace.into()).or_default() += 1;
     }
-    materials::sync_resources(tx)?;
-    Store::next_revision(tx, "resources")?;
     Ok(())
 }
 
@@ -1276,6 +1274,11 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
             *transfer.counts.entry((*table).into()).or_default() += 1;
         }
     }
+    // 99#1：资料镜像重建移到 materials 表导入之后——原先 import_kv 尾部
+    // 执行时 materials 行尚未插入（ordered 循环在其后），镜像只反映目标库
+    // 旧资料，导入完成后资料库页缺条目直到任意资料操作触发全量重建才自愈
+    materials::sync_resources(tx)?;
+    Store::next_revision(tx, "resources")?;
     Ok(())
 }
 
