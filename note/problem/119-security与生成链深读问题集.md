@@ -19,14 +19,14 @@
 
 - 位置：`desktop/src-tauri/src/backend/learning/lecture.rs:722-724`（`UPDATE learning_lectures SET status='done' … WHERE plan_id=?3 AND stage_id=?4`——无 `AND status IN ('running','cancelling')` 守卫）；`:708-721`（单元循环的取消检查只在每单元开头，最后一个单元完成后、终态事务前无复查）。对照同族既定口径：pipeline.rs:690（循环后有 `cancelled(state, id)?`）、learning/mod.rs:843-852（complete_plan 带 `status IN ('running','cancelling')` 守卫且 cancelling 映射终态 cancelled，98#5）、practice/mod.rs:983（完成 UPDATE 限定 `status='generating'`，changed==0 抛 cancelled 丢弃结果）。
 - 传递链条：①最后一个单元的模型请求完成（或 run 进入时全部单元已 done 逐个 continue），worker 处于最后一次 flag 检查之后、终态提交之前；②用户点「取消生成」→ lecture::cancel 置 flag、`UPDATE … SET status='cancelling' WHERE status='running'` 命中、发 lecture.cancel_requested；③worker 的无守卫 UPDATE 把 cancelling 覆写为 done，落版本行、发 lecture.completed；④StudyRoom 弹窗：用户刚点取消、状态从「正在取消」翻成「已生成」，版本历史多一行——取消意图被静默吞掉。现有测试只覆盖流式中途取消（cancel_chat 中止请求路径），未覆盖此窗口。
-- 影响范围：所有已采用方案的讲义生成（含 force 重生成、中断后续跑收尾）的取消尾部窗口。
+- 影响范围：已采用方案讲义生成（含 force 重生成、中断后续跑收尾）的取消尾部窗口——最后一个单元完成后到终态提交之间；请求仍在流式中的中途取消不受影响（cancel_chat 中止路径有测试覆盖）；无数据损坏（内容真实生成），受损的是取消语义与终态正确性。
 - 修复方向：终态 UPDATE 加 `AND status IN ('running','cancelling')` 守卫并对 cancelling 映射终态 cancelled（镜像 98#5），或循环后终态事务前补一次取消复查；版本行与 lecture.completed 事件随之只在真完成时落。
 
 ### 119#3 projects complete() 把 cancelling 也视为可完成——三个生成域中唯它「结果赢」，与 learning/practice 的取消优先口径相反
 
 - 位置：`desktop/src-tauri/src/backend/projects/mod.rs:408`（`UPDATE project_versions SET status='done', feedback_json=… WHERE id=?3 AND status IN ('running','cancelling')`）；对照同文件 fail() :435（含 cancelling 但映射为 cancelled）、learning/mod.rs:846-850（cancelling→终态 cancelled，结果照存）、practice/mod.rs:983-990（cancelling 视为已取消、结果回滚）。
 - 传递链条：①evaluate() 的模型请求返回 done，:507 `cancelled(state, id)?` 复查时取消尚未提交；②用户点「请求取消」→ cancel() 提交 status='cancelling' + cancel_requested=1，发 project.feedback_cancel_requested；③evaluate() 紧接着调 complete()，守卫集合含 cancelling → changed==1 → 覆写为 done 并写 feedback_json、发 project.feedback_completed；④Projects.tsx：用户取消后评价反而「已完成」并展示三档分数——结果本身是真的，但终态取决于毫秒级时序。
-- 影响范围：单个评价版本的终态与事件语义；取消按钮后的状态翻转。
+- 影响范围：单个评价版本「取消提交与模型返回 done」毫秒竞态窗口的终态/事件语义与取消按钮后的状态翻转；评价正常完成（无取消交叠）与 learning/practice 同场景不受影响；结果内容本身真实，受损的是终态口径一致性。
 - 修复方向：对齐 learning 口径——complete() 守卫收紧为 `status='running'`（或 cancelling 时照存 feedback_json 但终态记 cancelled）；与 fail() 的映射方向一致并在注释固化口径。
 
 ## 信息
@@ -35,7 +35,7 @@
 
 - 位置：`desktop/src-tauri/src/backend/store.rs:118`（`"materials" => "KB 文档"`）与 `:114` 注释（「与 SecurityPanel quotaNames 对齐」）vs `desktop/src/components/SecurityPanel.tsx:9`（`materials: '资料'`）。
 - 传递链条：①管理员把名为「资料」的资源上限设为 N；②超限写入报「KB 文档配额已用尽：当前 N，上限 M」；③用户在设置面板找不到叫「KB 文档」的条目——错误与设置项无法关联。其余四资源（Agent 会话/笔记/社区讨论/Agent 记忆）两侧一致。
-- 影响范围：仅 materials 一个资源的文案；无行为错误。
+- 影响范围：仅 materials 一个资源的超限错误文案与设置项无法关联；其余四资源（Agent 会话/笔记/社区讨论/Agent 记忆）两侧一致不受影响；无行为错误（配额本身正确执行），纯文案/可理解性。
 - 修复方向：统一字串（建议以「资料」为准改 store.rs:118），同步修正 :114 注释。
 
 ## 核实通过项（免后续复查）
