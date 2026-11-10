@@ -437,3 +437,35 @@ fn apkg_review_card_due_counts_days_since_collection_creation() {
         "due 应为自 crt 起的个位数天数（明天到期 ≈ 1），实际 {due_day}（crt={crt}）"
     );
 }
+
+#[test]
+fn apkg_multiline_card_fields_keep_line_breaks() {
+    // 114#4：field() 原顺序先滤控制符再替换 \n——\n 属 Cc 类被先删，
+    // replace 空转成死代码，多行卡面（笔记/复习卡背面常态）在 apkg 里
+    // 挤成一行；修复后换行以 <br> 保留、\r/\t 等其余控制符仍被清除
+    let (app, learning, directory) = setup();
+    let store = learning.store().unwrap();
+    store.conn.execute(
+        "UPDATE review_cards SET back = '第一行要点\n\n第二行要点' WHERE id = (SELECT MIN(id) FROM review_cards)",
+        params![],
+    ).unwrap();
+    let (_, _, path) = exported(&app, input("review", "apkg"), directory.path(), "multiline.apkg");
+    let file = std::fs::File::open(path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(
+        &mut archive.by_name("collection.anki2").unwrap(),
+        &mut bytes,
+    )
+    .unwrap();
+    let collection = directory.path().join("multiline.anki2");
+    std::fs::write(&collection, bytes).unwrap();
+    let connection = Connection::open(collection).unwrap();
+    let fields = connection
+        .query_row("SELECT flds FROM notes ORDER BY id LIMIT 1", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .unwrap();
+    assert!(fields.contains("第一行要点<br><br>第二行要点"), "换行应转 <br>，实际 flds：{fields}");
+    assert!(!fields.contains('\n'), "flds 内不应残留原始换行：{fields}");
+}

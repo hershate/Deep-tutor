@@ -66,6 +66,9 @@ pub async fn export_shared_plan_package<R: tauri::Runtime + 'static>(
     destination: String,
 ) -> Result<Value> {
     use tauri::Manager;
+    // 114#3：补数据根拒绝——全仓写盘入口（08#2/25#18 威胁模型：注入脚本
+    // 借导出命令覆盖工作区库/原件）此前唯一漏网；对照 restore_sync_version
+    super::super::reject_data_root_destination(&app, std::path::Path::new(&destination))?;
     let principal = super::super::security::session_principal(&app)?;
     let sharing = {
         let state = app.state::<BackendState>();
@@ -73,7 +76,13 @@ pub async fn export_shared_plan_package<R: tauri::Runtime + 'static>(
     };
     tauri::async_runtime::spawn_blocking(move || {
         super::super::security::with_principal(principal, || {
-            super::export_package(&sharing, &package, std::path::Path::new(&destination))
+            let result =
+                super::export_package(&sharing, &package, std::path::Path::new(&destination));
+            if result.is_ok() {
+                // 72#2 同款：导出回执登记（reveal_path 白名单）
+                super::super::reveal::register(std::path::Path::new(&destination));
+            }
+            result
         })
     })
     .await

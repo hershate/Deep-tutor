@@ -568,12 +568,11 @@ pub fn export_package(
 ) -> Result<serde_json::Value> {
     read_package(state, content)?;
     package_path(destination, "invalid_share_destination")?;
-    materials::atomic_export(destination, content.as_bytes())?;
-    Ok(json_result(content.len()))
-}
-
-fn json_result(bytes: usize) -> serde_json::Value {
-    serde_json::json!({"bytes": bytes})
+    let bytes = content.as_bytes();
+    materials::atomic_export(destination, bytes)?;
+    // 114#3：回执补 sha256，对齐其余导出口径（export/mod.rs content.exported 同款）
+    let sha256 = format!("{:x}", Sha256::digest(bytes));
+    Ok(serde_json::json!({"bytes": bytes.len(), "sha256": sha256}))
 }
 
 pub fn read_package_file(state: &SharingState, path: &Path) -> Result<SharedPlanView> {

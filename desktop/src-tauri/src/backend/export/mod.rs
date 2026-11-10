@@ -583,6 +583,19 @@ pub fn export<R: Runtime>(
             "当前范围没有可导出的内容",
         ));
     }
+    // 114#12：扩展名校验前移到渲染之前——目的地不合法时原先也要付全量渲染
+    // 代价（PDF 全量字体嵌入秒级）才报错；大小上限依赖渲染产物字节数，
+    // 仍只能在渲染后判定
+    if !destination
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(input.format.extension()))
+    {
+        return Err(BackendError::invalid(
+            "invalid_export_destination",
+            "导出文件扩展名必须与所选格式一致",
+        ));
+    }
     let mut warning = None;
     let bytes = match input.format {
         ExportFormat::Md => formats::markdown(&document).into_bytes(),
@@ -603,16 +616,6 @@ pub fn export<R: Runtime>(
         return Err(BackendError::new(
             "export_size_invalid",
             "导出内容为空或超过 64 MB 上限",
-        ));
-    }
-    if !destination
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case(input.format.extension()))
-    {
-        return Err(BackendError::invalid(
-            "invalid_export_destination",
-            "导出文件扩展名必须与所选格式一致",
         ));
     }
     materials::atomic_export(destination, &bytes)?;

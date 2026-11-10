@@ -45,11 +45,14 @@ fn stable_id(value: &str) -> i64 {
 fn field(value: &str) -> String {
     // 31#26：滤控制字符——含 \u{001F} 单元分隔符时 Anki flds 的字段边界
     // 会被击穿，其余控制符也会污染卡面
+    // 114#4：换行替换必须在控制符过滤之前——\n 本身是 Cc 控制符，原顺序
+    // 先 filter 后 replace 使替换永远空转，多行卡面（笔记/复习卡背面常态）
+    // 在 apkg 里挤成一行；先转 <br> 再滤，\r/\t 等其余控制符仍被清除
     escape_html(value)
+        .replace('\n', "<br>")
         .chars()
         .filter(|character| !character.is_control())
         .collect::<String>()
-        .replace('\n', "<br>")
 }
 
 pub fn render(state: &LearningState, document: &ExportDocument) -> Result<Vec<u8>> {

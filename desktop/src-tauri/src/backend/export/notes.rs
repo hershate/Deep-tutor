@@ -6,10 +6,38 @@ use super::super::store::Store;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use tauri::{AppHandle, Runtime};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+
+/// 114#12：64MB 熔断前移到压缩写入途中——原先全量在内存拼完 zip 才查上限，
+/// 超限库每次导出都付完整拼接成本后失败。包装 Writer 按写入结束位置判定
+/// （zip 收尾对文件头是原位等长回写，不会越过已写高水位），越限立即报错。
+/// 兜底的归档后复查保留，作为对外错误码的权威来源。
+struct LimitedWriter<'a> {
+    inner: std::io::Cursor<&'a mut Vec<u8>>,
+    limit: usize,
+}
+
+impl Write for LimitedWriter<'_> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let position = usize::try_from(self.inner.position()).unwrap_or(usize::MAX);
+        if position.saturating_add(buffer.len()) > self.limit {
+            return Err(std::io::Error::other("笔记归档超过 64 MB 上限"));
+        }
+        self.inner.write(buffer)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl Seek for LimitedWriter<'_> {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(position)
+    }
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,7 +104,10 @@ pub fn archive<R: Runtime>(
     }
     let mut bytes = Vec::new();
     {
-        let mut archive = zip::ZipWriter::new(std::io::Cursor::new(&mut bytes));
+        let mut archive = zip::ZipWriter::new(LimitedWriter {
+            inner: std::io::Cursor::new(&mut bytes),
+            limit: super::MAX_EXPORT_BYTES,
+        });
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
         for note in notes {
