@@ -39,20 +39,24 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   const [done, setDone] = useState<ExportResult | null>(null)
   // 37#4：回执保留用户选择的落盘位置，供「在资源管理器中显示」定位
   const [donePath, setDonePath] = useState('')
+  // 120#4：列表读取失败标记——错误横幅区分「读取失败可重试」与「导出失败」
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
     if (!open) return
     let active = true
     setBusy('load')
     setError('')
+    setLoadFailed(false)
     backend.listLearningPlans().then(items => {
       if (!active) return
       const ready = items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status))
       setPlans(ready)
       setPlanId(current => ready.some(plan => plan.id === current) ? current : ready.find(plan => plan.id === initialPlanId)?.id || ready[0]?.id || '')
-    }).catch(cause => { if (active) setError(backendErrorMessage(cause)) }).finally(() => { if (active) setBusy('') })
+    }).catch(cause => { if (active) { setError(backendErrorMessage(cause)); setLoadFailed(true) } }).finally(() => { if (active) setBusy('') })
     return () => { active = false }
-  }, [open, initialPlanId])
+  }, [open, initialPlanId, reloadToken])
   useEffect(() => {
     // 信息项：弹窗开着期间新完成的方案实时进入列表（plan. 前缀事件触发重拉）
     if (!open) return
@@ -116,7 +120,7 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
     <div className="export-scope"><label>导出范围<select value={scope} onChange={event => { setScope(event.target.value as ExportScope); setDone(null); setError('') }}>{scopes.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div><Badge tone="green">Rust 原生文件生成</Badge><p>内容来自 SQLite 和已保存讲义。PDF 不打开打印窗口；Anki 导出真实 APKG。</p></div></div>
     {needsPlan && <label>学习方案<select value={planId} onChange={event => { setPlanId(event.target.value); setDone(null) }} disabled={!plans.length}><option value="">请选择已完整生成的方案</option>{plans.map(item => <option key={item.id} value={item.id}>{item.goal} · v{item.version}</option>)}</select></label>}
     {scope === 'lecture' && <div className="form-grid"><label>学习阶段<select value={stageId} onChange={event => setStageId(event.target.value)} disabled={!plan?.result}><option value="">请选择阶段</option>{plan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>已保存单元<select value={unitIndex ?? ''} onChange={event => setUnitIndex(event.target.value === '' ? null : Number(event.target.value))} disabled={!lecture}><option value="">请选择已生成单元</option>{lecture?.units.filter(unit => unit.status === 'done').map(unit => <option key={unit.index} value={unit.index}>{unit.index + 1} · {unit.content?.title || unit.nodeId}</option>)}</select></label></div>}
-    {error && <div className="form-error" role="alert">{error}</div>}
+    {error && <div className="form-error" role="alert">{error}{loadFailed && <Button variant="ghost" size="sm" disabled={busy === 'load'} onClick={() => setReloadToken(token => token + 1)}>{busy === 'load' ? '正在读取…' : '重试读取'}</Button>}</div>}
     <div className="export-grid">{available.map(format => <button key={format.id} onClick={() => void run(format.id, format.ext)} disabled={Boolean(busy) || !canExport}><format.icon size={22} /><div><strong>{format.name}</strong><span>{format.description}</span></div>{busy === format.id ? <LoaderCircle size={18} className="spin" /> : done?.format === format.id ? <Check size={18} /> : <ArrowDownToLine size={18} />}</button>)}</div>
     {done && <div className="export-receipt" role="status"><Check size={16} /><div><strong>{done.title}</strong><p>已写入 {done.bytes.toLocaleString()} 字节 · SHA-256 {done.sha256}</p>{done.warning && <p className="export-warning" role="alert">{done.warning}</p>}</div>{donePath && <Button variant="ghost" size="sm" onClick={() => void reveal()}><FolderOpen size={15} />在资源管理器中显示</Button>}</div>}
     <div className="export-foot"><span>动态文本按格式转义；HTML 不执行脚本。只有用户选择保存位置后才写入文件。</span><Button variant="secondary" onClick={onClose}>完成</Button></div>
