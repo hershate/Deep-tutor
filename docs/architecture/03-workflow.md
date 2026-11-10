@@ -30,7 +30,7 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test]
 ```
 
-发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.7，check-versions.mjs 校验）。
+发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.8，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
@@ -245,7 +245,7 @@ flowchart LR
 ```
 
 - 密钥流：一次性表单 → `CredentialBackend.set`（keyring）→ 库/日志/导出/同步只出现 `has_key` 布尔；导出配置 `reject_sensitive`（providers/sync_config.rs:30）拒绝凭据字段；上传载荷测试断言无 apiKey。
-- 鉴权流：guard 五层（02 §1；security/guard.rs:132-183）；单活动会话——登录签发即撤销全部旧会话，登出撤销该用户全部会话；停用/删除用户即吊销全部会话与 PAT 并删 keyring 条目。
+- 鉴权流：guard 五层（02 §1；security/guard.rs:132-183）；单活动会话——登录签发即撤销全部旧会话，登出撤销该用户全部会话，重启自动签发仅限 `auth_sessions` 全表为空的真首启（1.1.8/119#1）；停用/删除用户即吊销全部会话与 PAT 并删 keyring 条目。
 - 配额流：五资源（notes 500/materials 200/sessions 200/threads 500/agent_memory 500 默认，security/mod.rs:150）提交前强制、配额检查在写事务内复查；拒绝写入不影响其他用户（store.rs:359-400）。
 - 分享流：令牌只存哈希；哈希索引仅暴露给只读定位；分享快照本体不含工作区 ID 与事件代次（事件代次口径已移除，13#21/22），用户标识在定位索引、工作区 ID 在 app_state 快照（sharing/mod.rs）。
 - 网络流：全部出站经 `public_address`/DNS pin/禁代理绕过/重定向逐跳校验（providers/openai.rs:103,243-254；web/mod.rs:71-181）。

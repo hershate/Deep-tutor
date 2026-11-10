@@ -175,7 +175,7 @@ sequenceDiagram
     G->>S: 重启 sync 调度线程
 ```
 - 工作区路径：`user_workspace_path(root,user_id) = root.parent()/users/{user_id}/<db名>`（`security/mod.rs:112`）；thread-local `PRINCIPAL`（:34）由 `with_user` 设置，`ScopedBuilder::spawn`（:85-98）把 principal 继承到后台线程；`Store::new` 读它决定 owner，无 principal 时返回 `store_unavailable`（生产 fail-closed，测试环境回退根库语义，`store.rs:74-88`）。tauri 把 async 命令体 spawn 到 tokio worker（`respond_async`），thread-local 到不了那里——18 个 `#[tauri::command(async)]`（providers 4、backup 3、materials 3、maintenance 3、knowledge 1、根 commands 1、engagement 1、sync 1、web 1；44#1/2 与 73 号批次重 IO 命令移出主线程，81#3 deep link 导入同款）改经 `session_principal`（`security/mod.rs:76`）从会话派生当前用户（与 guard `current()` 同源）再显式传播进 `spawn_blocking`。
-- 会话：JWT HS256 手写实现（签名 `security/mod.rs` signature:544，签发 `jwt()` :583，验证 `verify` :638 常量时间比对），secret 与 session token 存系统密钥库（`session-{id}`）；7 天有效期（`SESSION_SECONDS` :31）。单活动会话：`issue()`（:690）签发前撤销全部仍活跃会话并清理其凭据槽，`logout`（:1036）撤销该用户全部会话——切换用户后登出不会回退到上一位用户的会话。
+- 会话：JWT HS256 手写实现（签名 `security/mod.rs` signature:544，签发 `jwt()` :583，验证 `verify` :638 常量时间比对），secret 与 session token 存系统密钥库（`session-{id}`）；7 天有效期（`SESSION_SECONDS` :31）。单活动会话：`issue()`（:690）签发前撤销全部仍活跃会话并清理其凭据槽，`logout`（:1036）撤销该用户全部会话——切换用户后登出不会回退到上一位用户的会话；登出后重启不自动恢复（1.1.8/119#1：自动签发仅限 `auth_sessions` 全表为空的真首启，登出留有已撤销行即静默保持登录门）。
 - PAT：`random::token("dtp_")` 47 字符（`random.rs:68`，BCryptGenRandom），库中仅存 SHA-256（`mod.rs:1170`），明文只在创建响应出现一次；`authenticate_access_token` 验证通过后经 `issue()` 建立会话（前端 SecurityPanel 的 PAT 登录入口调用）。
 - 表（根库，`migrate` `mod.rs:392`）：`local_users`(role CHECK 管理员/成员)、`auth_sessions`、`access_tokens(token_hash UNIQUE)`、`security_quotas(PK(user_id,resource))`、`share_index`。
 
@@ -183,7 +183,7 @@ sequenceDiagram
 
 写路径：域函数在事务内 `Store::event`（落 events 表 + 插件投递）→ 事务 commit → 命令层 `emit(app,&event)` 推 `backend://event`（`backend/commands.rs:22`）。终态先落盘再发送由此保证。前端 `onBackendEvent`（`client.ts:410`）统一接收，`useBackendState.sync()` 直接以 `get_app_state()` 全量快照校准（游标取快照 `lastEventId`，38#2 起不再逐页翻 `events_since`）。
 
-插件投递：`plugins::dispatch(conn,event_id,kind)` 查 `plugin_subscriptions` 命中即 INSERT `plugin_deliveries`（`plugins/mod.rs:689-703`），模式为 `*` 或 15 个命名空间前缀 `.*`（:294-310，含 maintenance）。
+插件投递：`plugins::dispatch(conn,event_id,kind)` 查 `plugin_subscriptions` 命中即 INSERT `plugin_deliveries`（`plugins/mod.rs:755`），模式为 `*` 或 22 个命名空间前缀 `.*`（`EVENT_NAMESPACES` :26，1.1.8/117#3 补 focus/study/lecture/report/security/notifications/usage/project；`state.changed` 为 replace_collection 高频内部状态同步不开放）。实发 ⊆ 白名单 ∪ {state} 与白名单 ⊆ 实发由源码扫描测试 `event_namespaces_cover_whitelist` 双向固化，并校验 Integrations.tsx 数组同步。
 
 ## 5. 各域数据结构（SQLite 表 + 核心类型）
 
