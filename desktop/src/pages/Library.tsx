@@ -80,7 +80,8 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   const draftWrite = useRef<Promise<unknown>>(Promise.resolve())
   const draftBlocked = useRef(false)
   // 75#4：草稿期望版本——双窗口并发保存时后到方收到 revision_conflict，
-  // 不再静默覆盖先保存内容；保存成功后从快照 versions.drafts 同步
+  // 不再静默覆盖先保存内容；保存成功后从写回执同步（111#7：108#3 之后
+  // 不再读 versions.drafts 快照，此处以回执为准）
   const draftRevisionRef = useRef<number | null>(null)
   const [saving, setSaving] = useState(false)
   const noteTags = useMemo(() => Array.from(new Set([...notes.map(note => note.tag), noteTag].filter(Boolean))), [notes, noteTag])

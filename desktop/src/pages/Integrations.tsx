@@ -115,9 +115,15 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   const loadPending = loadError
     ? <div className="form-error" role="alert"><AlertTriangle size={16} />{loadError}<div><Button variant="secondary" size="sm" onClick={() => void refresh()}>重试</Button></div></div>
     : <p className="form-help" role="status">正在读取插件与资产状态…</p>
+  // 115#7：事件刷新失败原先完全静默（loadError 仅在 data 为空时渲染、连
+  // toast 都没有）——插件启停/事件记录停留旧值零提示；成功刷新即清除
+  const staleBanner = loadError
+    ? <div className="form-error" role="alert"><AlertTriangle size={16} />{loadError}<div><Button variant="secondary" size="sm" onClick={() => void refresh()}>重试</Button></div></div>
+    : null
 
   return <div className="page integrations-page">
     <div className="page-heading"><div><h1>插件与开发者</h1><p>声明式扩展、真实事件和可审查资产；不执行不受信任的脚本。</p></div><Badge tone="green"><ShieldCheck size={14} />原生 SQLite · 密钥入系统密钥库</Badge></div>
+    {data && staleBanner}
     <div className="integration-tabs">{['插件体系', '用量与成本', '开发者资源'].map(item => <button key={item} className={tab === item ? 'active' : ''} aria-pressed={tab === item} onClick={() => setTab(item)}>{item === '插件体系' ? <Blocks size={17} /> : item === '开发者资源' ? <Code2 size={17} /> : <Activity size={17} />}{item}</button>)}</div>
 
     {tab === '插件体系' && (data ? <><section className="plugin-summary"><div><Plug size={23} /><span>已启用插件</span><strong>{data.enabledCount}<small> / {data.plugins.length}</small></strong></div><div><Layers3 size={23} /><span>有效事件订阅</span><strong>{data.plugins.reduce((sum, plugin) => sum + plugin.subscriptions.length, 0)}</strong></div><div><Activity size={23} /><span>真实事件投递</span><strong>{data.eventCount}</strong></div><div className="plugin-upload"><input id="plugin-file" type="file" accept=".json,application/json" className="visually-hidden" disabled={busy} onChange={event => { void install(event.target.files?.[0]); event.target.value = '' }} /><label htmlFor="plugin-file" className="btn btn-secondary btn-md"><Upload size={16} />安装 JSON 事件插件</label></div></section><div className="integration-main-grid"><main className="plugin-grid">{data.plugins.map(plugin => <article className="plugin-card" key={plugin.id}><div className="plugin-card-head"><span><Blocks size={19} /></span><Badge tone={plugin.enabled ? 'green' : 'neutral'}>{plugin.enabled ? '已启用' : '已停用'}</Badge></div><h2>{plugin.name}</h2><p>{plugin.description}</p><small>声明式事件插件 · v{plugin.version} · 第 {plugin.generation} 代配置</small><div className="subscription-list">{plugin.subscriptions.map(pattern => <code key={pattern}>{pattern}</code>)}</div><small>{plugin.eventCount} 条真实投递</small><div>{/* 48#14：可访问名固定为用途——原先 label 随状态翻转（已启用/已停用），读屏播报把名称与 aria-checked 状态混在一起 */}

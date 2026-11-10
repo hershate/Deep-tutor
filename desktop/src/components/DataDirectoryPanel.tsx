@@ -64,8 +64,12 @@ export default function DataDirectoryPanel() {
       // A-6：ready 且无待切换目录时后端不做任何动作——此前整页 reload
       // 会白屏数秒并丢失全部本地状态，与「重试」的预期不符
       else setMessage('初始化状态正常，无需处理。')
-    } else {
+    } else if (next.pendingDataRoot) {
       setMessage('初始化仍在进行；已保存的新目录会在下次启动时生效，请稍后重试或重启应用。')
+    } else {
+      // 111#8：无待切换目录时不提「新目录下次生效」——首次初始化慢的
+      // 用户会误以为存在待生效的目录变更
+      setMessage('初始化仍在进行；首次启动的大数据目录迁移可能较慢，请稍后重试。')
     }
     return next
   })

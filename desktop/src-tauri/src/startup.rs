@@ -340,6 +340,10 @@ pub fn initialize<R: Runtime>(
     configuration_error: Option<BackendError>,
 ) {
     prepare(app, root, default_root, pointer);
+    // 111#6：缺失探测收敛进 initialize 本体——原先只在冷启动的
+    // initialize_background 探测，重试初始化重建目录后第二次起提示缺失；
+    // 与 GUI 路径同点（prepare 之后、assemble 建目录之前）
+    note_missing_directory(app, root, pointer);
     let state = app.state::<StartupState>();
     state.set_failure(None);
     state
@@ -363,8 +367,7 @@ pub fn initialize_background<R: Runtime + 'static>(
     configuration_error: Option<BackendError>,
 ) {
     prepare(app, root, default_root, pointer);
-    // 106#9：在 prepare_directory 新建目录之前探测缺失（GUI 启动路径）
-    note_missing_directory(app, root, pointer);
+    // 106#9 的缺失探测已随 111#6 收敛进 initialize 本体（重试路径同享）
     app.state::<StartupState>()
         .running
         .store(true, std::sync::atomic::Ordering::Release);
