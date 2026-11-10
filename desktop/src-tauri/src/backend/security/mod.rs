@@ -992,6 +992,11 @@ pub fn overview<R: Runtime>(app: &AppHandle<R>, state: &SecurityState) -> Result
                 "session_expired",
                 "session_revoked",
                 "account_disabled",
+                // 103#8 补丁：keyring 会话槽丢失要求显式重登——该码必须同样
+                // 走 logged_out_overview（登录界面依赖 overview 提供用户
+                // 列表）；原先漏列使 get_security_overview 整体失败，登录
+                // 表单无用户可列，「显式重登」的唯一出口被堵死成永久锁死
+                "session_credentials_unavailable",
             ]
             .contains(&error.code.as_str()) =>
         {

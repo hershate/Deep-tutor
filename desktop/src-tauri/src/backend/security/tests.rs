@@ -579,3 +579,38 @@ fn logout_revokes_all_sessions_of_the_user() {
         "登出后不得残留任何未撤销会话（含切换前的旧会话）"
     );
 }
+
+// 111 号：keyring 会话槽丢失（103#8 的 session_credentials_unavailable）
+// 时登录界面必须仍能拿到用户列表——overview 的容忍分支原先漏列该码，
+// get_security_overview 整体失败，「显式重登」的唯一出口被堵死成锁死
+#[test]
+fn missing_keyring_slot_still_lists_users_for_explicit_relogin() {
+    let (app, state) = setup();
+    let first = ipc(&app, "login_local_user", json!({"userId": 1})).unwrap();
+    let session_id = first["session"]["id"].as_str().unwrap().to_string();
+    // 模拟凭据管理器条目被外部清理：会话行仍在，keyring 槽消失
+    state
+        .credentials
+        .delete(&format!("session-{session_id}"))
+        .unwrap();
+    let overview = ipc(&app, "get_security_overview", json!({})).unwrap();
+    assert_eq!(
+        overview["requiresLogin"],
+        json!(true),
+        "应走 logged_out_overview"
+    );
+    assert!(
+        overview["users"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|user| user["id"] == json!(1)),
+        "登录表单必须能列出用户：{overview}"
+    );
+    // 显式重登收尾（issue 重建会话与槽）
+    let reloded = ipc(&app, "login_local_user", json!({"userId": 1})).unwrap();
+    assert!(
+        reloded["currentUser"].is_object(),
+        "重登后恢复会话：{reloded}"
+    );
+}
