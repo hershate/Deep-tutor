@@ -110,12 +110,13 @@ pub struct Store {
 }
 
 /// 66#3：配额资源 key → 用户可见中文名（与 SecurityPanel quotaNames 对齐），
-/// 消息不再直拼英文资源名
+/// 消息不再直拼英文资源名。119#4：materials 以安全面板的「资料」为准——
+/// 原先写「KB 文档」，超限错误与设置项无法关联
 fn quota_label(resource: &str) -> &'static str {
     match resource {
         "sessions" => "Agent 会话",
         "notes" => "笔记",
-        "materials" => "KB 文档",
+        "materials" => "资料",
         "threads" => "社区讨论",
         "agent_memory" => "Agent 记忆",
         _ => "资源",
