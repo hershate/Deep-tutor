@@ -3,19 +3,25 @@ use super::{KnowledgeHit, KnowledgeSession};
 use tauri::{AppHandle, Runtime, State};
 
 #[tauri::command(async)]
-pub async fn search_knowledge(
+pub async fn search_knowledge<R: Runtime + 'static>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
     query: String,
 ) -> Result<Vec<KnowledgeHit>> {
     // 44#2：全库笔记+资料解析文本的内存逐条扫描是击键路径（120ms 防抖），
     // 大库单次可达上百毫秒——原先同步命令在主线程执行，连续击键时窗口
     // 拖动/点击有可感迟滞；移到阻塞线程池
+    // 114#1：移后台必须带 principal（23#7 同因）——search 首行即 Store::new，
+    // 生产分支无 principal 直接拒绝，检索整体失败
+    let principal = super::super::security::session_principal_existing(&app)?;
     let knowledge = state.knowledge.shared();
-    tauri::async_runtime::spawn_blocking(move || super::search(&knowledge, &query))
-        .await
-        .map_err(|_| {
-            super::super::error::BackendError::new("internal_error", "检索任务执行异常终止")
-        })?
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || super::search(&knowledge, &query))
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "检索任务执行异常终止")
+    })?
 }
 
 #[tauri::command]

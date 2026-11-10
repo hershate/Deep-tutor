@@ -8,14 +8,19 @@ use tauri::{AppHandle, Manager, Runtime, State};
 // 73#13c：全库搜索（kv 三命名空间 uni_lower+LIKE 无索引全扫 + materials 扫描
 // + 全量方案图逐节点 contains）大库 100ms-1s——原先同步命令在主线程执行，
 // 全局搜索每击键去抖后仍冻结窗口。移后台（knowledge::search 44#2 同款）
+// 114#1：移后台必须带 principal——guard 的 thread-local 到不了阻塞线程池
+// （23#7），Store::new 生产分支无 principal 直接拒绝，非空查询整体失败
 #[tauri::command(async)]
 pub async fn search_workspace<R: Runtime + 'static>(
     app: AppHandle<R>,
     query: String,
 ) -> Result<Vec<SearchResult>> {
+    let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<BackendState>();
-        super::search(&EngagementState::new(&state.learning), query)
+        super::super::security::with_principal(principal, || {
+            let state = app.state::<BackendState>();
+            super::search(&EngagementState::new(&state.learning), query)
+        })
     })
     .await
     .map_err(|_| {

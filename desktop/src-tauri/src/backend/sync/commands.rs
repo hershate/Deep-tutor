@@ -48,18 +48,23 @@ pub fn cancel_sync_job<R: Runtime>(
 // 73#6：版本列表来自 S3/WebDAV 真实网络请求（client 总超时 45s + 阻塞式
 // DNS 解析）——原先同步命令在主线程执行，打开同步版本列表可冻结至远端
 // 响应，挂起站点最长 45-50s。移后台（44#1 同款）
+// 114#1：移后台必须带 principal（23#7 同因）——config() 首行即 Store::new，
+// 生产分支无 principal 直接拒绝，版本列表整体失败
 #[tauri::command(async)]
 pub async fn get_sync_versions<R: Runtime + 'static>(
     app: AppHandle<R>,
 ) -> Result<Vec<super::versions::SyncVersion>> {
     use tauri::Manager;
+    let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<BackendState>();
-        let service = SyncService::new(&state.learning);
-        let config = super::config(&service)?.ok_or_else(|| {
-            super::super::error::BackendError::new("sync_not_configured", "请先保存同步配置")
-        })?;
-        super::versions::list(&service, &config)
+        super::super::security::with_principal(principal, || {
+            let state = app.state::<BackendState>();
+            let service = SyncService::new(&state.learning);
+            let config = super::config(&service)?.ok_or_else(|| {
+                super::super::error::BackendError::new("sync_not_configured", "请先保存同步配置")
+            })?;
+            super::versions::list(&service, &config)
+        })
     })
     .await
     .map_err(|_| {
