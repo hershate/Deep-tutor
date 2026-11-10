@@ -18,7 +18,8 @@ pub(crate) const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// 使老库即使指纹与记录一致也会重新执行迁移（指纹只反映库内现状，不反映代码期望）。
 /// v2（34#1）：provider_requests 增列 agent_session_id（31#1 引入时漏递增，
 /// 已在版本 1 记录过指纹的存量库跳过迁移，Agent 域 SQL 报 no such column）
-const SCHEMA_VERSION: i64 = 2;
+/// v3（99#5）：provider_circuits 增列 last_failure_at（失败计数时间窗）
+const SCHEMA_VERSION: i64 = 3;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
 
 /// 47#2：time crate 的 now_local() 在多线程进程中因健全性限制恒 Err——

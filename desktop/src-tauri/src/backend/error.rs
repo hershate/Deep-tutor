@@ -54,7 +54,15 @@ impl From<rusqlite::Error> for BackendError {
 }
 
 impl From<std::io::Error> for BackendError {
-    fn from(_: std::io::Error) -> Self {
+    fn from(error: std::io::Error) -> Self {
+        // 99#4：盘满独立错误码——与目录只读等共用 storage_failed 时，用户
+        // 无法区分「清理磁盘空间」与「检查目录权限」两条自救路径
+        if error.kind() == std::io::ErrorKind::StorageFull {
+            return Self::new(
+                "disk_full",
+                "目标磁盘已满，请清理空间后重试（部分写入的临时文件已回收）",
+            );
+        }
         Self::storage()
     }
 }

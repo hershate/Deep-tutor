@@ -38,9 +38,9 @@ pub fn import<R: Runtime>(
     path: &Path,
 ) -> Result<Value> {
     let mut backup = archive::open(path, state)?;
-    let counts = transfer::import(&mut backup, store, state)?;
+    let (counts, import_warnings) = transfer::import(&mut backup, store, state)?;
     let mut reindex_warning: Option<String> = None;
-    let mut recover_warnings: Vec<String> = Vec::new();
+    let mut recover_warnings: Vec<String> = import_warnings;
     // 57#3：导入后校验资料行有对应原件（随档携带或本机已有）——导出时的
     // 缺失只留在导出回执，恢复方原先拿到「数据行在、文件缺」的档案毫无
     // 提示；现在按 backupImportWarnings 显式列出

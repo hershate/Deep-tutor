@@ -27,6 +27,8 @@ struct Transfer {
     reused: HashSet<String>,
     plugin_manifests: HashMap<String, String>,
     counts: BTreeMap<String, u64>,
+    /// 99#6：悬挂引用 lenient 降级的跳行说明（异常库态下备份仍可导入）
+    warnings: Vec<String>,
 }
 
 fn key(value: &Value) -> Result<String> {
@@ -207,6 +209,7 @@ fn read_tables(source: &Connection, target: &Connection) -> Result<Transfer> {
         reused: HashSet::new(),
         plugin_manifests: HashMap::new(),
         counts: BTreeMap::new(),
+        warnings: Vec::new(),
     })
 }
 
@@ -1000,10 +1003,28 @@ fn transform(transfer: &Transfer, table: &str, row: &mut Row, target: &Connectio
                     if parent == "provider_requests"
                         && error.code == "invalid_backup_reference" =>
                 {
-                    row.insert(
-                        column.name.clone(),
-                        map_plain(&value, "provider_route_runs", &transfer.maps)?,
-                    );
+                    match map_plain(&value, "provider_route_runs", &transfer.maps) {
+                        Ok(mapped) => {
+                            row.insert(column.name.clone(), mapped);
+                        }
+                        // 99#6：审计型父表悬挂返回专用码供调用方 lenient 跳行
+                        Err(fallback) if fallback.code == "invalid_backup_reference" => {
+                            return Err(BackendError::new(
+                                "pruned_backup_reference",
+                                &error.message,
+                            ));
+                        }
+                        Err(fallback) => return Err(fallback),
+                    }
+                }
+                // 99#6：父表属维护裁剪域（runs 1000 / requests 20000 / events
+                // 90d 窗口异构）时，异常库态的单侧悬挂按跳行降级；用户内容型
+                // 父表（方案/资料/笔记等）断链仍整单拒绝
+                Err(error)
+                    if lenient_backup_parent(parent)
+                        && error.code == "invalid_backup_reference" =>
+                {
+                    return Err(BackendError::new("pruned_backup_reference", &error.message));
                 }
                 Err(error) => return Err(error),
             }
@@ -1016,7 +1037,18 @@ fn transform(transfer: &Transfer, table: &str, row: &mut Row, target: &Connectio
             continue;
         }
         let value = row.get(&column).cloned().ok_or_else(invalid_record)?;
-        row.insert(column, map_plain(&value, parent, &transfer.maps)?);
+        match map_plain(&value, parent, &transfer.maps) {
+            Ok(mapped) => {
+                row.insert(column, mapped);
+            }
+            // 99#6：审计型父表悬挂 lenient 跳行（同引用列分支）
+            Err(error)
+                if lenient_backup_parent(parent) && error.code == "invalid_backup_reference" =>
+            {
+                return Err(BackendError::new("pruned_backup_reference", &error.message));
+            }
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }
@@ -1172,6 +1204,14 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
     exists(tx, table, key, value)
 }
 
+/// 99#6：维护裁剪域的审计型父表——异常库态下单侧悬挂按 lenient 降级
+fn lenient_backup_parent(parent: &str) -> bool {
+    matches!(
+        parent,
+        "provider_requests" | "provider_route_runs" | "events"
+    )
+}
+
 fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str]) -> Result<()> {
     // 31#46：一次性构建「按哈希复用目标已有资料」的目标 id 集合——原先
     // 每行资料在 transform 后对 IdMap 线性反查（O(n²)）
@@ -1235,12 +1275,24 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
             } else {
                 None
             };
-            transform(transfer, table, row, tx).map_err(|error| {
-                BackendError::new(
+            // 99#6：悬挂引用 lenient 降级——三域保留窗口各异（runs 1000 /
+            // requests 20000 / events 90d），异常库态（手工裁剪/外部工具/
+            // 历史版本库）下 runs/attempts/requests 之间的引用可能单侧
+            // 悬挂，原先整单 invalid_backup_reference 使备份完全不可用、
+            // 恢复路径阻断；跳过该行并计入 backupImportWarnings
+            if let Err(error) = transform(transfer, table, row, tx) {
+                if error.code == "pruned_backup_reference" {
+                    transfer.warnings.push(format!(
+                        "{}一行引用了备份中不存在的记录，已跳过该行",
+                        table_label(table)
+                    ));
+                    continue;
+                }
+                return Err(BackendError::new(
                     &error.code,
                     &format!("处理备份{}时：{}", table_label(table), error.message),
-                )
-            })?;
+                ));
+            }
             // 31#46：资料复用按目标 id 判定（prepare_ids 已把主键改写为映射值）
             if *table == "materials" {
                 let id = row
@@ -1460,7 +1512,7 @@ pub fn import(
     backup: &mut OpenBackup,
     store: &Store,
     state: &LearningState,
-) -> Result<BTreeMap<String, u64>> {
+) -> Result<(BTreeMap<String, u64>, Vec<String>)> {
     let source =
         Connection::open_with_flags(&backup.database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     source.execute("PRAGMA query_only = ON", [])?;
@@ -1489,7 +1541,7 @@ pub fn import(
         import_rows(&mut transfer, &tx, &ordered)?;
         installed = install_files(&root, &staged)?;
         tx.commit()?;
-        Ok(transfer.counts)
+        Ok((transfer.counts, transfer.warnings))
     })();
     if outcome.is_err() {
         for path in installed {

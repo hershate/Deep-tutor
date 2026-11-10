@@ -112,6 +112,8 @@ where
     for attempt in 1..=policy.max_attempts {
         let started = Instant::now();
         let mut done = false;
+        // 99#9：拒答标记——refusal delta 与正文混排原先无任何区分
+        let mut saw_refusal = false;
         let result = tauri::async_runtime::block_on(stream_events(
             url.clone(),
             &profile.kind,
@@ -129,9 +131,27 @@ where
                     .and_then(Value::as_str)
                     .unwrap_or_default();
                 match kind {
-                    "response.output_text.delta" | "response.refusal.delta" => {
+                    "response.output_text.delta" => {
                         if let Some(text) = event.get("delta").and_then(Value::as_str) {
                             emit(output, text, false, &mut on_delta)?;
+                        }
+                    }
+                    // 99#9：拒答内容单独标记——与正文混排原先无区分，终态的
+                    // finish_reason 记 refusal（展示层可辨，内容保留不失败）
+                    "response.refusal.delta" => {
+                        saw_refusal = true;
+                        if let Some(text) = event.get("delta").and_then(Value::as_str) {
+                            emit(output, text, false, &mut on_delta)?;
+                        }
+                    }
+                    // 99#9：个别代理只发 output_text.done（携带全文）不发
+                    // delta——原先被 `_ => {}` 丢弃、text 为空、finish 报泛化
+                    // empty_completion，真实全文丢失；空文本时兜底接收
+                    "response.output_text.done" => {
+                        if output.text.is_empty() {
+                            if let Some(text) = event.get("text").and_then(Value::as_str) {
+                                emit(output, text, false, &mut on_delta)?;
+                            }
                         }
                     }
                     "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
@@ -281,6 +301,10 @@ where
                         if let Some(model) = response.get("model").and_then(Value::as_str) {
                             output.model = model.into();
                         }
+                        // 99#9：拒答标记优先于普通完成
+                        if saw_refusal && output.finish_reason.is_none() {
+                            output.finish_reason = Some("refusal".into());
+                        }
                         done = true;
                     }
                     "response.incomplete" => {
@@ -312,7 +336,12 @@ where
                             &message.chars().take(200).collect::<String>(),
                         ));
                     }
-                    _ => {}
+                    _ => {
+                        // 99#9：未覆盖事件不再完全静默——stderr 留痕供代理网关排障
+                        if !kind.is_empty() {
+                            eprintln!("responses stream: unhandled event kind {kind}");
+                        }
+                    }
                 }
                 Ok(done)
             },

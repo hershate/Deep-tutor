@@ -156,6 +156,14 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS provider_route_runs_created
             ON provider_route_runs(created_at DESC);",
     )?;
+    // 99#5：失败计数时间窗——无 last_failure_at 时跨天偶发失败也能凑满
+    // 开闸（周一/周四/次周二各 1 次、期间无成功即熔断 60s+）
+    super::super::store::ensure_column(
+        conn,
+        "provider_circuits",
+        "last_failure_at",
+        "last_failure_at TEXT",
+    )?;
     let legacy = conn
         .query_row(
             "SELECT [notnull] FROM pragma_table_info('provider_route_attempts') WHERE name = 'upstream_request_id'",
@@ -635,10 +643,10 @@ fn can_failover(error: &BackendError) -> bool {
 fn circuit_row(
     conn: &Connection,
     provider_id: i64,
-) -> Result<(String, u32, Option<String>, Option<BackendError>)> {
+) -> Result<(String, u32, Option<String>, Option<BackendError>, Option<String>)> {
     Ok(conn
         .query_row(
-            "SELECT state, failures, opened_at, error_code, error_message FROM provider_circuits WHERE provider_id = ?1",
+            "SELECT state, failures, opened_at, error_code, error_message, last_failure_at FROM provider_circuits WHERE provider_id = ?1",
             params![provider_id],
             |row| {
                 let code: Option<String> = row.get(3)?;
@@ -648,11 +656,12 @@ fn circuit_row(
                     row.get::<_, i64>(1)? as u32,
                     row.get::<_, Option<String>>(2)?,
                     code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("上游请求失败"))),
+                    row.get(5)?,
                 ))
             },
         )
         .optional()
-        .map(|row| row.unwrap_or_else(|| ("closed".into(), 0, None, None)))?)
+        .map(|row| row.unwrap_or_else(|| ("closed".into(), 0, None, None, None)))?)
 }
 
 fn circuit_permit(
@@ -660,7 +669,7 @@ fn circuit_permit(
     provider_id: i64,
     cooldown: u64,
 ) -> Result<Option<BackendError>> {
-    let (state, _, opened_at, _) = circuit_row(conn, provider_id)?;
+    let (state, _, opened_at, _, _) = circuit_row(conn, provider_id)?;
     match state.as_str() {
         "closed" => Ok(None),
         "half_open" => Ok(Some(BackendError::new(
@@ -715,38 +724,65 @@ fn record_circuit<R: Runtime>(
         &store.conn,
         rusqlite::TransactionBehavior::Immediate,
     )?;
-    let (previous, failures, opened_at, _) = circuit_row(&tx, id)?;
+    let (previous, failures, opened_at, _, last_failure_at) = circuit_row(&tx, id)?;
+    let (old_previous, old_failures, old_opened_at) =
+        (previous.clone(), failures, opened_at.clone());
     let eligible = error.as_ref().is_some_and(can_failover);
+    let timestamp = now()?;
+    // 99#5：失败计数时间窗（cooldown × 5）——无窗时跨天偶发失败也能凑满
+    // 开闸（期间无成功请求即不清零），低频使用供应商的熔断语义失真
+    let window_stale = last_failure_at
+        .as_deref()
+        .and_then(|value| OffsetDateTime::parse(value, &Rfc3339).ok())
+        .is_some_and(|last| {
+            OffsetDateTime::now_utc() - last
+                > time::Duration::seconds(settings.cooldown as i64 * 5)
+        });
+    let mut next_failure_at = last_failure_at.clone();
     let (next, failures, opened_at) = if error
         .as_ref()
         .is_some_and(|error| error.code == "cancelled")
     {
-        (
-            if previous == "half_open" {
-                "open".into()
-            } else {
-                previous
-            },
-            failures,
-            opened_at,
-        )
+        // 99#7：半开探测被取消回 open 时同步刷新 opened_at——保留旧值会使
+        // 冷却判定（now < opened + cooldown）恒假，反复取消形成探测-取消
+        // 振荡；其余取消保持原状态与打开时间
+        if previous == "half_open" {
+            ("open".into(), failures, Some(timestamp.clone()))
+        } else {
+            (previous, failures, opened_at)
+        }
     } else if success {
+        next_failure_at = None;
         ("closed".into(), 0, None)
     } else if previous == "half_open" {
-        ("open".into(), failures.saturating_add(1), Some(now()?))
+        next_failure_at = Some(timestamp.clone());
+        ("open".into(), failures.saturating_add(1), Some(timestamp.clone()))
     } else if eligible {
-        let failures = failures.saturating_add(1);
+        // 99#5：窗口外的历史失败清零后从头计 1
+        let failures = if window_stale { 1 } else { failures.saturating_add(1) };
+        next_failure_at = Some(timestamp.clone());
         if failures >= settings.failures {
-            ("open".into(), failures, Some(now()?))
+            ("open".into(), failures, Some(timestamp.clone()))
         } else {
             ("closed".into(), failures, None)
         }
     } else {
         (previous, failures, opened_at)
     };
+    // 99#11：状态/计数/打开时间均未变化且无错误载荷时不再 UPSERT+发事件
+    // ——原先每次成功请求都写一行值相同的 circuits 并发 circuit_changed，
+    // events 表随请求量线性增加噪音行（55#10 事件治理口径）
+    if next == old_previous
+        && failures == old_failures
+        && opened_at == old_opened_at
+        && error.is_none()
+    {
+        drop(tx);
+        return Ok(());
+    }
     tx.execute(
-        "INSERT INTO provider_circuits (provider_id, state, failures, opened_at, error_code, error_message) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(provider_id) DO UPDATE SET state = excluded.state, failures = excluded.failures, opened_at = excluded.opened_at, error_code = excluded.error_code, error_message = excluded.error_message",
-        params![id, next, failures, opened_at, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message)],
+        "INSERT INTO provider_circuits (provider_id, state, failures, opened_at, error_code, error_message, last_failure_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(provider_id) DO UPDATE SET state = excluded.state, failures = excluded.failures, opened_at = excluded.opened_at, error_code = excluded.error_code, error_message = excluded.error_message, last_failure_at = excluded.last_failure_at",
+        params![id, next, failures, opened_at, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), next_failure_at],
     )?;
     let event = Store::event(
         &tx,

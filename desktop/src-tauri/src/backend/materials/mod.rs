@@ -1353,8 +1353,17 @@ pub(crate) fn atomic_export(destination: &Path, bytes: &[u8]) -> Result<()> {
         .write(true)
         .create_new(true)
         .open(&temporary)?;
-    std::io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()?;
+    // 99#4：写入/落盘失败（盘满等）须回收 temporary——`?` 提前返回会残留
+    // download-{n} 部分文件（备份导出可达数 GB），且用户只看到泛化的
+    // storage_failed 无法定位盘满
+    if let Err(error) = (|| -> std::io::Result<()> {
+        std::io::Write::write_all(&mut file, bytes)?;
+        file.sync_all()
+    })() {
+        drop(file);
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
     drop(file);
     let replaced = destination.exists();
     if replaced {

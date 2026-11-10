@@ -253,7 +253,10 @@ where
                         }
                     }
                     if let Some(reason) = candidate.get("finishReason").and_then(Value::as_str) {
-                        output.finish_reason = Some(reason.into());
+                        // 99#10：词汇归一到 OpenAI Chat 语义（10#4 与 responses.rs
+                        // 同口径）——MAX_TOKENS→length，展示层三协议一致
+                        let normalized = if reason == "MAX_TOKENS" { "length" } else { reason };
+                        output.finish_reason = Some(normalized.into());
                         done = true;
                         // 99#2：拦截类 finishReason 全部按 content_blocked 报告——
                         // 原先只有 SAFETY 可见，RECITATION（复读）/BLOCKLIST

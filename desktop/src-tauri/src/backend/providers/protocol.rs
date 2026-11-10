@@ -377,15 +377,20 @@ where
                 }
             }
             Ok(Ok(None)) => {
+                // 99#8：尾行先处理再按「是否收到过任何事件」分类——原先零行
+                // 判定先于 process(&pending)，非标网关只发一条无终止符的最终
+                // data 行后关连接时，该行滞留 pending、误报 endpoint_unreachable
+                //（「未收到任何事件」），尾行被丢弃
+                if !pending.is_empty() {
+                    done = process(&pending)? || done;
+                    processed_lines += 1;
+                }
                 // 55#5：零事件的 EOF 同样是连接中断（干净 FIN 不走 Err 分支）——
                 // 可重试/可故障转移；有事件但缺 [DONE] 仍为 incomplete_stream
                 if processed_lines == 0 {
                     return Err(
                         output.error("endpoint_unreachable", "流式连接中断，未收到任何事件")
                     );
-                }
-                if !pending.is_empty() {
-                    done = process(&pending)? || done;
                 }
                 break;
             }

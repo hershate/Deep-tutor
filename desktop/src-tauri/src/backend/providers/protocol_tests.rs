@@ -341,7 +341,8 @@ fn anthropic_streams_reasoning_tools_and_usage() {
     );
     assert_eq!(result.usage.as_ref().unwrap().input_tokens, Some(20));
     assert_eq!(result.usage.as_ref().unwrap().output_tokens, Some(8));
-    assert_eq!(result.finish_reason.as_deref(), Some("tool_use"));
+    // 99#10：词汇归一到 OpenAI Chat 语义——tool_use→tool_calls
+    assert_eq!(result.finish_reason.as_deref(), Some("tool_calls"));
 }
 
 #[test]

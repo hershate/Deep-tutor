@@ -1260,6 +1260,12 @@ where
                 }
             }
             Ok(Ok(None)) => {
+                // 99#8：尾行先处理再按「是否收到过任何事件」分类（protocol.rs
+                // 同构）——无终止符单事件流原先被误分类为 endpoint_unreachable
+                if !pending.is_empty() {
+                    done = consume_line(&pending, &mut output, on_delta)?;
+                    processed_lines += 1;
+                }
                 // 55#5：零事件的 EOF 同样是连接中断（服务端发完响应头即断开，
                 // reqwest 干净 FIN 不走 Err 分支）——按网络毛刺归类可重试/
                 // 可故障转移；有事件但缺 [DONE] 仍为 incomplete_stream
@@ -1267,9 +1273,6 @@ where
                     return Err(
                         output.error("endpoint_unreachable", "流式连接中断，未收到任何事件")
                     );
-                }
-                if !pending.is_empty() {
-                    done = consume_line(&pending, &mut output, on_delta)?;
                 }
                 break;
             }

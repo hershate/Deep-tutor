@@ -277,7 +277,15 @@ where
                         if let Some(reason) =
                             event.pointer("/delta/stop_reason").and_then(Value::as_str)
                         {
-                            output.finish_reason = Some(reason.into());
+                            // 99#10：词汇归一到 OpenAI Chat 语义（10#4 与
+                            // responses.rs 同口径）——max_tokens→length、
+                            // tool_use→tool_calls，展示层三协议一致
+                            let normalized = match reason {
+                                "max_tokens" => "length",
+                                "tool_use" => "tool_calls",
+                                other => other,
+                            };
+                            output.finish_reason = Some(normalized.into());
                         }
                         if let Some(usage) = event.get("usage") {
                             update_usage(output, usage);
