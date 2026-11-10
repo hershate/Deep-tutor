@@ -59,12 +59,12 @@ export default function Settings({ preferences, setPreferences, onImport, counts
     const loadSeq = { current: 0 }
     const load = async () => {
       const ticket = ++loadSeq.current
-      // 115#3：档案加载失败给错误横幅 + 重试——原先仅 5 秒 toast，三个区块
-      // `{profile && …}` 静默缺失，分区标题还在、像功能本来就没有
-      setProfileError('')
       const next = await engagementBackend.profile()
       if (active && ticket === loadSeq.current) {
-        setProfile(next)
+        // 115#3：成功才清错误——原先 load 开头无条件清，117 轮 C4：事件
+        // 路径失败后 profileError 已被清空又不回填，横幅+重试降级为永久
+        // 「正在读取学习档案…」
+        setProfileError('')
         setDraft(next)
         document.documentElement.lang = next.language
       }
@@ -83,7 +83,8 @@ export default function Settings({ preferences, setPreferences, onImport, counts
           pendingReloadRef.current = true
           return
         }
-        void load().catch(reportBackendError)
+        // 117 轮 C4：事件路径同样接 failLoad（与挂载/重试路径一致）
+        void load().catch(failLoad)
       }
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }

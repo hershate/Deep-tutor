@@ -14,16 +14,20 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 /// 114#12：64MB 熔断前移到压缩写入途中——原先全量在内存拼完 zip 才查上限，
 /// 超限库每次导出都付完整拼接成本后失败。包装 Writer 按写入结束位置判定
 /// （zip 收尾对文件头是原位等长回写，不会越过已写高水位），越限立即报错。
-/// 兜底的归档后复查保留，作为对外错误码的权威来源。
+/// 117 轮 A1：越限经 exceeded 标志可辨别——io::Error 经 From 映射会丢目标
+/// 错误码（storage_failed 误导用户检查数据目录），archive() 据标志改写为
+/// export_size_invalid；归档后复查降级为防御性兜底。
 struct LimitedWriter<'a> {
     inner: std::io::Cursor<&'a mut Vec<u8>>,
     limit: usize,
+    exceeded: &'a std::cell::Cell<bool>,
 }
 
 impl Write for LimitedWriter<'_> {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
         let position = usize::try_from(self.inner.position()).unwrap_or(usize::MAX);
         if position.saturating_add(buffer.len()) > self.limit {
+            self.exceeded.set(true);
             return Err(std::io::Error::other("笔记归档超过 64 MB 上限"));
         }
         self.inner.write(buffer)
@@ -103,10 +107,16 @@ pub fn archive<R: Runtime>(
         return Err(BackendError::new("empty_export", "还没有可导出的笔记"));
     }
     let mut bytes = Vec::new();
-    {
+    // 117 轮 A1：exceeded 标志随构建块捕获——zip 的 io/ZipError 经 From
+    // 映射会丢目标错误码，越限时据此改写为 export_size_invalid 而非
+    // storage_failed/export_failed（自救指引指向「缩减笔记量」而非
+    // 「检查数据目录」）
+    let exceeded = std::cell::Cell::new(false);
+    let build: std::result::Result<(), BackendError> = (|| {
         let mut archive = zip::ZipWriter::new(LimitedWriter {
             inner: std::io::Cursor::new(&mut bytes),
             limit: super::MAX_EXPORT_BYTES,
+            exceeded: &exceeded,
         });
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
@@ -134,7 +144,16 @@ pub fn archive<R: Runtime>(
         archive.start_file("manifest.json", options)?;
         archive.write_all(json!({"version": 1, "count": notes.len(), "exportedAt": OffsetDateTime::now_utc().format(&Rfc3339)?}).to_string().as_bytes())?;
         archive.finish()?;
+        Ok(())
+    })();
+    if exceeded.get() {
+        return Err(BackendError::new(
+            "export_size_invalid",
+            "笔记归档超过 64 MB 上限",
+        ));
     }
+    build?;
+    // 防御性兜底（正常越限已由 exceeded 提前拦截）
     if bytes.len() > super::MAX_EXPORT_BYTES {
         return Err(BackendError::new(
             "export_size_invalid",
@@ -157,4 +176,33 @@ pub fn archive<R: Runtime>(
         sha256,
         count: notes.len(),
     })
+}
+
+#[cfg(test)]
+mod limited_writer_tests {
+    use super::*;
+    use std::io::{Seek, Write};
+
+    // 117 轮 A1：越限必须可辨别（exceeded 标志）且写入被拒；zip 收尾式的
+    // 原位等长回写不误触发
+    #[test]
+    fn limited_writer_flags_exceeded_and_allows_in_place_rewrite() {
+        let mut bytes = Vec::new();
+        let exceeded = std::cell::Cell::new(false);
+        let mut writer = LimitedWriter {
+            inner: std::io::Cursor::new(&mut bytes),
+            limit: 8,
+            exceeded: &exceeded,
+        };
+        writer.write_all(b"12345").unwrap();
+        assert!(!exceeded.get());
+        assert!(writer.write_all(b"67890").is_err(), "越限写入应被拒");
+        assert!(exceeded.get(), "越限必须置标志供 archive() 改写错误码");
+        // seek 回退后的原位重写（≤limit）正常放行
+        writer.seek(std::io::SeekFrom::Start(0)).unwrap();
+        writer.write_all(b"abcde").unwrap();
+        drop(writer);
+        assert_eq!(&bytes[..5], b"abcde");
+        assert_eq!(bytes.len(), 5, "越限数据不得落入缓冲");
+    }
 }

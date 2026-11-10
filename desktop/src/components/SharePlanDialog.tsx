@@ -69,7 +69,7 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
       const path = await sharingBackend.saveFile(created.share.planId)
       if (!path) return
       const result = await sharingBackend.exportPackage(created.package, path)
-      notify(`已保存真实分享包（${result.bytes.toLocaleString()} 字节）`)
+      notify(`已保存真实分享包（${result.bytes.toLocaleString()} 字节 · SHA-256 ${result.sha256.slice(0, 12)}…）`)
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
 

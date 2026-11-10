@@ -18,6 +18,11 @@ const emptySnapshot: AppSnapshot = {
 export function useBackendState() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot)
   const [ready, setReady] = useState(false)
+  // 117 轮 C1：恢复轮询的就绪分支读取当前 ready——非轮询路径（窗口聚焦
+  // 触发 requestSync 成功、超时后 bootstrap 迟到成功）先行恢复时，轮询
+  // 不再重复 start()（整树闪回加载页一轮 + 双份全量 IPC）
+  const readyRef = useRef(false)
+  useEffect(() => { readyRef.current = ready }, [ready])
   const [startupError, setStartupError] = useState('')
   const [loginRequired, setLoginRequired] = useState(false)
   const mounted = useRef(true)
@@ -85,15 +90,21 @@ export function useBackendState() {
     // 111#4：错误页恢复轮询的 single-flight——错误页期间每个后端事件/每次
     // 窗口聚焦都会再触发 fail，原先每路各自开一个每秒轮询（N 路并行 IPC），
     // 就绪时还并发调 start() 双 bootstrap
-    let recoveryPollActive = false
+    // 117 轮 C3：占用标志带代际——换代（session_started）后新错误页的
+    // 轮询武装不再被旧代在途轮询的陈旧占用静默吞掉；旧轮询退出时只释放
+    // 自己的占用
+    let recoveryPollGeneration: number | null = null
     // 106#1/111#5：错误页统一挂恢复轮询——轮询启动面直到 ready 自动重跑
     // start()；intervalMs 区分「仍在初始化」（1s）与常规错误页（3s）。
     // 111#5：原先只覆盖 startup_not_ready，database_busy 耗尽/20s 超时/真实
     // 错误落错误页后，DataDirectoryPanel「重试初始化」成功也无人清错误态，
     // 面板说正常、整页仍显示失败——如今任一错误页都随 overview.ready 自愈
     const armRecoveryPoll = (expectedGeneration: number, intervalMs: number, observeError: boolean) => {
-      if (recoveryPollActive || !alive() || generation.current !== expectedGeneration) return
-      recoveryPollActive = true
+      // 同代已有在途轮询才拦（single-flight）；跨代占用说明是换代前遗留，
+      // 直接接管——旧轮询醒来时代际不符会退出且不释放新占用
+      if (recoveryPollGeneration === expectedGeneration || !alive() || generation.current !== expectedGeneration) return
+      recoveryPollGeneration = expectedGeneration
+      const release = () => { if (recoveryPollGeneration === expectedGeneration) recoveryPollGeneration = null }
       const poll = async () => {
         for (;;) {
           await new Promise(resolve => window.setTimeout(resolve, intervalMs))
@@ -102,14 +113,17 @@ export function useBackendState() {
             const overview = await storageBackend.overview()
             if (!alive() || generation.current !== expectedGeneration) break
             if (overview.ready) {
-              recoveryPollActive = false
+              release()
+              // 117 轮 C1：非轮询路径已恢复就绪（聚焦触发 sync 成功/迟到
+              // bootstrap 成功）——直接退出，不再重复整轮 bootstrap+全量快照
+              if (readyRef.current) return
               start()
               return
             }
             // startup_not_ready 轮询沿 106#1 语义观察真实失败（overview.error
             // 出现即转常规错误页）；常规错误页只等 ready，不再反复改写文案
             if (observeError && overview.error) {
-              recoveryPollActive = false
+              release()
               fail({ code: overview.error.code, message: overview.error.message }, expectedGeneration)
               return
             }
@@ -117,7 +131,7 @@ export function useBackendState() {
             // 轮询本身失败（如正在换库）——下一轮继续，直到存活/代际变化退出
           }
         }
-        recoveryPollActive = false
+        release()
       }
       void poll()
     }
@@ -171,8 +185,12 @@ export function useBackendState() {
         setStartupError('等待本地后端响应已超过 20 秒。请重试，或检查应用数据目录权限及其他知舟进程是否占用数据库。重试不会清除学习数据。')
         setReady(false)
         // 111#5：超时错误页同样挂恢复轮询——bootstrap 若只是慢而非死，
-        // 就绪后自动重跑，不再依赖不可发现的窗口切换
-        armRecoveryPoll(generation.current, 3000, false)
+        // 就绪后自动重跑，不再依赖不可发现的窗口切换。
+        // 117 轮 C2：必须 observeError=true——bootstrap 超时通常是持续
+        // startup_not_ready（106#1 人群），慢初始化最终失败（overview.error
+        // 置位）时要能转常规错误页；原先 3s/不观察档会抢占 fail 的
+        // 1s/观察档，把「慢→失败」永久困在「仍在初始化…会自动恢复」
+        armRecoveryPoll(generation.current, 1000, true)
       }, 20000)
     }
     const start = () => {
