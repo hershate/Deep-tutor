@@ -17,8 +17,12 @@ export function Button({ children, variant = 'primary', size = 'md', className =
 // mailto/ftp/锚点在应用内无处理器，渲染为纯文本并说明，不再是「可点击但
 // 必然无反应」的死端
 export function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
-  const target = typeof href === 'string' ? href : ''
-  if (target.startsWith('https://')) {
+  const raw = typeof href === 'string' ? href : ''
+  // 104#10：URL scheme 大小写不敏感——HTTPS:// 与协议相对 // 原先落入
+  // 「该链接类型不支持」的失真文案
+  const target = raw.startsWith('//') ? `https:${raw}` : raw
+  const scheme = target.slice(0, target.indexOf('//') + 2).toLowerCase()
+  if (scheme === 'https://') {
     return (
       <a
         href={target}
@@ -30,7 +34,7 @@ export function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<
       >{children}</a>
     )
   }
-  if (target.startsWith('http://')) {
+  if (scheme === 'http://') {
     return (
       <a
         href={target}

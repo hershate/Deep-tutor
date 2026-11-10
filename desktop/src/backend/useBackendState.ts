@@ -216,7 +216,11 @@ export function useBackendState() {
     // 120ms 尾沿去抖把“每事件一次全量快照+全树 reconcile”压缩为
     // 每次事件簇一次；sync 内部队列仍保证不丢事件
     let coalesceTimer: number | undefined
-    const requestSyncCoalesced = () => {
+    const requestSyncCoalesced = (event?: { kind: string }) => {
+      // 108#3：草稿域事件不触发全量快照——编辑期每次 350ms 停顿的
+      // save_draft 原先引发一轮 MB 级 getAppState + 整树重渲染，而快照
+      // 对草稿路径只含 versions.drafts 计数，编辑器已从写回执拿到 revision
+      if (event?.kind === 'draft.saved' || event?.kind === 'draft.deleted') return
       if (coalesceTimer !== undefined) window.clearTimeout(coalesceTimer)
       coalesceTimer = window.setTimeout(() => {
         coalesceTimer = undefined
@@ -225,23 +229,34 @@ export function useBackendState() {
     }
     // 92 号事件契约：六类事件（application.reset、backup.exported/imported、
     // content.exported、draft.saved/deleted）无任何专项监听——发起方 UI 直接
-    // 消费命令返回值，本全局快照是它们唯一的消费路径（单窗口下数据不失步）
+    // 消费命令返回值，本全局快照是其中四类的消费路径；draft.saved/deleted
+    // 由 108#3 跳过（编辑器消费写回执，全量快照对草稿路径是纯浪费）
     void onBackendEvent(requestSyncCoalesced).then(stop => {
       if (alive()) {
         unlisten = stop
         start()
       } else stop()
     }).catch(fail)
-    window.addEventListener('focus', refresh)
-    document.addEventListener('visibilitychange', refresh)
+    // 108#5：激活窗口原先 focus + visibilitychange 双路径各拉一次全量
+    // 快照；隐藏时的拉取结果无人消费——隐藏直接跳过，聚焦路径 300ms 去重
+    let lastSyncAt = 0
+    const refreshVisible = () => {
+      if (document.hidden) return
+      const now = Date.now()
+      if (now - lastSyncAt < 300) return
+      lastSyncAt = now
+      refresh()
+    }
+    window.addEventListener('focus', refreshVisible)
+    document.addEventListener('visibilitychange', refreshVisible)
     return () => {
       disposed = true
       mounted.current = false
       if (timer !== undefined) window.clearTimeout(timer)
       if (coalesceTimer !== undefined) window.clearTimeout(coalesceTimer)
       unlisten?.()
-      window.removeEventListener('focus', refresh)
-      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('focus', refreshVisible)
+      document.removeEventListener('visibilitychange', refreshVisible)
     }
   }, [applySnapshot, sync])
 

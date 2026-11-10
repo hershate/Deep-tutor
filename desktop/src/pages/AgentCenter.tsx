@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, BookOpen, Bot, Brain, Check, ChevronDown, ChevronRight, Code2, FileCheck2, FileText, History, LoaderCircle, MessageSquareText, Plus, Search, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, IconButton, ProgressBar, SectionHeader } from '../components/UI'
 import { clampToBytes } from '../limits'
@@ -77,13 +77,19 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
 
   // 82#7：仅贴底时跟随——流式输出期间用户上翻阅读不再被每 150ms 一次的
   // scrollIntoView 拉回底部（找最近可滚祖先判断是否在底部 48px 内）
+  // 108#6：跟随节流 150ms——高频分块供应商下每条 delta 一次强制 reflow
+  //（读 scrollHeight/clientHeight）是流式期的 CPU 峰值主源；簇内合并，
+  // 停顿 150ms 后尾沿必然补一次（不丢贴底跟随）
   useEffect(() => {
-    let scroller: HTMLElement | null = null
-    for (let node = endRef.current?.parentElement ?? null; node; node = node.parentElement) {
-      if (node.scrollHeight > node.clientHeight + 4) { scroller = node; break }
-    }
-    const nearBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48
-    if (nearBottom) endRef.current?.scrollIntoView({ block: 'nearest' })
+    const timer = window.setTimeout(() => {
+      let scroller: HTMLElement | null = null
+      for (let node = endRef.current?.parentElement ?? null; node; node = node.parentElement) {
+        if (node.scrollHeight > node.clientHeight + 4) { scroller = node; break }
+      }
+      const nearBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48
+      if (nearBottom) endRef.current?.scrollIntoView({ block: 'nearest' })
+    }, 150)
+    return () => window.clearTimeout(timer)
   }, [messages.length, stream.text])
   const submit = async () => {
     const value = input.trim()
@@ -119,7 +125,7 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
       <header><div><span className="agent-mark"><Sparkles size={18} /></span><div><h1>{activeSession?.title ?? 'Agent 学习工作台'}</h1><p>{activeSession ? `${plan?.goal ?? activeSession.planId} · ${activeSession.providerId}` : '需要已采用的学习方案和已配置的模型供应商'}</p></div></div><div><Badge tone={error ? 'amber' : 'green'}><i className="live-dot" />{error ? '后端连接异常' : '本地后端已连接'}</Badge><IconButton label="删除当前会话" disabled={!activeSession || running || busy === 'delete'} onClick={() => setDeleteOpen(true)}><Trash2 size={17} /></IconButton></div></header>
       {error && <div className="form-error" role="alert">{error}</div>}
       <div className="agent-message-scroll">
-        {messages.map(message => <div className={`agent-message agent-${message.role}`} key={message.id}>{message.role === 'assistant' && <span className="agent-avatar"><Bot size={17} /></span>}<div className="agent-message-content"><div className="agent-bubble" style={{ whiteSpace: 'pre-wrap' }}>{message.content || (message.toolCalls.length ? `已请求 ${message.toolCalls.length} 个工具调用。` : '模型未返回文本。')}</div>{message.reasoning && <details className="thought-details"><summary><Brain size={14} />查看模型返回的推理内容<ChevronDown size={14} /></summary><p style={{ whiteSpace: 'pre-wrap' }}>{message.reasoning}</p></details>}{message.toolCalls.length > 0 && <div className="message-tools">{message.toolCalls.map(tool => <span key={tool.id}><Wrench size={12} />{tool.name}</span>)}</div>}{message.partial && <Badge tone="amber">未完成的模型输出</Badge>}</div></div>)}
+        {messages.map(message => <AgentMessageRow key={message.id} message={message} />)}
         {running && (stream.text || stream.reasoning) && <div className="agent-message agent-assistant"><span className="agent-avatar"><Bot size={17} /></span><div className="agent-message-content"><div className="agent-bubble" style={{ whiteSpace: 'pre-wrap' }}>{stream.text || '模型正在返回推理或工具调用…'}</div>{stream.reasoning && <details className="thought-details"><summary><Brain size={14} />实时推理内容<ChevronDown size={14} /></summary><p style={{ whiteSpace: 'pre-wrap' }}>{stream.reasoning}</p></details>}</div></div>}
         {activeSession?.approvals.map(approval => <ApprovalCard key={approval.id} approval={approval} busy={busy === `approval-${approval.id}`} onResolve={approved => void resolve(approval, approved)} />)}
         {activeRun?.error && <div className="form-error" role="alert">{activeRun.error.code}：{activeRun.error.message}{resumable && <Button size="sm" disabled={busy === 'resume'} onClick={() => void resume(activeRun.id).then(ok => { if (ok) notify('已恢复运行；已完成的步骤不会重复请求，中断的步骤将重新请求并计费') })}>恢复运行</Button>}</div>}
@@ -140,3 +146,10 @@ export default function AgentCenter({ notify }: { notify: (message: string) => v
     <ConfirmDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={() => { setDeleteOpen(false); void removeSession() }} title="删除这个会话？" description="将同时删除该会话的全部消息、工具结果、运行与审批历史；此操作不可恢复。" confirmLabel="确认删除" busy={busy === 'delete'} />
   </div>
 }
+
+// 108#6：消息行 memo 化——流式 delta 期间每条 chat_delta 触发整页 setState，
+// 原先全部历史消息 JSX 重建 reconcile；历史消息对象身份稳定（来自会话
+// 快照），memo 后流式期只重渲染流式气泡本身
+const AgentMessageRow = memo(function AgentMessageRow({ message }: { message: AgentMessage }) {
+  return <div className={`agent-message agent-${message.role}`}>{message.role === 'assistant' && <span className="agent-avatar"><Bot size={17} /></span>}<div className="agent-message-content"><div className="agent-bubble" style={{ whiteSpace: 'pre-wrap' }}>{message.content || (message.toolCalls.length ? `已请求 ${message.toolCalls.length} 个工具调用。` : '模型未返回文本。')}</div>{message.reasoning && <details className="thought-details"><summary><Brain size={14} />查看模型返回的推理内容<ChevronDown size={14} /></summary><p style={{ whiteSpace: 'pre-wrap' }}>{message.reasoning}</p></details>}{message.toolCalls.length > 0 && <div className="message-tools">{message.toolCalls.map(tool => <span key={tool.id}><Wrench size={12} />{tool.name}</span>)}</div>}{message.partial && <Badge tone="amber">未完成的模型输出</Badge>}</div></div>
+})

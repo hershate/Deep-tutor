@@ -141,7 +141,7 @@ svg { flex-shrink: 0; }
 .sidebar-profile button { border: 0; background: transparent; color: inherit; padding: 8px; }
 
 .app-main { min-width: 0; }
-.topbar { height: 64px; position: sticky; top: 0; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; background: color-mix(in oklch, var(--surface) 90%, transparent); border-bottom: 1px solid var(--border); backdrop-filter: blur(16px); }
+.topbar { height: 64px; position: sticky; top: 0; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; background: color-mix(in oklch, var(--surface) 94%, transparent); border-bottom: 1px solid var(--border); /* 108#7：常驻顶栏 blur 16px 在滚动期每帧对全宽下层内容重采样——降到 8px 并提高底色不透明度补偿视觉 */ backdrop-filter: blur(8px); }
 .topbar-left, .topbar-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .global-search { display: none; align-items: center; gap: 9px; min-height: 40px; width: min(340px, 30vw); padding: 0 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--muted); text-align: left; }
 .global-search span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }

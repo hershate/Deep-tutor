@@ -33,6 +33,9 @@ export default function TutorPanel({ compact = false, onClose, planId, contextLa
   // 报错文案（32000）与界面所见限额口径矛盾且前缀不可见无法自查
   const prefix = `【辅导模式：${mode}】请依据当前方案的真实内容辅导我，不要编造来源或学习效果。${mode === '提示' ? '只给引导提示，不直接给完整答案。' : mode === '练习' ? '给出练习并等待我的回答，不要代替我作答。' : mode === '反馈' ? '针对我的答案指出具体依据、问题和下一步。' : '优先帮助我理解概念并检查我的理解。'}我的输入：`
   const inputBudget = 32000 - utf8Bytes(prefix)
+  // 104#5：四模式前缀长度不同——贴近上限输入后切到更长前缀的模式时，
+  // 已有内容不重算会使 prefix+input 超 32000；按新预算重钳
+  useEffect(() => { setInput(current => clampToBytes(current, inputBudget)) }, [inputBudget])
   const submit = async (value = input) => {
     const clean = value.trim()
     if (!clean || running || busy === 'send' || busy === 'create') return

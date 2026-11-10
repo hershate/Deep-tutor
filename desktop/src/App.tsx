@@ -102,9 +102,14 @@ export default function App() {
     if (!ready || loginRequired) return
     let active = true
     let stop: (() => void) | undefined
+    // 104#2：订阅重建（ready/loginRequired 翻转）时清零重计——重建窗口
+    // 错过的终态事件会使角标残留「N 个任务进行中」而任务中心无运行任务
+    setModelTasks(0)
     void onBackendEvent(event => {
       if (!active) return
-      if (event.kind === 'agent.run_started' || event.kind === 'provider.chat_started') setModelTasks(current => current + 1)
+      // 104#2：resume 不匹配 started 使跨会话恢复的 run 不计数——
+      // 恢复的 run 终态仍按映射 −1，角标提前归零
+      if (event.kind === 'agent.run_started' || event.kind === 'agent.run_resumed' || event.kind === 'provider.chat_started') setModelTasks(current => current + 1)
       else if (/^agent\.run_(completed|failed|cancelled|degraded)$/.test(event.kind) || /^provider\.chat_(completed|failed|cancelled|interrupted)$/.test(event.kind)) setModelTasks(current => Math.max(0, current - 1))
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(() => { /* 角标尽力而为：订阅失败仅失去指示，不影响任务本身 */ })
     return () => { active = false; stop?.() }
@@ -386,7 +391,10 @@ export default function App() {
       case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} />
       case 'plan': return <Plan setTasks={setTasks} onNavigate={navigate} notify={notify} />
       case 'agent': return <AgentCenter notify={notify} />
-      case 'study': return <StudyRoom target={studyTarget} onFocus={() => setFocusOpen(true)} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
+      // 104#1：学习空间「专注模式」入口原先绕过 openFocus（不拉取后端
+      // 会话、不置 loading）——存在运行中会话时点「开始专注」撞
+      // focus_active，且先按默认 25:00 渲染（91#6 要消除的场景）
+      case 'study': return <StudyRoom target={studyTarget} onFocus={() => openFocus()} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
       case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId, nonce: Date.now() }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
       case 'practice': return <Practice notify={notify} target={practiceTarget} onTargetConsumed={() => setPracticeTarget(null)} />
       case 'review': return <Review notify={notify} />
@@ -429,7 +437,7 @@ export default function App() {
     </aside>
 
     <div className="app-main">
-      <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识节点…</span><kbd>Ctrl + K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences(current => ({ ...current, theme: current.theme === 'light' ? 'dark' : 'light' }))}  /* 35#5：updater 形态——渲染闭包整对象会被排队写入整体覆盖（32#13 同型） */>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)} title={modelTasks > 0 ? `${modelTasks} 个模型任务进行中，可在 Agent 任务中心查看或取消` : undefined}>{modelTasks > 0 && <span className="live-dot" aria-hidden="true" />}<Sparkles size={16} />问知舟</Button></div></header>
+      <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识节点…</span><kbd>Ctrl + K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences(current => ({ ...current, theme: current.theme === 'light' ? 'dark' : 'light' }))}  /* 35#5：updater 形态——渲染闭包整对象会被排队写入整体覆盖（32#13 同型） */>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)} title={modelTasks > 0 ? `${modelTasks} 个模型请求进行中（Agent 每步模型调用同时计数），点击打开知舟导师；运行中的任务可在 Agent 任务中心查看或取消` : undefined}>{modelTasks > 0 && <span className="live-dot" aria-hidden="true" />}<Sparkles size={16} />问知舟</Button></div></header>
       <main id="main-content" className="main-content" tabIndex={-1}><Suspense fallback={<div className="page-loading" role="status"><LoaderMark />正在加载学习工作区…</div>}>{renderPage()}</Suspense></main>
     </div>
 
@@ -539,7 +547,8 @@ function FocusLayer({ session, tasks, busy, loading = false, onToggle, onFinish,
   }, [session, busy])
   const minutes = Math.floor(seconds / 60).toString().padStart(2, '0')
   const display = (seconds % 60).toString().padStart(2, '0')
-  return <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习" tabIndex={-1} ref={ref}><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={onExit}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{session?.taskId ? tasks.find(task => task.id === session.taskId)?.title || `任务 #${session.taskId}` : '自由专注'}</h2>{loading && !session ? <div className="focus-timer" role="status">正在恢复专注状态…</div> : <div className="focus-timer" role="timer" aria-label={`专注计时 ${minutes} 分 ${display} 秒`}><span>{minutes}</span><i>:</i><span>{display}</span></div>}<div className="focus-actions"><Button variant="light" size="lg" disabled={busy || loading} onClick={onToggle}>{session?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{session?.status === 'running' ? '暂停' : session?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={busy || !session || !['running', 'paused'].includes(session.status)} onClick={() => void onFinish(false)}>结束并保存</Button><IconButton label="取消当前专注并重置" disabled={busy} onClick={onReset}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={onExit}>Esc 退出专注</button></div>
+  return <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习" tabIndex={-1} ref={ref}><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={onExit}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{session?.taskId ? tasks.find(task => task.id === session.taskId)?.title || `任务 #${session.taskId}` : '自由专注'}</h2>{loading && !session ? <div className="focus-timer" role="status">正在恢复专注状态…</div> : <div className="focus-timer" role="timer" aria-label={`专注计时 ${minutes} 分 ${display} 秒`}><span>{minutes}</span><i>:</i><span>{display}</span></div>}<div className="focus-actions"><Button variant="light" size="lg" disabled={busy || loading} onClick={onToggle}>{session?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{session?.status === 'running' ? '暂停' : session?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={busy || !session || !['running', 'paused'].includes(session.status)} onClick={() => void onFinish(false)}>结束并保存</Button>{/* 104#9：恢复 loading 期 session 为 null，重置确认后是空操作——禁用 */}
+<IconButton label="取消当前专注并重置" disabled={busy || (loading && !session)} onClick={onReset}><TimerReset size={21} /></IconButton></div><span className="focus-quote">一次只做好一件事。计时、暂停和完成都由原生后端保存。</span></div><button className="focus-exit" onClick={onExit}>Esc 退出专注</button></div>
 }
 
 // 全局搜索独立组件（14#11）：输入 state 只重渲染弹层，

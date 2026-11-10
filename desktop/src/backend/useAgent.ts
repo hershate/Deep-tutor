@@ -59,16 +59,31 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     liveRequestRef.current = ''
     setLiveRequestId('')
   }, [setLiveRequest])
+  // 108#4：序号守卫（51#2 同型，本函数原是全仓唯一漏网）+ 200ms 合并——
+  // agent 每步 3~10 个事件原先各自全量拉取会话，并发响应乱序可把已完成
+  // 的 run 拉回「运行中」滞留（发送框禁用、步骤数停更，无后续事件自愈）
+  const sessionSeqRef = useRef(0)
+  const sessionTimerRef = useRef<number | undefined>(undefined)
   const refreshSession = useCallback(async (id: number) => {
+    const ticket = ++sessionSeqRef.current
     try {
       const next = await backend.getAgentSession(String(id))
+      if (ticket !== sessionSeqRef.current) return
       rememberRuns([next])
       setSessions(current => current.some(item => item.id === id)
         ? current.map(item => item.id === id ? next : item)
         : [next, ...current])
       setError('')
-    } catch (cause) { setError(backendErrorMessage(cause)) }
+    } catch (cause) { if (ticket === sessionSeqRef.current) setError(backendErrorMessage(cause)) }
   }, [rememberRuns])
+  // 事件簇合并：簇内多次触发只拉一次，尾沿必然补拉（不丢终态）
+  const refreshSessionCoalesced = useCallback((id: number) => {
+    if (sessionTimerRef.current !== undefined) window.clearTimeout(sessionTimerRef.current)
+    sessionTimerRef.current = window.setTimeout(() => {
+      sessionTimerRef.current = undefined
+      void refreshSessionRef.current(id)
+    }, 200)
+  }, [])
   const refresh = useCallback(async () => {
     if (!enabled) return
     try {
@@ -166,10 +181,10 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       if (event.kind === 'agent.message_saved' && numberField(event.payload.sessionId) === activeIdRef.current) setStream(current => ({ ...current, text: '', reasoning: '' }))
       if (event.kind === 'agent.approval_expired') void refreshRef.current()
       if (event.kind === 'agent.session_created' || event.kind === 'agent.session_deleted') void refreshRef.current()
-      else if (sessionId !== null && sessionId === activeIdRef.current) void refreshSessionRef.current(sessionId)
+      else if (sessionId !== null && sessionId === activeIdRef.current) refreshSessionCoalesced(sessionId)
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(cause => setError(backendErrorMessage(cause)))
     return () => { disposed = true; unlisten?.() }
-  }, [enabled, setLiveLogical, setLiveRequest])
+  }, [enabled, setLiveLogical, setLiveRequest, refreshSessionCoalesced])
 
   const createSession = useCallback(async (title?: string, requestedPlanId?: string): Promise<AgentSession | null> => {
     setBusy('create')
