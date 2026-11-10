@@ -807,6 +807,21 @@ fn initialize<R: Runtime>(
             if state.logged_out.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(error);
             }
+            // 119#1：logged_out 仅进程内存，重启即复位——「重启应用不会自动
+            // 恢复」的 UI 承诺要求自动签发收紧到真首启：仅当 auth_sessions
+            // 全表为空（从未签发过任何会话）才自动登录。登出/切换都会留下
+            // 已撤销行（issue 只置 revoked_at 不删行），重启后不再静默签发
+            // ——成员登出+重启不再变成首个管理员；会话过期的存量用户本就走
+            // session_expired 显式登录路径，不受影响
+            let ever_issued: i64 =
+                store
+                    .conn
+                    .query_row("SELECT COUNT(*) FROM auth_sessions", [], |row| {
+                        row.get(0)
+                    })?;
+            if ever_issued > 0 {
+                return Err(error);
+            }
             let id: i64 = store.conn.query_row("SELECT id FROM local_users WHERE role = '管理员' AND active = 1 AND deleted_at IS NULL ORDER BY id LIMIT 1", [], |row| row.get(0))?;
             let session = issue(app, state, id, &store)?;
             Ok((user(&store.conn, id, id)?, session))

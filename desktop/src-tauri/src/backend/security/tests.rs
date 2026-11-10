@@ -614,3 +614,44 @@ fn missing_keyring_slot_still_lists_users_for_explicit_relogin() {
         "重登后恢复会话：{reloded}"
     );
 }
+
+#[test]
+fn restart_after_logout_does_not_silently_relogin() {
+    // 119#1：logged_out 仅进程内存，重启即复位——「重启应用不会自动恢复」
+    // 要求自动签发收紧到真首启（auth_sessions 全表为空）。登出留下的已
+    // 撤销行使「重启后」（同路径新 SecurityState + 新 app）的 initialize
+    // 直接返回 login_required，不得静默以首个管理员再签发
+    let (app, state) = setup();
+    // 首启自动签发（真首启：auth_sessions 空 → 自动登录，行为保留）
+    let first = ipc(&app, "get_security_overview", json!({})).unwrap();
+    assert_eq!(first["currentUser"]["role"], "管理员");
+    ipc(&app, "logout_local_user", json!({})).unwrap();
+    drop(app); // 模拟进程退出：flags、内存状态全部不复用
+
+    // 模拟重启：同一路径上的全新 SecurityState + 全新 app 装配
+    let restarted = SecurityState::for_tests_at(&state.database_path);
+    let app2 = tauri::test::mock_builder()
+        .manage(restarted.shared())
+        .invoke_handler(tauri::generate_handler![
+            commands::get_security_overview,
+            commands::login_local_user,
+        ])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    tauri::WebviewWindowBuilder::new(&app2, "main", Default::default())
+        .build()
+        .unwrap();
+    let after_restart = ipc(&app2, "get_security_overview", json!({})).unwrap();
+    assert_eq!(after_restart["requiresLogin"], true, "重启后不得自动恢复会话");
+    assert_eq!(after_restart["currentUser"], Value::Null);
+    let rows: i64 = restarted
+        .store()
+        .unwrap()
+        .conn
+        .query_row("SELECT COUNT(*) FROM auth_sessions", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 1, "重启后不得插入新会话行（既有一行为登出留下的已撤销行）");
+    // 显式登录仍可恢复
+    let renewed = ipc(&app2, "login_local_user", json!({"userId":1})).unwrap();
+    assert_eq!(renewed["currentUser"]["role"], "管理员");
+}
