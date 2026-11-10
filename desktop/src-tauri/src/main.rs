@@ -8,6 +8,7 @@ use backend::{
     materials, notes, planning, plugins, practice, projects, providers, reports, review, security,
     sharing, sync, web, BackendState,
 };
+use std::io::Write;
 use tauri::Manager;
 
 /// 应用装配：resolve 数据目录 → 初始化后端 → verify 模式下自检并 exit(0)。
@@ -22,14 +23,29 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
         let pointer = root.join("verification-storage.json");
         (root.clone(), root.clone(), pointer, None)
     } else {
-        let default_root = app.path().app_data_dir()?;
-        let pointer = app
-            .path()
-            .app_local_data_dir()?
-            .join("storage-location.json");
-        let selected = startup::configured_directory(&pointer, &default_root);
-        let root = selected.clone().unwrap_or_else(|_| default_root.clone());
-        (root, default_root, pointer, selected.err())
+        // 106#8：已知文件夹 API 解析失败（系统策略/注册表损坏等极端环境）原先
+        // `?` 上抛越过 StartupState 建立点 → builder.run().expect panic →
+        // release（windows_subsystem 无控制台）下是无声闪退；转失败恢复 UI
+        // 走错误页，至少给出可见错误与指引
+        match (|| -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf, Option<backend::error::BackendError>), Box<dyn std::error::Error>> {
+            let default_root = app.path().app_data_dir()?;
+            let pointer = app
+                .path()
+                .app_local_data_dir()?
+                .join("storage-location.json");
+            let selected = startup::configured_directory(&pointer, &default_root);
+            let root = selected.clone().unwrap_or_else(|_| default_root.clone());
+            Ok((root, default_root, pointer, selected.err()))
+        })() {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                startup::present_startup_failure(
+                    app.handle(),
+                    &format!("无法定位应用数据目录：{error}。请检查系统已知文件夹配置后重试。"),
+                );
+                return Ok(());
+            }
+        }
     };
     if verify_native {
         app.handle()
@@ -64,10 +80,18 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
             })?
             .bootstrap()
             .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-        assert!(snapshot["tasks"].is_array() && snapshot["preferences"].is_object());
-        println!(
+        // 106#6：断言失败原先以 panic（退出码 101）交付，违背 50#1 声明的
+        // 「verify 校验不过 → exit(2)」契约，CI 按退出码会把内部断言崩坏
+        // 误读为运行崩溃；打印也改忽略错误（stdout 管道关闭不再 panic）
+        if !snapshot["tasks"].is_array() || !snapshot["preferences"].is_object() {
+            eprintln!("native verification failed: unexpected bootstrap snapshot shape");
+            app.handle().exit(2);
+        }
+        let _ = writeln!(
+            std::io::stdout(),
             "native verification passed: workspace={}, lastEventId={}",
-            snapshot["workspaceId"], snapshot["lastEventId"]
+            snapshot["workspaceId"],
+            snapshot["lastEventId"]
         );
         app.handle().exit(0);
     }
@@ -110,16 +134,35 @@ mod single_instance {
     }
 
     /// 返回 false 表示已有实例持有互斥体（句柄故意泄漏给进程生命周期保管）。
+    /// 106#5：Global\ 前缀使互斥体落全局命名空间——原先会话本地命名空间
+    /// 下同一账号的两个交互会话（快速用户切换/本地+RDP）可双开同一数据目录。
+    /// 106#3：重启子进程（DEEPTUTOR_RESTARTING 标记由 restart_application
+    /// 经继承环境传入）在短窗口内重试 acquire——tauri 的 restart 先 spawn
+    /// 新进程再退出旧进程，旧进程垂死期间仍持互斥体，立即认输会把
+    /// 「保存并立即重启」变成「直接退出不回来」
     pub fn acquire() -> bool {
-        let name = wide("DeepTutor-SingleInstance-7f3a9c2e");
+        let name = wide("Global\\DeepTutor-SingleInstance-7f3a9c2e");
+        let restarting = std::env::var_os("DEEPTUTOR_RESTARTING").is_some();
         unsafe {
-            let handle = CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr());
-            // 句柄为 NULL 仅在极端分配失败——按可启动处理，不阻塞用户
-            if handle.is_null() {
-                return true;
+            for attempt in 0.. {
+                let handle = CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr());
+                // 句柄为 NULL 仅在极端分配失败——按可启动处理，不阻塞用户
+                if handle.is_null() {
+                    return true;
+                }
+                let error = GetLastError();
+                if error != ERROR_ALREADY_EXISTS && error != ERROR_ACCESS_DENIED {
+                    return true;
+                }
+                // 每轮 CreateMutexW 的句柄随第二实例退出由 OS 回收；
+                // 仅重启子进程在 2s 退避窗口内等待垂死的旧实例释放
+                if restarting && attempt < 20 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    continue;
+                }
+                return false;
             }
-            let error = GetLastError();
-            error != ERROR_ALREADY_EXISTS && error != ERROR_ACCESS_DENIED
+            unreachable!()
         }
     }
 

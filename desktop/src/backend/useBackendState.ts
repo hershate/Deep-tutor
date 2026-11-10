@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type AppSnapshot, type BackendError, type CollectionNamespace } from './client'
+import { storageBackend } from './storage'
 import { backupBackend } from './backup'
 import { notesBackend } from './notes'
 
@@ -100,6 +101,38 @@ export function useBackendState() {
           if (!alive() || settled || generation.current !== expectedGeneration) return
           requestSync()
         }, 1500)
+        return
+      }
+      // 106#1：startup_not_ready 单独放宽——bootstrap 20s 轮询窗口耗尽时
+      // 后端可能仍在做大库首迁/杀毒扫描下的慢初始化，落成常驻错误页后
+      // 唯一回正通道是不可发现的「切走再切回窗口」。改为持续轮询启动面：
+      // initializing 期间给出「仍在初始化」提示，就绪后自动重跑 start()，
+      // 真正失败（overview.error）才进入常规错误页
+      if (code === 'startup_not_ready') {
+        settled = true
+        setStartupError('本地后端仍在初始化（首次启动的大数据目录迁移或杀毒扫描可能较慢），正在继续等待……此页面会在就绪后自动恢复。')
+        setReady(false)
+        const poll = async () => {
+          for (;;) {
+            await new Promise(resolve => window.setTimeout(resolve, 1000))
+            if (!alive() || generation.current !== expectedGeneration) return
+            try {
+              const overview = await storageBackend.overview()
+              if (!alive() || generation.current !== expectedGeneration) return
+              if (overview.error) {
+                fail({ code: overview.error.code, message: overview.error.message }, expectedGeneration)
+                return
+              }
+              if (overview.ready) {
+                start()
+                return
+              }
+            } catch {
+              // 轮询本身失败（如正在换库）——下一轮继续，直到存活/代际变化退出
+            }
+          }
+        }
+        void poll()
         return
       }
       transientRetries = 0

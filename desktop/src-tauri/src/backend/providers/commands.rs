@@ -127,14 +127,28 @@ pub async fn stream_provider_chat<R: Runtime>(
     let principal = session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         with_principal(principal, || {
-            super::stream_chat(
-                &app,
-                &state,
-                &request_id,
-                &profile_id,
-                &messages,
-                max_tokens,
-            )
+            // 106#7：闭包 panic 时把请求行落终态——原先行停留 running，
+            // 本会话内用量页/任务中心永显「运行中」直到重启
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                super::stream_chat(
+                    &app,
+                    &state,
+                    &request_id,
+                    &profile_id,
+                    &messages,
+                    max_tokens,
+                )
+            }));
+            match outcome {
+                Ok(result) => result,
+                Err(_) => {
+                    let _ = super::fail_chat_panicked(&app, &state, &request_id);
+                    Err(super::super::error::BackendError::new(
+                        "task_panicked",
+                        "模型流式任务异常终止",
+                    ))
+                }
+            }
         })
     })
     .await
@@ -207,18 +221,31 @@ pub async fn route_provider_chat<R: Runtime>(
     let principal = session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         with_principal(principal, || {
-            super::routing::stream_chat(
-                &app,
-                &state,
-                &request_id,
-                &task,
-                profile_id.as_deref(),
-                &messages,
-                max_tokens,
-                model.as_deref(),
-                tools.as_deref(),
-                false,
-            )
+            // 106#7：同 stream_provider_chat——panic 时落终态防僵尸 running 行
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                super::routing::stream_chat(
+                    &app,
+                    &state,
+                    &request_id,
+                    &task,
+                    profile_id.as_deref(),
+                    &messages,
+                    max_tokens,
+                    model.as_deref(),
+                    tools.as_deref(),
+                    false,
+                )
+            }));
+            match outcome {
+                Ok(result) => result,
+                Err(_) => {
+                    let _ = super::fail_chat_panicked(&app, &state, &request_id);
+                    Err(super::super::error::BackendError::new(
+                        "task_panicked",
+                        "路由模型任务异常终止",
+                    ))
+                }
+            }
         })
     })
     .await

@@ -90,6 +90,7 @@ export default function DataDirectoryPanel() {
   const pending = overview.pendingDataRoot
   return <section className="surface setting-section storage-location-panel">
     <SectionHeader title="本地学习数据目录" description="默认目录自动创建。你可以修改保存位置，新设置在下次启动时生效。" action={<Badge tone={pending ? 'amber' : overview.initializing ? 'neutral' : overview.ready ? 'green' : 'red'}>{pending ? '重启后生效' : overview.initializing ? '正在初始化' : overview.ready ? '当前使用' : '需要处理'}</Badge>} />
+    {overview.notice && <div className="form-error" role="status">{overview.notice}</div>}
     <div className="storage-current"><Folder size={18} /><div><strong>{pending ? '当前目录' : '学习数据保存位置'}</strong><code>{overview.dataRoot}</code><small>默认目录：{overview.defaultDataRoot}</small><div>{/* 62#8：目录未就绪时可能尚未创建——直点必败，禁用并提示先初始化 */}<Button variant="ghost" size="sm" disabled={!overview.ready} title={overview.ready ? undefined : '数据目录尚未创建，请先重试初始化'} onClick={() => void reveal()}><FolderOpen size={15} />在资源管理器中显示</Button></div></div></div>
     {pending && <div className="modal-callout"><RefreshCw size={17} /><div><strong>下次启动使用：{pending}</strong><p>当前进程仍使用原目录。切换不会自动迁移或删除旧数据；需要原有内容时，请先通过备份功能导出，再在新目录中导入。重启会结束当前进程，请先完成或取消正在运行的任务。</p></div></div>}
     {overview.error && <div className="form-error" role="alert">{overview.error.code}：{overview.error.message}</div>}

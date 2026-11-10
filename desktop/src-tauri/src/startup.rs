@@ -31,6 +31,10 @@ pub struct StartupState {
     pending_root: Mutex<Option<PathBuf>>,
     failure: Mutex<Option<BackendError>>,
     running: std::sync::atomic::AtomicBool,
+    // 106#9：configured 指向的目录在启动时缺失（移走/误删叶子）——按
+    // 「目录即真相」语义原样新建空工作区，但须给用户桥接提示而非
+    // 让「数据似乎全没了」无解释
+    notice: Mutex<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -42,6 +46,7 @@ pub struct StartupOverview {
     ready: bool,
     initializing: bool,
     error: Option<BackendError>,
+    notice: Option<String>,
 }
 
 impl StartupState {
@@ -73,6 +78,7 @@ impl StartupState {
             pending_root: Mutex::new(None),
             failure: Mutex::new(None),
             running: std::sync::atomic::AtomicBool::new(false),
+            notice: Mutex::new(None),
         }
     }
 
@@ -283,8 +289,47 @@ fn prepare<R: Runtime>(app: &AppHandle<R>, root: &Path, default_root: &Path, poi
             pending_root: Mutex::new(None),
             failure: Mutex::new(None),
             running: std::sync::atomic::AtomicBool::new(false),
+            notice: Mutex::new(None),
         });
     }
+}
+
+/// 106#9：配置指向的目录在启动时缺失（移动/误删叶子）——inspect 对
+/// NotFound 放行并由 prepare_directory 原路径新建空工作区；此处记录
+/// 提示供 overview/设置页展示，避免「数据全没了」的无解释空库
+fn note_missing_directory<R: Runtime>(app: &AppHandle<R>, root: &Path, pointer: &Path) {
+    if !pointer.exists() || root.exists() || !root.is_absolute() {
+        // 无配置文件 = 首次运行走默认目录，新建是正常路径，不提示
+        return;
+    }
+    let message = format!(
+        "配置的数据目录不存在，已按该路径新建了空工作区：{}。若你刚移动过数据目录，请在下方重新选择正确位置，避免在新空库中重复建数据。",
+        root.display()
+    );
+    if let Some(state) = app.try_state::<StartupState>() {
+        if let Ok(mut notice) = state.notice.lock() {
+            *notice = Some(message);
+        }
+    }
+}
+
+/// 106#8：GUI 装配前的路径解析失败转失败恢复 UI——manage 一个携带 failure
+/// 的 StartupState，窗口打开错误页而非 builder.run().expect 在无控制台的
+/// release 构建下无声闪退；根路径用当前目录占位（该场景重试也解析不出，
+/// 错误页的价值是给出可见错误，真实出路是修复系统已知文件夹配置）
+pub fn present_startup_failure<R: Runtime>(app: &AppHandle<R>, message: &str) {
+    let fallback = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    prepare(
+        app,
+        &fallback,
+        &fallback,
+        &fallback.join("storage-location.json"),
+    );
+    let state = app.state::<StartupState>();
+    state.set_failure(Some(BackendError::new(
+        "storage_config_unavailable",
+        message,
+    )));
 }
 
 pub fn initialize<R: Runtime>(
@@ -318,6 +363,8 @@ pub fn initialize_background<R: Runtime + 'static>(
     configuration_error: Option<BackendError>,
 ) {
     prepare(app, root, default_root, pointer);
+    // 106#9：在 prepare_directory 新建目录之前探测缺失（GUI 启动路径）
+    note_missing_directory(app, root, pointer);
     app.state::<StartupState>()
         .running
         .store(true, std::sync::atomic::Ordering::Release);
@@ -452,6 +499,11 @@ fn overview<R: Runtime>(app: &AppHandle<R>) -> Result<StartupOverview> {
             && app.try_state::<BackendState>().is_some(),
         initializing: state.running(),
         error: state.failure()?,
+        notice: state
+            .notice
+            .lock()
+            .map(|notice| notice.clone())
+            .unwrap_or(None),
     })
 }
 
@@ -463,8 +515,15 @@ pub mod commands {
         overview(&app)
     }
 
-    #[tauri::command]
-    pub fn retry_storage_initialization<R: Runtime>(app: AppHandle<R>) -> Result<StartupOverview> {
+    // 106#4：重试初始化原先为同步命令——主线程直跑全量 assemble（含
+    // user1 整库 fs::copy 迁移 + 15 域 migrate + 12 域 recover），慢盘大库
+    // 下窗口冻结并被 Windows 标「未响应」，且无 catch_unwind（assemble
+    // panic 直接杀进程）。与 initialize_background 同口径：后台线程 +
+    // catch_unwind 兜底转失败恢复 UI
+    #[tauri::command(async)]
+    pub async fn retry_storage_initialization<R: Runtime + 'static>(
+        app: AppHandle<R>,
+    ) -> Result<StartupOverview> {
         let (root, default_root, pointer, configuration_error) = {
             let state = app.state::<StartupState>();
             if state.running()
@@ -482,17 +541,51 @@ pub mod commands {
                 configured.err(),
             )
         };
-        initialize(&app, &root, &default_root, &pointer, configuration_error);
+        let background_app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = background_app.state::<StartupState>();
+            state
+                .running
+                .store(true, std::sync::atomic::Ordering::Release);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                initialize(
+                    &background_app,
+                    &root,
+                    &default_root,
+                    &pointer,
+                    configuration_error,
+                );
+            }));
+            if result.is_err() {
+                let state = background_app.state::<StartupState>();
+                state.set_failure(Some(BackendError::new(
+                    "startup_failed",
+                    "本地后端初始化中断，请重试或修改数据目录",
+                )));
+                state
+                    .running
+                    .store(false, std::sync::atomic::Ordering::Release);
+            }
+        })
+        .await
+        .map_err(|_| BackendError::new("startup_unavailable", "无法启动本地后端初始化，请重试"))?;
         overview(&app)
     }
 
-    #[tauri::command]
-    pub fn set_storage_location<R: Runtime>(
+    // 106#4：目录保存含 Store::root 打开校验与整目录写——原先同步命令在
+    // 主线程执行慢盘 IO；移后台（LOCATION_LOCK 与 StartupState 均可跨线程）
+    #[tauri::command(async)]
+    pub async fn set_storage_location<R: Runtime + 'static>(
         app: AppHandle<R>,
         path: String,
     ) -> Result<StartupOverview> {
         let pointer = app.state::<StartupState>().pointer.clone();
-        let selected = save_location(&pointer, Path::new(&path))?;
+        let selected =
+            tauri::async_runtime::spawn_blocking(move || save_location(&pointer, Path::new(&path)))
+                .await
+                .map_err(|_| {
+                    BackendError::new("startup_unavailable", "数据目录保存任务异常终止")
+                })??;
         app.state::<StartupState>().set_pending(Some(selected))?;
         overview(&app)
     }
@@ -508,6 +601,9 @@ pub mod commands {
 
     #[tauri::command]
     pub fn restart_application<R: Runtime>(app: AppHandle<R>) {
+        // 106#3：标记经继承环境传给子进程——新进程在 acquire 里对
+        // ALREADY_EXISTS 做 2s 重试退避，而非立即聚焦垂死旧实例后自杀
+        std::env::set_var("DEEPTUTOR_RESTARTING", "1");
         app.restart();
     }
 }

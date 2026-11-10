@@ -1377,6 +1377,34 @@ pub(crate) fn cancel_direct_chat(state: &ProviderState, request_id: &str) -> Res
     Ok(())
 }
 
+/// 106#7：流式请求闭包 panic 时把 provider_requests 行落终态——原先
+/// spawn_blocking 的 JoinError 仅映射 task_join_failed，行停留 running，
+/// 本会话内 get_provider_chat 永显「运行中」（其余九域的 catch_unwind
+/// → task_panicked 终态在 providers 域缺席）；仅翻转仍处 running 的行
+pub fn fail_chat_panicked<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    request_id: &str,
+) -> Result<()> {
+    let store = state.store()?;
+    let tx = store.conn.unchecked_transaction()?;
+    let changed = tx.execute(
+        "UPDATE provider_requests SET status = 'interrupted', error_code = 'task_panicked', error_message = '模型请求异常终止，请重试', updated_at = ?1 WHERE request_id = ?2 AND status = 'running'",
+        params![now()?, request_id],
+    )?;
+    if changed == 0 {
+        return Ok(());
+    }
+    let event = Store::event(
+        &tx,
+        "provider.chat_failed",
+        json!({"requestId": request_id, "status": "interrupted", "error": {"code": "task_panicked", "message": "模型请求异常终止，请重试"}}),
+    )?;
+    tx.commit()?;
+    emit(app, &event);
+    Ok(())
+}
+
 pub fn recover_chats<R: Runtime>(app: &AppHandle<R>, state: &ProviderState) -> Result<()> {
     let store = state.store()?;
     let mut statement = store

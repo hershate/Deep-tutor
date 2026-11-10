@@ -98,16 +98,62 @@ pub(crate) fn stop_all(state: &BackendState) -> Result<()> {
 
 // 107#1：switch/PAT/维护/重置等停机路径原先只重启同步调度器，materials 的
 // accepting 闸门停在 false——同会话内资料解析静默停摆（新导入永远「排队中」，
-// 无进度无报错）直到进程重启。统一恢复点：重启调度器 + 复位闸门并重排
-// queued 任务（与冷启动 startup.rs 的 materials::recover 同口径）
+// 无进度无报错）直到进程重启。
+// 106#2：reauthentication_required 启动跳过全部 recover 后，login switch 换库
+// 也不补偿——崩溃残留的僵尸 running 行在会话内四路全堵（send 撞 run_active/
+// cancel 撞 no_active_run/resume 要终态/delete 被运行检查拦）。统一恢复点：
+// 与冷启动 startup.rs 同序跑 recover 家族 + 重启同步调度器，幂等可重入
 pub(crate) fn resume_background<R: Runtime + 'static>(app: &AppHandle<R>) {
-    super::super::sync::scheduler::start_scheduler(app.clone());
     if let Some(state) = app.try_state::<BackendState>() {
-        if let Err(error) = super::super::materials::recover(app, &state.learning.material_state())
-        {
-            eprintln!("resume_background: materials 恢复未完成 {}", error.code);
+        let projects = super::super::projects::ProjectState::new(&state.learning);
+        let sync = super::super::sync::SyncService::new(&state.learning);
+        let reports = super::super::reports::ReportState::new(&state.learning);
+        let material_state = state.learning.material_state();
+        for (name, result) in [
+            (
+                "materials",
+                super::super::materials::recover(app, &material_state).map(|_| ()),
+            ),
+            (
+                "chats",
+                super::super::providers::recover_chats(app, &state.providers).map(|_| ()),
+            ),
+            (
+                "routing",
+                super::super::providers::routing::recover(app, &state.providers).map(|_| ()),
+            ),
+            (
+                "learning",
+                super::super::learning::recover(app, &state.learning).map(|_| ()),
+            ),
+            (
+                "agent",
+                super::super::agent::recover(app, &state.agent).map(|_| ()),
+            ),
+            (
+                "practice",
+                super::super::practice::recover(app, &state.practice).map(|_| ()),
+            ),
+            (
+                "projects",
+                super::super::projects::recover(app, &projects).map(|_| ()),
+            ),
+            (
+                "knowledge",
+                super::super::knowledge::recover(app, &state.knowledge).map(|_| ()),
+            ),
+            ("sync", super::super::sync::recover(app, &sync).map(|_| ())),
+            (
+                "reports",
+                super::super::reports::recover(app, &reports).map(|_| ()),
+            ),
+        ] {
+            if let Err(error) = result {
+                eprintln!("resume_background: {name} 恢复未完成 {}", error.code);
+            }
         }
     }
+    super::super::sync::scheduler::start_scheduler(app.clone());
 }
 
 fn current<R: Runtime>(app: &AppHandle<R>) -> Result<i64> {

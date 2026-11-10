@@ -8,6 +8,8 @@ export type StorageOverview = {
   ready: boolean
   initializing: boolean
   error: BackendError | null
+  /** 106#9：配置指向的目录在启动时缺失，已新建空工作区的提示 */
+  notice: string | null
 }
 
 export const storageBackend = {
