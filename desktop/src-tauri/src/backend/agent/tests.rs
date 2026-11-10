@@ -1195,3 +1195,63 @@ fn long_history_is_capped_and_survives_validate_messages() {
         "长会话回复"
     );
 }
+
+#[test]
+fn multi_step_tool_loop_retrims_the_window_before_each_model_request() {
+    // 97#1：34#8 的窗口裁剪只在 run 启动时执行一次；多步工具循环每步追加
+    // assistant + tool 消息，贴上限（64 条）的会话第二个模型请求即
+    // invalid_messages，run 失败后 resume 重放裁回上限内、再推一步又失败，
+    // 每次白付模型费。每次模型请求前必须重裁窗口
+    let (app, state) = setup();
+    let requests = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&requests);
+    let agent_server = server(move |request, stream| {
+        sink.lock().unwrap().push(request.to_string());
+        // 第一次请求触发工具调用；带 tool 结果的第二次请求返回终答
+        let event = if request.contains("\"role\":\"tool\"") {
+            json!({"choices": [{"delta": {"content": "循环完成"}}]})
+        } else {
+            json!({"choices": [{"delta": {"tool_calls": [{
+                "index": 0, "id": "call-loop", "type": "function",
+                "function": {"name": "workspace.read", "arguments": "{\"reference\":\"current\"}"},
+            }]}}]})
+        };
+        response(stream, "200 OK", &format!("data: {event}\n\ndata: {{\"usage\":{{\"prompt_tokens\":12,\"completion_tokens\":33}},\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: [DONE]\n\n"));
+    });
+    configure_provider(&app, &state, &agent_server.url());
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    store.conn.execute(
+        "INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES ('贴上限会话', 'plan-1', 'p1', 16000, ?1, ?1)",
+        params![timestamp],
+    )
+    .unwrap();
+    store.conn.execute(
+        "INSERT INTO agent_runs (session_id, status, steps, created_at, updated_at) VALUES (1, 'done', 1, ?1, ?1)",
+        params![timestamp],
+    )
+    .unwrap();
+    // 62 条重放 + 2 条引导 = 64，恰好在 validate_messages 上限内通过第一个
+    // 请求；工具步追加 assistant+tool 后向量 66 条，不重裁必超限
+    for index in 0..62 {
+        let role = if index % 2 == 0 { "user" } else { "assistant" };
+        store.conn.execute(
+            "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, partial, created_at) VALUES (1, 1, 1, ?1, ?2, '', 0, ?3)",
+            params![role, format!("窗口第{index}条"), timestamp],
+        )
+        .unwrap();
+    }
+    let run = send(app.handle(), &state, "1", "继续并调用工具".into()).unwrap();
+    let completed = wait_run(&state, &run.id.to_string());
+    assert_eq!(
+        completed.status, "done",
+        "第二步模型请求必须重裁窗口而不是 invalid_messages：{:?}",
+        completed.error
+    );
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert!(
+        requests[1].contains("\"role\":\"tool\""),
+        "第二个请求应携带工具结果继续循环"
+    );
+}

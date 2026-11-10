@@ -730,6 +730,15 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
     // 34#8：validate_messages 上限 64 条 / 256KB——重放窗口收敛到最近 62 条
     // （为 system+user 引导留余量）与 200KB 预算，长会话不再永久
     // invalid_messages / context_too_large
+    trim_window(&mut replay);
+    messages.append(&mut replay);
+    Ok(messages)
+}
+
+/// 34#8：窗口裁剪——62 条计数窗（为 system+user 引导留余量）+ 200KB 字节
+/// 预算 + 孤儿 tool 重裁（截断可能让声明它的 assistant 被裁掉，头部再裁
+/// 一次保证发给端点的序列与 23#9 的自洽约束一致）
+fn trim_window(replay: &mut Vec<ChatMessage>) {
     let start = replay.len().saturating_sub(62);
     replay.drain(..start);
     let message_bytes = |message: &ChatMessage| {
@@ -752,8 +761,6 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
         keep_from = index;
     }
     replay.drain(..keep_from);
-    // 截断可能制造新的孤儿 tool（声明它的 assistant 被裁掉）——头部再裁一次，
-    // 保证发给端点的序列与 23#9 的自洽约束一致
     let mut declared_ids: HashSet<String> = HashSet::new();
     replay.retain(|message| {
         if let Some(id) = &message.tool_call_id {
@@ -768,8 +775,20 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
         }
         true
     });
-    messages.append(&mut replay);
-    Ok(messages)
+}
+
+/// 97#1：run 内消息窗口重裁。run_loop 的 messages 向量随步骤增长（每步
+/// +1 条 assistant + 至多 8 条 tool），34#8 的启动裁剪只保护第一步——
+/// 贴上限的会话第二个模型请求即命中 invalid_messages / context_too_large，
+/// run 失败后 resume 重放裁回 62 条、再推一步又失败，每次白付模型费。
+/// 每次模型请求前重裁（头部 system+user 引导两条保护不动）
+fn trim_run_messages(messages: &mut Vec<ChatMessage>) {
+    if messages.len() <= 2 {
+        return;
+    }
+    let mut tail = messages.split_off(2);
+    trim_window(&mut tail);
+    messages.append(&mut tail);
 }
 
 fn begin_step<R: Runtime>(
@@ -879,6 +898,11 @@ fn run_loop<R: Runtime>(
             ));
         }
         providers::usage::ensure_budget(&state.providers, Some(session_id))?;
+        // 97#1：每次模型请求前重裁窗口——多步工具循环每步追加 assistant +
+        // N 条 tool 消息，若只在 run 启动时裁剪，贴上限的会话第二个请求即
+        // invalid_messages / context_too_large，且失败后 resume 再推一步
+        // 又失败，每次白付模型费
+        trim_run_messages(&mut messages);
         let (step, request_id) = begin_step(app, state, &run)?;
         let outcome = providers::routing::stream_chat(
             app,
