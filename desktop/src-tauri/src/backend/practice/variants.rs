@@ -70,8 +70,11 @@ pub fn source(state: &PracticeState, question_id: i64, plan_id: &str) -> Result<
             "只能从真实错题生成变式练习",
         ));
     }
+    // 98#1：与 mistakes() 同口径——未交卷的模拟考试错题不可见，变式来源
+    // 携带答案与解析，同样不能在考试进行中取回（错题本 UI 已过滤，
+    // 此处防止绕过 UI 直传 question_id）
     store.conn.query_row(
-        "SELECT q.id, q.kind, q.prompt, q.options_json, q.answer_json, q.hint, q.explanation, q.citations_json, q.node_ids_json, q.rubric_json, q.difficulty, s.stage_id, s.feedback_mode, m.reason FROM practice_questions q JOIN practice_sets s ON s.id = q.set_id JOIN practice_mistakes m ON m.question_id = q.id WHERE q.id = ?1 AND s.plan_id = ?2",
+        "SELECT q.id, q.kind, q.prompt, q.options_json, q.answer_json, q.hint, q.explanation, q.citations_json, q.node_ids_json, q.rubric_json, q.difficulty, s.stage_id, s.feedback_mode, m.reason FROM practice_questions q JOIN practice_sets s ON s.id = q.set_id JOIN practice_mistakes m ON m.question_id = q.id WHERE q.id = ?1 AND s.plan_id = ?2 AND NOT (s.mode = 'exam' AND s.status != 'completed')",
         params![question_id, plan_id],
         |row| {
             let nodes: String = row.get(8)?;

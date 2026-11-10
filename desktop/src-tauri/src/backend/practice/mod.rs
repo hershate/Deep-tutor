@@ -1305,8 +1305,13 @@ pub fn history(state: &PracticeState) -> Result<Vec<PracticeSet>> {
 pub fn mistakes(state: &PracticeState) -> Result<Vec<Mistake>> {
     let store = state.store()?;
     // 80#3：上限 500——原先无界返回，每答错一行永不清理，长用的库错题本
-    // 渲染节点数无上限（对照 Dashboard 100/历史 50 的有界口径；按最近错误排序）
-    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id ORDER BY m.last_wrong_at DESC LIMIT 500")?;
+    // 渲染节点数无上限（对照 Dashboard 100/历史 50 的有界口径；按最近错误排序）。
+    // 98#1：模拟考试强制 deferred（「交卷后统一反馈」），但错题行在逐题提交时
+    // 即落库且 reason 为完整解析——考试进行中打开错题本或导出会实时泄露答案；
+    // 过滤 mode='exam' 且未交卷的集合，交卷（finalize 置 status='completed'）
+    // 后错题重新可见（与 detail() 的遮蔽口径一致）；客观题与主观题评分两条
+    // 写入路径共用本过滤
+    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id WHERE NOT (s.mode = 'exam' AND s.status != 'completed') ORDER BY m.last_wrong_at DESC LIMIT 500")?;
     let rows = statement.query_map([], |row| {
         let nodes: String = row.get(6)?;
         Ok(Mistake {

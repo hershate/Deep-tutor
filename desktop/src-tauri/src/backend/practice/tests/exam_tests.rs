@@ -118,6 +118,17 @@ fn exam_config_deferred_feedback_unanswered_scores_and_idempotent_finish_are_rea
             .answered_question_ids,
         vec![choice]
     );
+    // 98#1：考试进行中错题本与错题导出不得泄露解析——deferred 承诺
+    // 「交卷后统一反馈」，错题行虽在逐题提交时已落库（reason 为完整解析），
+    // 但未交卷集合被 mistakes() 过滤，客观题与主观题评分共用该过滤
+    assert_eq!(mistakes(&state).unwrap().len(), 0);
+    assert_eq!(
+        export_mistakes(&state).unwrap()["mistakes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
     let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
