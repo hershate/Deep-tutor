@@ -19,7 +19,10 @@ NPM ?= npm
 
 .PHONY: build lint test check dev-smoke hooks
 
-build:
+# 131#3：build 前置 lint（fmt+版本+前端构建+audit）——原先坏树可跳过
+# check 直接产出安装包；测试不前置：全量 release 测试耗时过长，
+# 发布前以 make check（lint test dev-smoke）兜底
+build: lint
 	# 许可收集挂在 tauri beforeBuildCommand（npm run build:bundle，49#1），
 	# npm run tauri build 直连路径与 make/CI 路径同一口径
 	# npm 吞掉第一个 --，脚本收到 build -- --locked，--locked 才能转发给 cargo
@@ -41,7 +44,8 @@ check: lint test dev-smoke
 
 # 116#3：dev server 冒烟——111#2 实证过 vite 配置错误可让 check 全绿而
 # dev 工作流 403，门禁盲区自此补上。专用高位端口（43198，strictPort）与
-# 开发者常驻 dev server（1420）隔离；按 netstat 找到的监听 PID 精确停服
+# 开发者常驻 dev server（1420）隔离；启动前探测端口空闲，cleanup 只终止
+# 自身启动的进程树（131#1/#2/#9，详见 scripts/dev-smoke.sh）
 dev-smoke:
 	bash scripts/dev-smoke.sh
 

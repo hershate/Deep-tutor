@@ -125,6 +125,10 @@ if (!existsSync(modules)) {
     // 84#2：嵌套副本输出名真正带 nested_ 前缀——79#3 注释声称前缀但实现
     // 仍取顶层包名，Windows 大小写不敏感文件系统上与顶层同名包互覆
     // （实测 parse-entities 的许可曾被嵌套 @types/unist 的覆盖）
+    // 131#7：嵌套输出名携带父路径身份（对 modules 的相对路径中 / 与 \
+    // 统一替成 __）——只取叶子名时，不同父包下的同名嵌套包
+    // （pkgA/node_modules/x 与 pkgB/node_modules/x）及嵌套 @scope 包
+    // 会输出同名文件互覆，后写者静默覆盖先写者致安装包许可缺失一份
     const expanded = []
     for (const top of candidates) {
       expanded.push({ dir: top, nested: false })
@@ -156,7 +160,7 @@ if (!existsSync(modules)) {
       // 49#2：statSync 过滤目录（licenses/ 等目录名同样命中 /^licen[cs]e/i）
       const license = pickFromNames(names, name => statSync(join(dir, name)).isFile())
       if (license) {
-        const name = (nested ? `nested_${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
+        const name = (nested ? `nested_${relative(modules, dirname(dir)).replace(/[\\/]/g, '__')}__${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
         copyFileSync(join(dir, license), join(outDir, `npm-${name}-${license}`))
         copied.push(`npm:${name}`)
         continue
@@ -166,7 +170,7 @@ if (!existsSync(modules)) {
         const meta = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
         const notice = generatedNotice(meta)
         if (notice) {
-          const name = (nested ? `nested_${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
+          const name = (nested ? `nested_${relative(modules, dirname(dir)).replace(/[\\/]/g, '__')}__${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
           writeFileSync(join(outDir, `npm-${name}-LICENSE.generated.txt`), notice.text)
           copied.push(`npm:${name}`)
           if (notice.spdx.toUpperCase() !== 'MIT') npmMissing += 1
@@ -290,7 +294,7 @@ writeFileSync(join(outDir, 'COLLECTED.md'), `# 本次构建收录清单
 已收录 ${copied.length} 个依赖的许可/声明文件${cargoSkipped ? '（Rust 部分因 cargo 不可用被跳过，请在可运行 cargo 的环境重新构建）' : cargoMissing ? `（另有 ${cargoMissing} 个 Rust 依赖在本地源码与 .crate 归档中均未找到许可文件，名单如下，许可以 Cargo.lock 记录的上游仓库为准）` : ''}${npmNotes ? `；npm 侧：${npmNotes}` : ''}。
 本仓库自有部分的许可与披露见同目录 NOTICE、LICENSE（Apache-2.0）、LICENSE-REASONIX（历史上游 MIT）。
 ${cargoMissing && missingCrates.length ? `\n## 缺失许可文件的 Rust 依赖（${missingCrates.length} 个）\n\n${missingCrates.map(item => `- ${item}`).join('\n')}\n` : ''}
-完整依赖版本清单见安装包同仓库的 Cargo.lock 与 package-lock.json。
+完整依赖版本清单见构建本安装包所用仓库的 Cargo.lock 与 package-lock.json。
 `)
 console.log(`collect-licenses: ${copied.length} 个依赖许可已汇总${cargoSkipped ? '（Rust 部分跳过）' : ''}${npmMissing ? `（npm 缺失 ${npmMissing}）` : ''}${npmDevSkipped ? `（开发依赖排除 ${npmDevSkipped}）` : ''}`)
 
