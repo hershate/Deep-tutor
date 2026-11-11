@@ -1033,19 +1033,33 @@ pub fn stream_chat<R: Runtime>(
     // 31#38：INSERT route_runs 与首次 save_attempt 之间存在窗口——其间失败后
     // 同 id 重试时 attempts 无 attempt=1 行，预检放行而 INSERT 撞主键报未分类
     // constraint 错误。OR IGNORE 后按既有行校验一致性并走幂等续读
-    let changed = tx.execute(
+    let mut changed = tx.execute(
         "INSERT OR IGNORE INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?6)",
         params![request_id, task, mode, profile_id(&profile.id)?, model, timestamp],
     )?;
     if changed == 0 {
-        let (existing_task, existing_provider, existing_model): (String, i64, String) = tx
-            .query_row(
-                "SELECT task, provider_id, model FROM provider_route_runs WHERE request_id = ?1",
-                params![request_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )?;
+        let (existing_task, existing_provider, existing_model, existing_status): (
+            String,
+            Option<i64>,
+            String,
+            String,
+        ) = tx.query_row(
+            "SELECT task, provider_id, model, status FROM provider_route_runs WHERE request_id = ?1",
+            params![request_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                ))
+            },
+        )?;
+        // provider_id 为 NULL：finish() 对全候选熔断失败置空（130#2 场景特征），
+        // 视为同档案兼容——任务与模型两键仍严格校验
+        let expected_provider = profile_id(&profile.id)?;
         if existing_task != task
-            || existing_provider != profile_id(&profile.id)?
+            || existing_provider.is_some_and(|id| id != expected_provider)
             || existing_model != model
         {
             return Err(BackendError::new(
@@ -1053,7 +1067,26 @@ pub fn stream_chat<R: Runtime>(
                 "请求标识已用于其他任务、供应商或模型，不会覆盖原请求",
             ));
         }
-        return latest_chat(state, request_id);
+        // 130#2：既有 run 行是终态 failed 且 attempt=1 从未发起过真实上游
+        // （125#3 场景：全候选熔断只落 circuit_open 跳过行）——该缓存失败不
+        // 是幂等结果，同 id 重试删行重建使路由真正发起；真实发起过上游的
+        // 终态失败仍走 latest_chat 幂等续读
+        let first_attempt_had_upstream: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM provider_route_attempts WHERE request_id = ?1 AND attempt = 1 AND upstream_request_id IS NOT NULL)",
+            params![request_id],
+            |row| row.get(0),
+        )?;
+        if existing_status != "failed" || first_attempt_had_upstream {
+            return latest_chat(state, request_id);
+        }
+        tx.execute(
+            "DELETE FROM provider_route_runs WHERE request_id = ?1",
+            params![request_id],
+        )?;
+        changed = tx.execute(
+            "INSERT INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?6)",
+            params![request_id, task, mode, profile_id(&profile.id)?, model, timestamp],
+        )?;
     }
     let event = Store::event(
         &tx,

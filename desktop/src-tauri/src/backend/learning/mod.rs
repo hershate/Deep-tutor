@@ -199,10 +199,11 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             details_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL
         );
-        -- 129#1：证据表按 plan_id（+node_id）过滤是全部业务查询形态（知识
-        -- 总览 GROUP BY、全局搜索逐节点 AVG），表无上限增长而 PK 不命中
-        CREATE INDEX IF NOT EXISTS learning_node_evidence_plan
-            ON learning_node_evidence(plan_id, node_id);
+        -- 130#1：证据表按 plan_id（+node_id）的查询由 learning_evidence_key
+        -- (UNIQUE) 的最左前缀覆盖（知识总览 GROUP BY、全局搜索逐节点 AVG），
+        -- 表无上限增长——129#1 建的显式前缀索引与 129#4 删除的重复索引同型，
+        -- 只多付一棵 B-tree 维护，删除
+        DROP INDEX IF EXISTS learning_node_evidence_plan;
         CREATE TABLE IF NOT EXISTS learning_reading_progress (
             plan_id INTEGER NOT NULL REFERENCES learning_plans(id) ON DELETE CASCADE,
             stage_id TEXT NOT NULL,

@@ -1011,9 +1011,12 @@ fn chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
         .optional()?
         .ok_or_else(|| BackendError::new("not_found", "模型请求不存在"))?;
     if request.status != "done" {
+        // 130#3：物化每次冲刷同时写 output/reasoning 两列——任一列非空即证明
+        // 已物化过，空列就是「本流无该类产出」（原先 OR 条件使纯文本流每次
+        // 轮询都全量重放 events）；两列皆空才需要（且只需）事件重放补齐
         let rebuild_output = request.output.is_empty();
         let rebuild_reasoning = request.reasoning.is_empty();
-        if rebuild_output || rebuild_reasoning {
+        if rebuild_output && rebuild_reasoning {
             let mut statement = store.conn.prepare(
                 "SELECT payload FROM events WHERE kind = 'provider.chat_delta' AND json_extract(payload, '$.requestId') = ?1 ORDER BY id",
             )?;
@@ -1251,7 +1254,8 @@ pub fn stream_chat_with_policy<R: Runtime>(
             // 125#8：流内累积完整文本，随每次 flush 物化到 provider_requests
             // ——运行中请求的 getProviderChat 原先恒走 events 全量重放拼接
             //（每次轮询 O(已输出长度)，前端 150ms 节流反复触发）；物化后
-            // output 非空即短路，终态 UPDATE 覆盖为最终值
+            // 任一列非空即短路（130#3 修正口径：两列同时物化，空列=无产出，
+            // 纯文本/纯推理流也短路），终态 UPDATE 覆盖为最终值
             let mut accumulated_text = String::new();
             let mut accumulated_reasoning = String::new();
             // 前沿触发：首个 delta 立即可见（前沿回拨 1s 使首达即冲刷）；

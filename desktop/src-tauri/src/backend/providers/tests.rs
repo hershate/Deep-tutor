@@ -1309,6 +1309,27 @@ fn circuit_skips_open_providers_recovers_half_open_and_reports_no_available_upst
         .unwrap();
     assert_eq!(primary.state, "closed");
     assert_eq!(primary.failures, 0);
+    // 130#2：全候选熔断的缓存失败（终态 failed 且 attempt=1 无上游）在同 id
+    // 重试时不再被当幂等结果返回——熔断冷却后同 id 重试真正发起路由。
+    // 主上游已随半开成功闭合、备份仍 open，重试应直连主上游拿到真实输出
+    let retried = routing::stream_chat(
+        app.handle(),
+        &state,
+        "circuit-all-open",
+        "agent",
+        Some(&a.id),
+        &messages("同 id 冷却后重试"),
+        64,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(retried.status, "done");
+    assert_eq!(retried.provider_id, a.id);
+    assert_eq!(retried.output, "主上游恢复输出");
+    assert_eq!(primary_server.request_count(), 3);
+    assert_eq!(backup_server.request_count(), 2);
 }
 
 #[test]

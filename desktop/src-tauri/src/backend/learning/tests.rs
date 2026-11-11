@@ -1201,13 +1201,14 @@ fn hot_path_indexes_are_used_and_dead_indexes_removed() {
             })
             .unwrap()
     };
-    // 知识总览（GROUP BY）与全局搜索（逐节点 AVG）
+    // 知识总览（GROUP BY）与全局搜索（逐节点 AVG）——130#1 起由 UNIQUE
+    // 索引 learning_evidence_key 的最左前缀覆盖（显式前缀索引已按重复删除）
     let evidence = plan(
         "SELECT node_id, COUNT(*) FROM learning_node_evidence WHERE plan_id = 1 GROUP BY node_id",
     );
     assert!(
-        evidence.contains("learning_node_evidence_plan"),
-        "证据表 plan_id 查询必须走新索引：{evidence}"
+        evidence.contains("learning_evidence_key"),
+        "证据表 plan_id 查询必须走 UNIQUE 索引前缀：{evidence}"
     );
     // 通知概览 30s 轮询的日期窗口
     let schedule = plan(
@@ -1225,12 +1226,13 @@ fn hot_path_indexes_are_used_and_dead_indexes_removed() {
         deliveries.contains("plugin_deliveries_event"),
         "投递日志倒序列表必须走新索引：{deliveries}"
     );
-    // 死索引清理（129#4）：四名不得再存在于 schema
+    // 死索引清理（129#4 + 130#1）：五名不得再存在于 schema
     for name in [
         "learning_plan_steps_requests",
         "project_versions_requests",
         "project_versions_project",
         "sync_jobs_created",
+        "learning_node_evidence_plan",
     ] {
         let exists: i64 = store
             .conn
