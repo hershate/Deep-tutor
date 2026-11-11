@@ -523,17 +523,21 @@ pub fn install<R: Runtime>(
                 }
             }
         } else if let Ok(path) = manifest_path(state, &manifest.id) {
-            // 清单未落成：write_manifest 可能已建目录或遗留 .manifest-N.tmp
+            // 清单未落成：write_manifest 可能已建目录或遗留 .manifest-N.tmp。
+            // 121#7：117#2 已把 tmp 移到 plugins/ 根层（.manifest-{id}-{n}.tmp），
+            // 原先扫插件目录内部永远扫不到根层 tmp；改扫根层并按本插件 id
+            // 前缀匹配（进程崩溃遗留的 tmp 还有 maintenance 24h 宽限兜底）
             if let Some(directory) = path.parent() {
-                if let Ok(entries) = fs::read_dir(directory) {
-                    for entry in entries.flatten() {
-                        let name = entry.file_name().to_string_lossy().into_owned();
-                        if name.starts_with(".manifest-") && name.ends_with(".tmp") {
-                            let _ = fs::remove_file(entry.path());
-                        }
+                let _ = fs::remove_dir(directory);
+            }
+            let prefix = format!(".manifest-{}-", manifest.id);
+            if let Ok(entries) = fs::read_dir(state.root()) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.starts_with(&prefix) && name.ends_with(".tmp") {
+                        let _ = fs::remove_file(entry.path());
                     }
                 }
-                let _ = fs::remove_dir(directory);
             }
         }
     }

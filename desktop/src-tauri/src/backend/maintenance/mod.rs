@@ -405,22 +405,21 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                 }
             }
         }
-        // B-13（117#2 改库驱动）：已安装但 manifest.json 缺失——原先依赖
-        // read_dir 枚举到插件目录，目录被整体误删的僵尸行（reload 恒报
-        // plugin_manifest_missing、重装被 plugin_already_installed 挡死）
-        // 零可见；按库枚举后删目录、删清单两种形态都能报出
-        let mut statement = store.conn.prepare("SELECT id FROM plugins")?;
-        let installed_ids = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        drop(statement);
-        for id in &installed_ids {
-            if !plugin_root.join(id).join("manifest.json").is_file() {
-                issues.push(BackendError::new(
-                    "plugin_manifest_missing",
-                    &format!("插件 {id} 已安装但磁盘清单缺失，重装该插件可恢复"),
-                ));
-            }
+    }
+    // B-13（117#2 改库驱动）：已安装但 manifest.json 缺失——按库枚举，
+    // 删目录、删清单两种形态都能报出。121#9：移出 plugin_root.exists()——
+    // plugins/ 根目录整体缺失时库内已安装行全部变僵尸，原先体检零报告
+    let mut statement = store.conn.prepare("SELECT id FROM plugins")?;
+    let installed_ids = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    for id in &installed_ids {
+        if !plugin_root.join(id).join("manifest.json").is_file() {
+            issues.push(BackendError::new(
+                "plugin_manifest_missing",
+                &format!("插件 {id} 已安装但磁盘清单缺失，重装该插件可恢复"),
+            ));
         }
     }
     let mut tempdirs = Vec::new();
@@ -680,15 +679,22 @@ pub fn scan<R: Runtime>(
 }
 
 /// 117#4：删除前目录遍历的字节数——remove_tree 只返回 ()，整目录回收的
-/// freed_bytes 按删前实际内容入账；枚举失败按 0 记（不阻塞删除本身）
-fn directory_bytes(directory: &Path) -> u64 {
+/// freed_bytes 按删前实际内容入账；枚举失败按 0 记（不阻塞删除本身）。
+/// 121#8：与 remove_tree/walk 同口径——depth>6 截断防病态深嵌套的栈递归，
+/// symlink_metadata 不跟随链接（symlink-to-file 不把目标长度虚计入账）
+fn directory_bytes(directory: &Path, depth: usize) -> u64 {
+    if depth > 6 {
+        return 0;
+    }
     let mut total = 0;
     if let Ok(entries) = fs::read_dir(directory) {
         for entry in entries.flatten() {
             match entry.file_type() {
-                Ok(file_type) if file_type.is_dir() => total += directory_bytes(&entry.path()),
+                Ok(file_type) if file_type.is_dir() => {
+                    total += directory_bytes(&entry.path(), depth + 1)
+                }
                 Ok(_) => {
-                    if let Ok(metadata) = entry.metadata() {
+                    if let Ok(metadata) = fs::symlink_metadata(entry.path()) {
                         total += metadata.len();
                     }
                 }
@@ -833,7 +839,7 @@ pub fn cleanup<R: Runtime>(
                 Some(directory) if directory.is_dir() => {
                     // 117#4：整目录回收按删前目录实际字节数入账——原先只记
                     // 清单字节或占位 0，目录内其余文件（assets 等）全部漏记
-                    let bytes = directory_bytes(&directory);
+                    let bytes = directory_bytes(&directory, 0);
                     remove_tree(&root, &directory, 0).map(|()| bytes)
                 }
                 _ if !root.join(&item.path).exists() => {

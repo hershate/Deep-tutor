@@ -205,7 +205,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
       {expired && !completed && <div className="form-error" role="alert"><Clock3 size={18} />考试时间已结束，不能继续作答；请提交已保存的作答并交卷。</div>}
       {question ? <>
         <div className="question-top"><div><Badge tone="neutral">{kindNames[question.kind]}</Badge><span>第 {index + 1} / {exam.questions.length} 题 · 难度 {question.difficulty}/5</span></div><span>已判分 {exam.set.answeredQuestions} / {exam.set.totalQuestions}</span></div>
-        <ProgressBar value={exam.set.answeredQuestions / exam.set.totalQuestions * 100} />
+        <ProgressBar value={exam.set.answeredQuestions / exam.set.totalQuestions * 100} srLabel={`已判分 ${exam.set.answeredQuestions} / ${exam.set.totalQuestions} 题`} />
         <div className="question-body"><h2>{question.prompt}</h2>
           {question.kind === 'choice' && <div className="option-list">{question.options.map((option, optionIndex) => {
             const correct = completed && answer?.feedback.answer === optionIndex

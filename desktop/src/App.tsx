@@ -413,7 +413,7 @@ export default function App() {
       // 会话、不置 loading）——存在运行中会话时点「开始专注」撞
       // focus_active，且先按默认 25:00 渲染（91#6 要消除的场景）
       case 'study': return <StudyRoom target={studyTarget} onFocus={() => openFocus()} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
-      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} focusTarget={mapNodeTarget} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId, nonce: Date.now() }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
+      case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} focusTarget={mapNodeTarget} onFocusConsumed={() => setMapNodeTarget(null)} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId, nonce: Date.now() }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
       case 'practice': return <Practice notify={notify} target={practiceTarget} onTargetConsumed={() => setPracticeTarget(null)} onNavigate={navigate} />
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} onImportNotes={importNotes} notify={notify} />
@@ -446,7 +446,7 @@ export default function App() {
   return <div className={`app-shell ${page === 'study' ? 'study-mode' : ''}`}>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus() }}>跳到主要内容</a>
     {mobileNav && <button className="nav-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
-    <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
+    <aside id="app-sidebar" className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
       <div className="brand"><BrandMark /><div><strong>知舟</strong><span>Deep Tutor</span></div><IconButton label="关闭导航" className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></IconButton></div>
       {/* 43#12：ChevronDown 形似可展开的下拉，实际整钮跳转学习计划——改右箭头对齐导航语义 */}
       <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>{homeSummary?.goal || '尚未设置学习目标'}</strong></div><ChevronRight size={15} /></button>
@@ -459,7 +459,7 @@ export default function App() {
       <main id="main-content" className="main-content" tabIndex={-1}><Suspense fallback={<div className="page-loading" role="status"><LoaderMark />正在加载学习工作区…</div>}>{renderPage()}</Suspense></main>
     </div>
 
-    <nav className="mobile-bottom-nav" aria-label="移动端快捷导航">{[{ id: 'today' as PageId, label: '今日', icon: Home }, { id: 'study' as PageId, label: '学习', icon: BookOpen }, { id: 'review' as PageId, label: '复习', icon: Layers3 }, { id: 'library' as PageId, label: '笔记', icon: LibraryBig }].map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><item.icon size={20} /><span>{item.label}</span></button>)}<button onClick={() => setMobileNav(true)}><Menu size={20} /><span>全部</span></button></nav>
+    <nav className="mobile-bottom-nav" aria-label="移动端快捷导航">{[{ id: 'today' as PageId, label: '今日', icon: Home }, { id: 'study' as PageId, label: '学习', icon: BookOpen }, { id: 'review' as PageId, label: '复习', icon: Layers3 }, { id: 'library' as PageId, label: '笔记', icon: LibraryBig }].map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><item.icon size={20} /><span>{item.label}</span></button>)}<button onClick={() => setMobileNav(true)} aria-expanded={mobileNav} aria-controls="app-sidebar">{/* 128#6：展开状态广播（读屏感知「全部」打开的是侧栏菜单） */}<Menu size={20} /><span>全部</span></button></nav>
 
     {tutorOpen && <div className="drawer-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setTutorOpen(false) }}><aside className="global-tutor" role="dialog" aria-modal="true" aria-label="知舟全局导师" tabIndex={-1} ref={tutorRef}><TutorPanel compact onClose={() => setTutorOpen(false)} planId={tutorContext?.planId} contextLabel={tutorContext?.label} hintsOnly={preferences.hintsOnly} /></aside></div>}
 
@@ -543,6 +543,10 @@ function FocusLayer({ session, tasks, busy, loading = false, onToggle, onFinish,
   // 整树替换
   const finishRef = useRef(onFinish)
   finishRef.current = onFinish
+  // 128#5：busy 经 ref 供 tick 读取——依赖数组收敛到 session 后闭包值
+  // 不再随操作翻转重建 interval（相位漂移），auto-finish 守卫仍读最新值
+  const busyRef = useRef(busy)
+  busyRef.current = busy
   useFocusContainment(ref, true)
   useEffect(() => {
     setSeconds(session ? session.remainingSeconds : 25 * 60)
@@ -553,7 +557,7 @@ function FocusLayer({ session, tasks, busy, loading = false, onToggle, onFinish,
     const tick = () => {
       const remaining = Math.max(0, session.plannedSeconds - Math.floor((Date.now() - Date.parse(session.startedAt)) / 1000))
       setSeconds(remaining)
-      if (remaining === 0 && !busy && !autoFinishedRef.current) {
+      if (remaining === 0 && !busyRef.current && !autoFinishedRef.current) {
         autoFinishedRef.current = true
         void finishRef.current(false)
       }
@@ -561,8 +565,8 @@ function FocusLayer({ session, tasks, busy, loading = false, onToggle, onFinish,
     tick()
     const timer = window.setInterval(tick, 1000)
     return () => window.clearInterval(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- busy 由 tick 内读取闭包值，依赖收敛到 session
-  }, [session, busy])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- busy 经 busyRef 读取（128#5），依赖收敛到 session 不随操作翻转重建相位
+  }, [session])
   const minutes = Math.floor(seconds / 60).toString().padStart(2, '0')
   const display = (seconds % 60).toString().padStart(2, '0')
   return <div className="focus-overlay" role="dialog" aria-modal="true" aria-label="专注学习" tabIndex={-1} ref={ref}><div className="focus-top"><div><BrandMark /><span>知舟 · 专注空间</span></div><IconButton label="退出专注" onClick={onExit}><X size={22} /></IconButton></div><div className="focus-content"><p>当前任务</p><h2>{session?.taskId ? tasks.find(task => task.id === session.taskId)?.title || `任务 #${session.taskId}` : '自由专注'}</h2>{loading && !session ? <div className="focus-timer" role="status">正在恢复专注状态…</div> : <div className="focus-timer" role="timer" aria-label={`专注计时 ${minutes} 分 ${display} 秒`}><span>{minutes}</span><i>:</i><span>{display}</span></div>}<div className="focus-actions"><Button variant="light" size="lg" disabled={busy || loading} onClick={onToggle}>{session?.status === 'running' ? <Pause size={20} /> : <Play size={20} />}{session?.status === 'running' ? '暂停' : session?.status === 'paused' ? '继续专注' : '开始专注'}</Button><Button variant="light" disabled={busy || !session || !['running', 'paused'].includes(session.status)} onClick={() => void onFinish(false)}>结束并保存</Button>{/* 104#9：恢复 loading 期 session 为 null，重置确认后是空操作——禁用 */}
@@ -608,6 +612,6 @@ function SearchLayer({ open, onClose, onOpenResult }: {
     else if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); openResult(results[activeIndex] ?? results[0]) }
   }
   return <Modal open={open} onClose={() => { onClose(); setQuery('') }} title="全局搜索">
-    <div className="command-search"><Search size={20} /><input autoFocus aria-label="全局搜索" value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} onKeyDown={onKeyDown} placeholder="输入页面、笔记、任务或知识节点…" /></div><div className="command-results">{/* 120#12：结果数变化对读屏可见（焦点留在输入框，↑↓/Enter 键盘导航可发现） */}{results.length ? <span className="visually-hidden" aria-live="polite">{results.length} 条结果，↑↓ 选择，Enter 打开</span> : null}{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} className={index === activeIndex ? 'active' : ''} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案、任务、项目与知识节点；↑↓ 选择、Enter 打开、Esc 关闭</div>
+    <div className="command-search"><Search size={20} /><input autoFocus aria-label="全局搜索" value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} onKeyDown={onKeyDown} placeholder="输入页面、笔记、任务或知识节点…" /></div><div className="command-results">{/* 120#12：结果数变化对读屏可见（焦点留在输入框，↑↓/Enter 键盘导航可发现）。121#10：live region 常驻只变文本——region 与内容同挂载的首播（0→N）常被读屏静默；空查询（quickPages 快捷入口）不播计数 */}<span className="visually-hidden" aria-live="polite">{query.trim() ? `${results.length} 条结果，↑↓ 选择，Enter 打开` : ''}</span>{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} className={index === activeIndex ? 'active' : ''} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案、任务、项目与知识节点；↑↓ 选择、Enter 打开、Esc 关闭</div>
   </Modal>
 }

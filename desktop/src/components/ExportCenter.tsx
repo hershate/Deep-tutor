@@ -40,7 +40,10 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   // 37#4：回执保留用户选择的落盘位置，供「在资源管理器中显示」定位
   const [donePath, setDonePath] = useState('')
   // 120#4：列表读取失败标记——错误横幅区分「读取失败可重试」与「导出失败」
+  // 121#5：错误按源标记——读取失败后任何后续错误（导出/讲义读取）原先
+  // 都挂着「重试读取」按钮误导；重试入口改由 loadFailed 独立承载
   const [loadFailed, setLoadFailed] = useState(false)
+  const [errorSource, setErrorSource] = useState<'load' | 'lecture' | 'export' | 'reveal'>('export')
   const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
@@ -54,11 +57,12 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
       const ready = items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status))
       setPlans(ready)
       setPlanId(current => ready.some(plan => plan.id === current) ? current : ready.find(plan => plan.id === initialPlanId)?.id || ready[0]?.id || '')
-    }).catch(cause => { if (active) { setError(backendErrorMessage(cause)); setLoadFailed(true) } }).finally(() => { if (active) setBusy('') })
+    }).catch(cause => { if (active) { setError(backendErrorMessage(cause)); setErrorSource('load'); setLoadFailed(true) } }).finally(() => { if (active) setBusy('') })
     return () => { active = false }
   }, [open, initialPlanId, reloadToken])
   useEffect(() => {
     // 信息项：弹窗开着期间新完成的方案实时进入列表（plan. 前缀事件触发重拉）
+    // 121#5：重拉成功同步清读取失败态与「读取失败」横幅（列表已可用）
     if (!open) return
     let unlisten: (() => void) | undefined
     let disposed = false
@@ -67,6 +71,9 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
       void backend.listLearningPlans().then(items => {
         if (disposed) return
         setPlans(items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status)))
+        setLoadFailed(false)
+        setErrorSource('export')
+        setError('')
       }).catch(() => {})
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
     return () => { disposed = true; unlisten?.() }
@@ -88,7 +95,7 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
       const current = result.units.find(unit => unit.index === result.currentUnit && unit.status === 'done')
       const first = current || result.units.find(unit => unit.status === 'done')
       setUnitIndex(first?.index ?? null)
-    }).catch(cause => { if (active) { setLecture(null); setUnitIndex(null); setError(backendErrorMessage(cause)) } }).finally(() => { if (active) setBusy('') })
+    }).catch(cause => { if (active) { setLecture(null); setUnitIndex(null); setError(backendErrorMessage(cause)); setErrorSource('lecture') } }).finally(() => { if (active) setBusy('') })
     return () => { active = false }
   }, [open, scope, planId, stageId])
 
@@ -109,18 +116,21 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
       setDone(result)
       setDonePath(destination)
       notify(`已原生导出「${result.title}」，共 ${result.bytes.toLocaleString()} 字节`)
-    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    } catch (cause) { setError(backendErrorMessage(cause)); setErrorSource('export') } finally { setBusy('') }
   }
   const reveal = async () => {
     if (!donePath) return
-    try { await revealInFileManager(donePath) } catch (cause) { setError(backendErrorMessage(cause)) }
+    try { await revealInFileManager(donePath) } catch (cause) { setError(backendErrorMessage(cause)); setErrorSource('reveal') }
   }
 
   return <Modal open={open} onClose={onClose} title="导出学习内容" wide><div className="export-center">
     <div className="export-scope"><label>导出范围<select value={scope} onChange={event => { setScope(event.target.value as ExportScope); setDone(null); setError('') }}>{scopes.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div><Badge tone="green">Rust 原生文件生成</Badge><p>内容来自 SQLite 和已保存讲义。PDF 不打开打印窗口；Anki 导出真实 APKG。</p></div></div>
     {needsPlan && <label>学习方案<select value={planId} onChange={event => { setPlanId(event.target.value); setDone(null) }} disabled={!plans.length}><option value="">请选择已完整生成的方案</option>{plans.map(item => <option key={item.id} value={item.id}>{item.goal} · v{item.version}</option>)}</select></label>}
+    {/* 121#5：读取失败的重试入口独立于 error/scope 常驻——原先嵌在错误横幅内，
+        切换导出范围清 error 时连唯一入口一起吞掉（plans 仍空、选择器禁用） */}
+    {loadFailed && !plans.length && <div className="form-error" role="alert">方案列表读取失败，选择器暂不可用。<Button variant="ghost" size="sm" disabled={busy === 'load'} onClick={() => setReloadToken(token => token + 1)}>{busy === 'load' ? '正在读取…' : '重试读取'}</Button></div>}
     {scope === 'lecture' && <div className="form-grid"><label>学习阶段<select value={stageId} onChange={event => setStageId(event.target.value)} disabled={!plan?.result}><option value="">请选择阶段</option>{plan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>已保存单元<select value={unitIndex ?? ''} onChange={event => setUnitIndex(event.target.value === '' ? null : Number(event.target.value))} disabled={!lecture}><option value="">请选择已生成单元</option>{lecture?.units.filter(unit => unit.status === 'done').map(unit => <option key={unit.index} value={unit.index}>{unit.index + 1} · {unit.content?.title || unit.nodeId}</option>)}</select></label></div>}
-    {error && <div className="form-error" role="alert">{error}{loadFailed && <Button variant="ghost" size="sm" disabled={busy === 'load'} onClick={() => setReloadToken(token => token + 1)}>{busy === 'load' ? '正在读取…' : '重试读取'}</Button>}</div>}
+    {error && <div className="form-error" role="alert">{error}{errorSource === 'load' && <Button variant="ghost" size="sm" disabled={busy === 'load'} onClick={() => setReloadToken(token => token + 1)}>{busy === 'load' ? '正在读取…' : '重试读取'}</Button>}</div>}
     <div className="export-grid">{available.map(format => <button key={format.id} onClick={() => void run(format.id, format.ext)} disabled={Boolean(busy) || !canExport}><format.icon size={22} /><div><strong>{format.name}</strong><span>{format.description}</span></div>{busy === format.id ? <LoaderCircle size={18} className="spin" /> : done?.format === format.id ? <Check size={18} /> : <ArrowDownToLine size={18} />}</button>)}</div>
     {done && <div className="export-receipt" role="status"><Check size={16} /><div><strong>{done.title}</strong><p>已写入 {done.bytes.toLocaleString()} 字节 · SHA-256 {done.sha256}</p>{done.warning && <p className="export-warning" role="alert">{done.warning}</p>}</div>{donePath && <Button variant="ghost" size="sm" onClick={() => void reveal()}><FolderOpen size={15} />在资源管理器中显示</Button>}</div>}
     <div className="export-foot"><span>动态文本按格式转义；HTML 不执行脚本。只有用户选择保存位置后才写入文件。</span><Button variant="secondary" onClick={onClose}>完成</Button></div>

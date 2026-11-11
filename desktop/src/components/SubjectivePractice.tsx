@@ -150,7 +150,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
 
   const body = question && detail ? <>
     <div className="question-top"><div><Badge tone="blue">{question.kind === 'short' ? '简答题' : '论述题'}</Badge><span>{plan?.goal ?? detail.set.planId}</span></div><span>{index + 1} / {questions.length}</span></div>
-    <ProgressBar value={questions.filter(item => detail.answeredQuestionIds.includes(item.id)).length / questions.length * 100} />
+    <ProgressBar value={questions.filter(item => detail.answeredQuestionIds.includes(item.id)).length / questions.length * 100} srLabel={`作答进度 ${questions.filter(item => detail.answeredQuestionIds.includes(item.id)).length} / ${questions.length} 题`} />
     <div className="subjective-body"><PenLine size={24} /><h2>{question.prompt}</h2>
       <div className="rubric-preview"><strong>评分要点（合计 1 分）</strong>{question.rubric.map(criterion => <div key={criterion.id}><span>{criterion.description}</span><small>{criterion.points.toFixed(2)} 分</small></div>)}</div>
       <textarea rows={question.kind === 'essay' ? 9 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} onChange={event => { const next = clampToBytes(event.target.value, 30000); if (question) draftByQuestion.current[question.id] = next; setDraft(next) }} disabled={recorded || busy} placeholder="先组织自己的回答，再由后端按评分要点评价…" aria-label={`作答：${question.prompt}`} />

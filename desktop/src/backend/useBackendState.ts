@@ -348,6 +348,16 @@ export function useBackendState() {
   const importBackup = useCallback(async (path: string) => {
     const requestedGeneration = generation.current
     const next = await backupBackend.import(path)
+    // 128#7：import_full_backup 后端返回自由 Value——TS 断言静默通过，
+    // 键形漂移（改名/缺失）时渲染层读出 undefined 空白；对齐
+    // guardLearningPlan 范式做运行时守卫，坏形状以可定位错误暴露
+    const raw = next as unknown as Record<string, unknown>
+    if (typeof raw.workspaceId !== 'number' || typeof raw.lastEventId !== 'number'
+      || raw.tasks === undefined || raw.notes === undefined || raw.resources === undefined
+      || raw.projects === undefined || raw.preferences === undefined || raw.versions === undefined) {
+      console.error('guardAppSnapshot: 导入快照形状断言失败（核心集合/versions/workspaceId 缺失，后端 JSON 键变更？）', next)
+      throw new Error('导入返回的数据结构与当前应用版本不兼容，请更新应用后再试。')
+    }
     applySnapshot(next, requestedGeneration)
     return next
   }, [applySnapshot])

@@ -96,6 +96,10 @@ button, input, textarea, select { outline: none; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 input, textarea, select { width: 100%; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); color: var(--text); padding: 11px 13px; transition: border-color .18s ease, box-shadow .18s ease; }
 input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* 128#1：表单三件套禁用态——作者 color/background 覆盖了 UA 的 GrayText
+灰化，禁用框（已交卷考试作答框/保存中参数/目录变更中输入）与可编辑框
+视觉无差，用户点击无反应且无解释 */
+input:disabled, textarea:disabled, select:disabled { color: var(--muted); background: var(--surface-soft); cursor: not-allowed; }
 textarea { resize: vertical; }
 label { display: grid; gap: 7px; color: var(--text-secondary); font-size: 14px; font-weight: 600; }
 h1, h2, h3, p { margin-top: 0; }
@@ -119,6 +123,8 @@ svg { flex-shrink: 0; }
 .brand span { font-size: 12px; letter-spacing: .2em; opacity: .78; margin-top: 4px; }
 .mobile-close { margin-left: auto; color: white !important; }
 .goal-switch { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 62px; margin: 24px 0 18px; padding: 10px; border: 1px solid oklch(0.48 0.04 160 / .6); border-radius: 12px; background: oklch(0.34 0.04 165 / .6); text-align: left; color: inherit; }
+/* 128#4：目标卡悬停反馈 */
+.goal-switch:hover { border-color: var(--lime-400); }
 .goal-switch > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--lime-400); color: var(--pine-950); }
 .goal-switch div { flex: 1; display: grid; }
 .goal-switch small { opacity: .65; font-size: 12px; }
@@ -176,6 +182,9 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .btn-light { background: var(--lime-400); color: var(--pine-950); border-color: var(--lime-400); }
 .btn-light:hover { background: var(--lime-300); }
 .btn-sm { min-height: 38px; padding-inline: 12px; font-size: 13px; }
+/* 128#3：默认尺寸档占位——全站默认按钮都带 btn-md 但零规则（.btn-sm/
+   .btn-lg 有定义），保留类名生成、为未来单独调整默认尺寸留通道 */
+.btn-md { }
 .btn-lg { min-height: 50px; padding-inline: 22px; }
 .surface { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
@@ -264,6 +273,8 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .task-copy span { color: var(--muted); font-size: 12px; }
 .task-time { display: none; color: var(--muted); font-size: 12px; }
 .task-go { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+/* 128#4：任务直达钮悬停反馈 */
+.task-go:hover { background: var(--accent-bright); color: var(--pine-950); }
 .task-row.is-done .task-copy strong, .task-row.is-done .task-copy span, .task-row.is-done .task-time { color: var(--muted); }
 .task-row.is-done .task-check { background: var(--accent); color: var(--surface); border-color: var(--accent); }
 .task-row.is-done .task-copy strong { text-decoration: line-through; }
@@ -385,6 +396,9 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .calendar-event small { width: fit-content; padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
 .event-复习 { border-color: var(--warning); }
 .event-项目 { border-color: var(--info); }
+/* 128#8：默认边框色（--border）即「学习」类事件色——后端 kind 默认
+「学习」（planning/mod.rs unwrap_or("学习")），有意不单列规则；新增
+kind 如需专属色须在此显式定义，否则回落默认边框 */
 .plan-bottom-grid { display: grid; gap: 20px; margin-top: 20px; }
 .milestone-panel, .workload-panel { padding: 22px; }
 .milestone-list { display: grid; }
@@ -523,7 +537,9 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .knowledge-canvas line.path-edge { stroke: var(--accent); stroke-width: 3; stroke-dasharray: none; }
 .map-node { position: absolute; transform: translate(-50%, -50%); width: 112px; min-height: 66px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 5px; padding: 9px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--surface-raised); box-shadow: 0 4px 12px oklch(0.25 0.02 160 / .07); text-align: left; transition: transform .18s ease, border-color .18s ease; }
 .map-node:hover { transform: translate(-50%, -50%) scale(1.04); }
-.map-node.selected { border: 2px solid var(--accent); }
+/* 128#4：选中态改 border-color 提亮不加粗——1px→2px 会挤压内容区
+（点击瞬间内容微移），对齐 .option-list 的 border-color 范式 */
+.map-node.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 4px 12px oklch(0.25 0.02 160 / .07); }
 .map-node.on-path { box-shadow: 0 0 0 5px var(--accent-soft); }
 .map-node strong { font-size: 12px; }
 .map-node small { color: var(--muted); font-size: 12px; }
@@ -667,6 +683,9 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .review-progress .progress-wrap { grid-column: 1 / -1; grid-row: 2; }
 .review-progress .badge { grid-column: 2; grid-row: 1; }
 .flashcard { position: relative; width: 100%; height: 350px; margin-bottom: 22px; border: 0; border-radius: 18px; background: transparent; transform-style: preserve-3d; transition: transform .45s ease; }
+/* 128#4：翻卡悬停反馈——.45s transform 过渡原先无任何触发规则（死代码），
+悬停轻微上浮提示可点击翻面 */
+.flashcard:hover { transform: translateY(-3px); }
 .flashcard.is-flipped { transform: rotateY(180deg); }
 .flashcard-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; border: 1px solid var(--border); border-radius: 18px; backface-visibility: hidden; text-align: center; overflow-y: auto; }
 .flashcard-front { background: var(--pine-950); color: white; }
@@ -913,13 +932,17 @@ td strong { color: var(--text); }
 .toggle-row label { color: var(--text); font-size: 14px; }
 .toggle-row p { margin: 4px 0 0; font-size: 12px; }
 .switch { width: 46px; height: 26px; flex-shrink: 0; padding: 3px; border: 0; border-radius: 13px; background: var(--border-strong); transition: background .18s ease; }
+/* 128#4：开关悬停反馈 */
+.switch:hover { background: var(--accent-soft); }
 .switch span { display: block; width: 20px; height: 20px; border-radius: 50%; background: var(--surface-raised); transition: transform .18s ease; box-shadow: 0 1px 4px oklch(0.2 0.02 160 / .2); }
 .switch.is-on { background: var(--accent); }
 .switch.is-on span { transform: translateX(20px); }
 .setting-note { margin-top: 16px; }
 .theme-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .theme-options button { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 9px; min-height: 72px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); text-align: left; }
-.theme-options button.active { border: 2px solid var(--accent); background: var(--accent-soft); }
+/* 128#4：选中态 border-color+box-shadow 不加粗——1px→2px 挤压内容区
+（点击瞬间微移），对齐 .option-list 范式 */
+.theme-options button.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
 .theme-options svg { grid-row: 1 / 3; color: var(--accent); }
 .theme-options span { font-size: 13px; font-weight: 700; }
 .theme-options small { color: var(--muted); font-size: 12px; }
@@ -930,6 +953,9 @@ td strong { color: var(--text); }
 .privacy-line { display: flex; align-items: center; gap: 6px; margin-top: 16px; color: var(--muted); font-size: 12px; }
 .confirm-dialog > p { font-size: 14px; }
 .confirm-dialog > div { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+/* 128#3：MaintenancePanel 弹窗内容类——对齐 .confirm-dialog 排版
+（原先类名无规则，说明文字与操作行回落块级默认） */
+.maintenance-confirm > p { font-size: 14px; }
 
 /* Global search, tasks, focus */
 .command-search { display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-raised); color: var(--muted); }
@@ -937,6 +963,10 @@ td strong { color: var(--text); }
 .command-results { display: grid; margin-top: 12px; }
 .command-results > button { display: flex; align-items: center; gap: 11px; min-height: 58px; padding: 9px; border: 0; border-radius: 8px; background: transparent; text-align: left; }
 .command-results > button:hover { background: var(--surface-soft); }
+/* 121#4：键盘导航高亮——.active 类自 20#9 引入起无规则，↑↓ 移动的
+   当前项与普通项视觉一致（鼠标 hover 反而有底色），Enter 落点不可见；
+   对齐 :hover 底色并加左边框强调 */
+.command-results > button.active { background: var(--surface-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .command-results > button > svg { color: var(--accent); }
 .command-results > button > div { flex: 1; display: grid; }
 .command-results > button strong { font-size: 13px; }
@@ -946,6 +976,8 @@ td strong { color: var(--text); }
 .command-hint { display: flex; align-items: center; gap: 5px; margin-top: 12px; color: var(--muted); font-size: 12px; }
 .notification-list { display: grid; margin-bottom: 12px; }
 .notification-list > button { display: flex; align-items: flex-start; gap: 11px; min-height: 92px; padding: 14px 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; text-align: left; }
+/* 128#4：悬停反馈（对齐 .command-results 同族范式） */
+.notification-list > button:hover { background: var(--surface-soft); }
 .notification-icon { width: 36px; height: 36px; display: grid; place-items: center; flex-shrink: 0; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
 .notification-list strong { font-size: 13px; }
 .notification-list p { margin: 3px 0; font-size: 12px; }
@@ -1216,6 +1248,9 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .tool-catalog > button { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 6px 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-secondary); }
 .tool-catalog > button > span { flex: 1; text-align: left; font: 12px monospace; }
 .security-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 18px; padding: 12px; border-radius: 8px; background: var(--surface-soft); color: var(--muted); font-size: 12px; }
+/* 128#3：预算防线说明行——图标与文字横排（对齐 .security-note 范式，
+原先无规则回落块级默认图标压在文字上方） */
+.budget-rule { display: flex; align-items: flex-start; gap: 7px; margin-top: 14px; padding: 12px; border-radius: 8px; background: var(--surface-soft); color: var(--muted); font-size: 12px; }
 .budget-item { margin-bottom: 20px; }
 .budget-item > div { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 7px; font-size: 12px; }
 .usage-breakdown > div { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
@@ -1270,6 +1305,10 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .host-panel { padding: 22px; align-self: start; }
 .namespace-list { display: grid; gap: 7px; }
 .namespace-list span { padding: 8px 10px; border-radius: 6px; background: var(--surface-soft); color: var(--text-secondary); font: 12px monospace; }
+/* 128#3：插件事件订阅列表——块状 pill（对齐 .namespace-list 范式，
+原先多个 code 连排一行无分隔） */
+.subscription-list { display: grid; gap: 5px; margin: 10px 0; }
+.subscription-list code { padding: 6px 9px; border-radius: 6px; background: var(--surface-soft); color: var(--text-secondary); font-size: 12px; justify-self: start; }
 .host-panel > h3 { margin: 22px 0 10px; font-size: 14px; }
 .event-log { display: grid; gap: 6px; margin-bottom: 12px; }
 .event-log code { overflow-wrap: anywhere; color: var(--accent); font-size: 12px; }
@@ -1544,6 +1583,10 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 :root[data-theme="dark"] .learning-heatmap .heat-3, :root[data-theme="dark"] .heatmap-legend .heat-3 { background: oklch(0.6 0.1 148); }
 :root[data-theme="dark"] .learning-heatmap .heat-4, :root[data-theme="dark"] .heatmap-legend .heat-4 { background: oklch(0.76 0.12 145); }
 .learning-heatmap button.has-record { outline: 2px solid var(--lime-400); outline-offset: 1px; }
+/* 128#2：亮色下 lime-400 对 surface-soft 底对比约 1.1:1（87#1 已认定该色
+亮色不可见并修了 focus-ring）——「当天有学习记录」的功能性标记换 pine 系；
+暗色继承上方 lime 规则（对深底对比足够） */
+:root:not([data-theme="dark"]) .learning-heatmap button.has-record { outline-color: var(--pine-700); }
 /* 87#6：格子常驻 outline 恒压过全局 focus-visible（特异度 0,2,1 > 0,1,1），
 补显式提权使键盘 Tab 有可辨聚焦态 */
 .learning-heatmap button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }

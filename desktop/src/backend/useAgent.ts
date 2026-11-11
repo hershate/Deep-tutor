@@ -204,14 +204,18 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
   const send = useCallback(async (content: string): Promise<AgentRun | null> => {
     const value = content.trim()
     if (!value) return null
+    // 128#6：自动建链期间 busy 连续——createSession 的 finally 先清 busy、
+    // 下一语句才置 send，中间一帧 busy === '' 发送按钮短暂恢复可点
+    //（内部空值守卫兜底，但窗口存在）；进入即置位
+    setBusy('send')
+    setError('')
     let id = activeIdRef.current
     if (!id) {
       const created = await createSession()
       id = created?.id ?? null
+      setBusy('send')
     }
-    if (!id) return null
-    setBusy('send')
-    setError('')
+    if (!id) { setBusy(''); return null }
     try {
       const run = await backend.sendAgentMessage(String(id), value)
       runOwners.current.set(run.id, id)
@@ -240,6 +244,11 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     setBusy('delete')
     try {
       await backend.deleteAgentSession(String(id))
+      // 128#6：会话删除后清理 runOwners 归属映射（原先只增不减，
+      // 与 122#8 终态事件补 sessionId 同根的残留面）
+      for (const [runId, sessionId] of runOwners.current) {
+        if (sessionId === id) runOwners.current.delete(runId)
+      }
       if (activeIdRef.current === id) selectSession(null)
       await refresh()
       return true

@@ -164,7 +164,7 @@ export default function Review({ notify }: { notify: (message: string) => void }
     <div className="review-layout">
       <section className="review-workspace">
         {card ? <>
-          <div className="review-progress"><span>本次已复习 {reviewed} 张 · 当前还有 {stats.dueToday} 张今日到期</span><ProgressBar value={reviewed / Math.max(reviewed + stats.dueToday, 1) * 100} /><Badge tone="neutral">{card.tag}</Badge></div>
+          <div className="review-progress"><span>本次已复习 {reviewed} 张 · 当前还有 {stats.dueToday} 张今日到期</span><ProgressBar value={reviewed / Math.max(reviewed + stats.dueToday, 1) * 100} srLabel={`复习进度 ${Math.round(reviewed / Math.max(reviewed + stats.dueToday, 1) * 100)}%`} /><Badge tone="neutral">{card.tag}</Badge></div>
           <button className={`flashcard ${flipped ? 'is-flipped' : ''}`} onClick={() => setFlipped(!flipped)} disabled={busy} aria-label={flipped ? '查看问题' : '查看答案'}>
             <div className="flashcard-face flashcard-front"><span>问题</span><h2>{card.front}</h2><small><CircleHelp size={15} />先在心里作答，再点击查看答案</small></div>
             <div className="flashcard-face flashcard-back"><span>参考答案</span><h2>{card.back}</h2><small>对照你的回答，再诚实选择记忆程度</small></div>
