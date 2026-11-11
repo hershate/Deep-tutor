@@ -25,19 +25,31 @@
 
 ### 137#3 attempt 裸 +1 与 checked_add 并存——防御口径不一致
 
-- `practice/mod.rs:1761`、`practice/subjective.rs:895`、`knowledge/mod.rs:824`、`agent/mod.rs:882` 均裸 `attempt + 1`；而 `learning/lecture.rs:489-493`、`learning/mod.rs:705-708` 按 25#6 用 `checked_add(1)` 并注释「release 下回绕」。i64 实际回绕需 2⁶³ 次重试不可达——仅口径不一。修复：统一 checked_add。
+- 位置：`practice/mod.rs:1761`、`practice/subjective.rs:895`、`knowledge/mod.rs:824`、`agent/mod.rs:882`（均裸 `attempt + 1`）；对照 `learning/lecture.rs:489-493`、`learning/mod.rs:705-708`（按 25#6 用 `checked_add(1)`）。
+- 传递链条：①resume/重试路径读取库内 attempt 计数并 +1 写回；②learning 域按 25#6 用 checked_add 并注释「裸 +1 在 release 下会回绕」；③其余四域仍裸加——同一语义两种防御口径并存；④i64 实际回绕需 2⁶³ 次重试——不可达，但口径分裂误导后续代码模仿错误范式。
+- 影响范围：受影响=无（回绕不可达）；不受影响=正确性与行为；损害性质=防御口径不一致（维护面）。
+- 修复方向：统一 checked_add（对齐 learning 域与 25#6 注释口径）。
 
 ### 137#4 DB 值 i64→u32/u8 截断（展示面，仅外部改库可达）
 
-- `agent/mod.rs:417/432/709`（`row.get::<_, i64>() as u32`）、`review/mod.rs:244-245`（repetitions/lapses）、`practice/mod.rs:1207`（difficulty `.max(0) as u8`）、`reports/mod.rs:1138`（比值超 255 回绕）。仅统计展示错值无 panic；浮点转整型 Rust 1.45+ 饱和、NaN→0。修复：按需 saturating_cast 语义核对。
+- 位置：`agent/mod.rs:417/432/709`（`row.get::<_, i64>() as u32`）、`review/mod.rs:244-245`（repetitions/lapses）、`practice/mod.rs:1207`（difficulty `.max(0) as u8`）、`reports/mod.rs:1138`（比值超 255 回绕）。
+- 传递链条：①DB 列以 i64/浮点读出后 `as u32/u8` 窄化；②正常写入路径值域受控（计数/难度/比值都有界）；③外部改库使值超目标范围或浮点比值超 255——整数截断回绕、浮点 as 饱和（Rust 1.45+，NaN→0）；④结果仅统计展示错值，无 panic、无写回扩散。
+- 影响范围：受影响=异常库态下的统计展示读数（外部改库才可达）；不受影响=正常值域与进程稳定性；损害性质=展示失真防御缺口。
+- 修复方向：按需改 saturating 语义并核对展示上限。
 
 ### 137#5 agent 侧 atomic_write 双 rename 失败时目标短暂缺失且吞错
 
-- `agent/tools.rs:262-267`：第二步 rename 失败后回滚 rename 也失败时 `let _ =` 吞错，原内容留存 `.previous`（可手动恢复，注释已声明取舍）；materials 侧同型（materials/mod.rs:1506-1518）已把双失败显式并入用户错误消息。修复：agent 侧对齐。
+- 位置：`agent/tools.rs:262-267`（第二步 rename 失败后回滚 rename 也失败时 `let _ =` 吞错）。
+- 传递链条：①agent 记忆原子写第一步把新内容 rename 到位、原内容挪 `.previous`；②第二步收尾 rename 失败——进入回滚；③回滚 rename 也失败（极端 IO 状态）——`let _ =` 吞错，目标文件处于缺失态、原内容留存 `.previous`（可手动恢复，注释已声明取舍）；④用户/模型侧无任何错误提示。对照 materials 侧同型代码（materials/mod.rs:1506-1518）已把双失败显式并入用户错误消息——agent 侧未对齐。
+- 影响范围：受影响=双 rename 失败的极端场景（文件暂缺且零提示，可手动恢复）；不受影响=常规原子写路径；损害性质=错误吞没+同型实现不一致。
+- 修复方向：agent 侧对齐 materials 口径（双失败并入用户错误消息）。
 
 ### 137#6 只读连接无 busy_timeout
 
-- `store.rs:156`（with_accounts 配额缓存连接）与 `backup/archive.rs:413`（导出读账户库）直接 `Connection::open` 未设 busy_timeout。主库 WAL 读者不阻塞，仅 journal_mode 切换等瞬时窗口可能报错；with_accounts 缓存失败还有弃连重开重试（:148-154）。实害极低，补 `pragma_update busy_timeout` 归一口径。
+- 位置：`store.rs:156`（with_accounts 配额缓存连接）与 `backup/archive.rs:413`（导出读账户库）——直接 `Connection::open` 未设 busy_timeout。
+- 传递链条：①两个只读连接打开时不设 busy_timeout（默认 0——遇锁立即 SQLITE_BUSY）；②主库为 WAL（store.rs:384-386）——常规读写不阻塞读者，仅 journal_mode 切换等瞬时写锁窗可能撞 BUSY；③with_accounts 缓存命中失败还有弃连接重开重试一次（:148-154）兜底；④实害极低，仅与主连接 busy_timeout 10s 的口径不一致。
+- 影响范围：受影响=瞬时写锁窗内这两条只读路径的一次性报错（可重试/有兜底）；不受影响=WAL 稳态读取与正确性；损害性质=配置口径不一致。
+- 修复方向：补 `pragma_update busy_timeout` 归一口径。
 
 ## panic 面清单结论（任务横切结论，免后续全量复查）
 
