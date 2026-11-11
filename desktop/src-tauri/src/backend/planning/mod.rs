@@ -9,7 +9,7 @@ use super::store::Store;
 use rusqlite::{params, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Runtime};
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 
@@ -146,26 +146,50 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
         // 惰性清理本方案的孤儿行，避免已删任务继续计入分钟统计。
         // 53#4：任务集合重读与两条 DELETE 收进同一 IMMEDIATE 事务——原先
         // 快照读在 autocommit、DELETE 各自独立提交，毫秒窗内并发的
-        // adopt/replace_collection 新插入的排期行会被旧快照判为孤儿误删
-        let tx = store
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let tasks = Store::collection_value(&tx, "tasks")?;
-        let live_ids: Vec<i64> = tasks
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|task| task.get("id").and_then(Value::as_i64))
-            .collect();
-        tx.execute(
-            "DELETE FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
-            params![numeric, serde_json::to_string(&live_ids)?],
-        )?;
-        tx.execute(
-            "DELETE FROM learning_node_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
-            params![numeric, serde_json::to_string(&live_ids)?],
-        )?;
-        tx.commit()?;
+        // adopt/replace_collection 新插入的排期行会被旧快照判为孤儿误删。
+        // 126#8：读命令不再无条件拿写锁——Plan 页对每个 plan.* 事件全量
+        // refresh，孤儿常态为零却每次开 IMMEDIATE 与真实写路径竞争；
+        // 先只读探测，无孤儿直接跳过清理（并发新插入的孤儿留给下一轮
+        // 惰性清理，删除路径仍走 53#4 的同事务快照）
+        let tasks = {
+            let snapshot = Store::collection_value(&store.conn, "tasks")?;
+            let live_ids: Vec<i64> = snapshot
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|task| task.get("id").and_then(Value::as_i64))
+                .collect();
+            let live_json = serde_json::to_string(&live_ids)?;
+            let orphans: i64 = store.conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))) + (SELECT COUNT(*) FROM learning_node_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2)))",
+                params![numeric, live_json],
+                |row| row.get(0),
+            )?;
+            if orphans == 0 {
+                snapshot
+            } else {
+                let tx = store
+                    .conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let tasks = Store::collection_value(&tx, "tasks")?;
+                let live_ids: Vec<i64> = tasks
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|task| task.get("id").and_then(Value::as_i64))
+                    .collect();
+                tx.execute(
+                    "DELETE FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
+                    params![numeric, serde_json::to_string(&live_ids)?],
+                )?;
+                tx.execute(
+                    "DELETE FROM learning_node_tasks WHERE plan_id = ?1 AND task_id NOT IN (SELECT value FROM json_each(?2))",
+                    params![numeric, serde_json::to_string(&live_ids)?],
+                )?;
+                tx.commit()?;
+                tasks
+            }
+        };
         let mut statement = store.conn.prepare("SELECT task_id, date, stage_id, minutes FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND date >= ?2 AND date < ?3 ORDER BY date, task_id")?;
         let rows = statement.query_map(params![numeric, start_text, end_text], |row| {
             Ok((
@@ -243,10 +267,46 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
     let unscheduled = if let Some(id) = &plan_id {
         let numeric = super::learning::plan_id(id)?;
         let tasks = store.collection("tasks")?.value;
-        tasks.as_array().into_iter().flatten().filter(|task| {
-            let Some(id) = task.get("id").and_then(Value::as_i64) else { return false };
-            !store.conn.query_row("SELECT EXISTS(SELECT 1 FROM learning_plan_schedule_tasks WHERE plan_id = ?1 AND task_id = ?2)", params![numeric, id], |row| row.get::<_, bool>(0)).unwrap_or(false)
-        }).map(|task| ScheduleEvent { task_id: task.get("id").and_then(Value::as_i64), title: task.get("title").and_then(Value::as_str).unwrap_or("任务").into(), kind: task.get("kind").and_then(Value::as_str).unwrap_or("学习").into(), minutes: task.get("duration").and_then(Value::as_u64).unwrap_or(0) as u32, done: task.get("done").and_then(Value::as_bool).unwrap_or(false), date: None, stage_id: None }).take(unscheduled_cap).collect::<Vec<_>>()
+        // 126#7：已排期集合单查询——原先逐任务 EXISTS 点查（配额 1 万任务
+        // 即万次点查，且 take(500) 在 filter 之后无法减少查询）
+        let scheduled: HashSet<i64> = {
+            let mut statement = store.conn.prepare(
+                "SELECT DISTINCT task_id FROM learning_plan_schedule_tasks WHERE plan_id = ?1",
+            )?;
+            let ids = statement
+                .query_map(params![numeric], |row| row.get::<_, i64>(0))?
+                .collect::<std::result::Result<HashSet<_>, _>>()?;
+            ids
+        };
+        tasks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|task| {
+                let Some(id) = task.get("id").and_then(Value::as_i64) else {
+                    return false;
+                };
+                !scheduled.contains(&id)
+            })
+            .map(|task| ScheduleEvent {
+                task_id: task.get("id").and_then(Value::as_i64),
+                title: task
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("任务")
+                    .into(),
+                kind: task
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("学习")
+                    .into(),
+                minutes: task.get("duration").and_then(Value::as_u64).unwrap_or(0) as u32,
+                done: task.get("done").and_then(Value::as_bool).unwrap_or(false),
+                date: None,
+                stage_id: None,
+            })
+            .take(unscheduled_cap)
+            .collect::<Vec<_>>()
     } else {
         store
             .collection("tasks")?
@@ -580,7 +640,14 @@ pub fn update_goal<R: Runtime>(
             "目标须为 1 到 200 字节，每周投入须为 1 到 80 小时",
         ));
     }
-    date(&input.deadline)?;
+    // 126#9：截止日不早于今天——原先仅验格式，过去日期静默落库，到
+    // regenerate 才经 within_deadline=false 间接暴露（多一轮生成）
+    if date(&input.deadline)? < super::store::now_local().date() {
+        return Err(BackendError::invalid(
+            "invalid_deadline",
+            "目标截止日期不能早于今天",
+        ));
+    }
     let numeric = super::learning::plan_id(&plan.id)?;
     let store = state.store()?;
     let mut plan_input: super::learning::PlanInput = serde_json::from_str(&store.conn.query_row(

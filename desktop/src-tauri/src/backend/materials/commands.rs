@@ -215,7 +215,9 @@ pub async fn import_material_archive<R: Runtime>(
     state: State<'_, BackendState>,
     path: String,
 ) -> Result<super::archive::ArchiveImportResult> {
-    // 44#1：≤200MB ZIP 预检+逐项解压落盘的重 IO 移出主线程
+    // 44#1：ZIP 导入重 IO 移出主线程。
+    // 126#5：上限口径——50MB 本体 / 200MB 解压总量 / 64 个文件（原注释
+    // 把 200MB 写成「ZIP 本体」，实际本体 >50MB 即拒）
     let materials = state.materials.shared();
     let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {

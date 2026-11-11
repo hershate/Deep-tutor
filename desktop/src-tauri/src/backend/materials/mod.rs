@@ -658,7 +658,22 @@ fn stage_validated<R: Runtime>(
                 });
             }
             if !reused {
-                let _ = fs::remove_file(&destination);
+                // 126#14：删除前复查——线程 A 插入失败走删除分支的窗口内，
+                // 线程 B 并发导入同哈希观察到 destination 一致（reused=true
+                // 跳过写文件）且插入成功；A 无条件删除会让 B 的记录永久
+                // 指向已删文件（missing_original）。此刻库中已有同哈希记录
+                // 即说明原件被他人认领，保留
+                let claimed: bool = store
+                    .conn
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM materials WHERE sha256 = ?1)",
+                        params![sha256],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(false);
+                if !claimed {
+                    let _ = fs::remove_file(&destination);
+                }
             }
             return Err(error);
         }
@@ -788,6 +803,21 @@ fn transition<R: Runtime>(
     error: Option<&BackendError>,
 ) -> Result<Material> {
     let tx = store.conn.unchecked_transaction()?;
+    // 126#12：失败/取消终态保留最后进度——调用侧原先恒传 0，把已推进到
+    // 35/85% 的进度条倒退回 0%，丢失「解析到多少才失败」的诊断语境
+    //（parsed/degraded=100 与 queued=10 语义正确，不在此列）
+    let progress = if matches!(status, "failed" | "cancelled") && progress == 0 {
+        store
+            .conn
+            .query_row(
+                "SELECT COALESCE(progress, 0) FROM materials WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+    } else {
+        progress
+    };
     // 34#12：parsing 翻转以「任务仍处活跃态」为条件的原子更新——cancel 在
     // spawn 前后落 cancelled 终态后，迟到的解析线程不得覆盖取消结果。
     // 其余状态（终态写入）保持无条件
@@ -1105,6 +1135,15 @@ pub fn enqueue<R: Runtime>(
     state: &MaterialState,
     id: i64,
 ) -> Result<JobAccepted> {
+    // 126#6：accepting 闸门入口化——stop_all 后 recover 前的窗口内原先
+    // 照常登记 queued 行并承诺「进度将由后端实时推送」，spawn_job 的
+    // 闸门却静默吞掉 worker 拉起（任务挂起 + 成功假象）
+    if !state.accepting.load(Ordering::Acquire) {
+        return Err(BackendError::new(
+            "maintenance_in_progress",
+            "后台任务正在停机维护，请稍后重新发起解析",
+        ));
+    }
     if state.is_active(id) {
         return Err(BackendError::new(
             "job_active",

@@ -30,16 +30,27 @@ static STORE_OPENED: std::sync::LazyLock<Mutex<std::collections::HashSet<PathBuf
 
 /// 47#2：time crate 的 now_local() 在多线程进程中因健全性限制恒 Err——
 /// Unix 构建上全部调用点静默回退 UTC，东八区 00:00–08:00 之间本地日界
-/// 差一天（排期首日/复习到期/预算重置/免打扰全部平移）。启动后首次调用
-/// 探测本地偏移并缓存；DST 时区在进程运行期内可能漂移（当前用户群无 DST）
-static LOCAL_OFFSET: std::sync::OnceLock<time::UtcOffset> = std::sync::OnceLock::new();
+/// 差一天（排期首日/复习到期/预算重置/免打扰全部平移）。
+/// 126#10/127#10：偏移缓存加 1 小时 TTL——OnceLock 进程固化的偏移在
+/// DST 时区跨季运行时过期 1 小时，本地午夜附近的日界判定错一天；
+/// 周期重探测消掉该边界（探测失败保留上次值，不退化回 UTC）
+static LOCAL_OFFSET: std::sync::Mutex<(time::UtcOffset, Option<std::time::Instant>)> =
+    std::sync::Mutex::new((time::UtcOffset::UTC, None));
 
 pub fn now_local() -> OffsetDateTime {
-    let offset = *LOCAL_OFFSET.get_or_init(|| {
-        OffsetDateTime::now_local()
-            .map(|local| local.offset())
-            .unwrap_or(time::UtcOffset::UTC)
-    });
+    let mut cached = LOCAL_OFFSET
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let fresh = cached
+        .1
+        .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(3600));
+    if !fresh {
+        if let Ok(local) = OffsetDateTime::now_local() {
+            cached.0 = local.offset();
+        }
+        cached.1 = Some(std::time::Instant::now());
+    }
+    let offset = cached.0;
     OffsetDateTime::now_utc().to_offset(offset)
 }
 
