@@ -236,7 +236,7 @@ fn profile_id(value: &str) -> Result<i64> {
     id.parse::<i64>()
         .ok()
         .filter(|id| *id > 0)
-        .ok_or_else(|| BackendError::invalid("invalid_provider_id", "供应商档案标识无效"))
+        .ok_or_else(|| BackendError::new("invalid_provider_id", "供应商档案标识无效"))
 }
 
 fn valid_model(model: &str) -> bool {
@@ -279,10 +279,7 @@ pub fn save_settings<R: Runtime>(
     mut settings: RoutingSettings,
 ) -> Result<RoutingSettings> {
     if !["direct", "routing", "aggregate"].contains(&settings.mode.as_str()) {
-        return Err(BackendError::invalid(
-            "invalid_routing_mode",
-            "路由模式无效",
-        ));
+        return Err(BackendError::new("invalid_routing_mode", "路由模式无效"));
     }
     if settings.routes.len() > TASKS.len()
         || settings
@@ -290,7 +287,7 @@ pub fn save_settings<R: Runtime>(
             .keys()
             .any(|task| !TASKS.contains(&task.as_str()))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_route_task",
             "任务路由包含未知任务",
         ));
@@ -315,21 +312,21 @@ pub fn save_settings<R: Runtime>(
                 .iter()
                 .find(|profile| &profile.id == id && profile.enabled)
                 .ok_or_else(|| {
-                    BackendError::invalid(
+                    BackendError::new(
                         "invalid_route_provider",
                         "任务路由引用了不存在或已停用的供应商",
                     )
                 })?;
             if let Some(model) = &route.model {
                 if !valid_model(model) || !profile.models.contains(model) {
-                    return Err(BackendError::invalid(
+                    return Err(BackendError::new(
                         "invalid_route_model",
                         "任务模型不在所选供应商的模型列表中",
                     ));
                 }
             }
         } else if route.model.is_some() {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "route_model_without_provider",
                 "跟随当前供应商时不能固定其他模型",
             ));
@@ -341,7 +338,7 @@ pub fn save_settings<R: Runtime>(
         .map(|id| (id.clone(), profile_id(id)))
         .collect::<Vec<_>>();
     if aggregate.iter().any(|(_, result)| result.is_err()) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_provider_id",
             "聚合供应商标识无效",
         ));
@@ -357,20 +354,20 @@ pub fn save_settings<R: Runtime>(
             .iter()
             .any(|id| !enabled.contains(id))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_aggregate_provider",
             "聚合包含重复、不存在或已停用的供应商",
         ));
     }
     if settings.mode == "aggregate" {
         let Some(default) = &settings.aggregate_default else {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "aggregate_default_required",
                 "聚合模式需要默认供应商",
             ));
         };
         if !ids.contains(default) {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_aggregate_default",
                 "聚合默认供应商必须属于聚合列表",
             ));
@@ -381,7 +378,7 @@ pub fn save_settings<R: Runtime>(
         .as_deref()
         .is_some_and(|id| !ids.contains(id))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_aggregate_default",
             "聚合默认供应商必须属于聚合列表",
         ));
@@ -391,7 +388,7 @@ pub fn save_settings<R: Runtime>(
         || !(5..=300).contains(&settings.circuit.timeout)
         || settings.circuit.retries > 3
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_circuit_settings",
             "熔断阈值、冷却、超时或重试次数超出允许范围",
         ));
@@ -411,7 +408,7 @@ pub fn save_settings<R: Runtime>(
     if failover.len() != settings.failover.len()
         || settings.failover.iter().any(|id| !enabled.contains(id))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_failover_provider",
             "故障转移队列包含重复、不存在或已停用的供应商",
         ));
@@ -444,10 +441,7 @@ fn select(
     pinned: bool,
 ) -> Result<(ProviderProfile, String, String)> {
     if !TASKS.contains(&task) {
-        return Err(BackendError::invalid(
-            "invalid_route_task",
-            "任务类型不受支持",
-        ));
+        return Err(BackendError::new("invalid_route_task", "任务类型不受支持"));
     }
     let settings = settings(state)?;
     let route = assignment(&settings, task).filter(|route| {
@@ -541,15 +535,10 @@ fn select(
             let model = route_model.unwrap_or_else(|| profile.default_model.clone());
             (profile, model)
         }
-        _ => {
-            return Err(BackendError::invalid(
-                "invalid_routing_mode",
-                "路由模式无效",
-            ))
-        }
+        _ => return Err(BackendError::new("invalid_routing_mode", "路由模式无效")),
     };
     if !valid_model(&model) || !profile.models.contains(&model) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "route_model_unavailable",
             "所选模型不在实际上游供应商的模型列表中",
         ));
@@ -998,7 +987,7 @@ pub fn stream_chat<R: Runtime>(
     let (profile, model, mode) = select(state, task, preferred_provider, model, pinned)?;
     let settings = settings(state)?;
     if mode == "routing" && request_id.len() > 60 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_request_id",
             "路由请求标识不能超过 60 字节",
         ));

@@ -205,10 +205,7 @@ fn validate_token(token: &str) -> Result<()> {
     {
         Ok(())
     } else {
-        Err(BackendError::invalid(
-            "invalid_share_token",
-            "分享令牌格式无效",
-        ))
+        Err(BackendError::new("invalid_share_token", "分享令牌格式无效"))
     }
 }
 
@@ -272,7 +269,7 @@ pub fn create<R: Runtime>(
 ) -> Result<CreatedShare> {
     let days = expires_in_days.unwrap_or(90);
     if !(1..=365).contains(&days) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_share_expiry",
             "分享有效期须为 1 到 365 天",
         ));
@@ -486,7 +483,7 @@ pub fn revoke<R: Runtime>(
     id: i64,
 ) -> Result<ShareMetadata> {
     if id <= 0 {
-        return Err(BackendError::invalid("invalid_share_id", "分享标识无效"));
+        return Err(BackendError::new("invalid_share_id", "分享标识无效"));
     }
     let store = state.store()?;
     let (share, _) = metadata(&store.conn, id)?;
@@ -516,9 +513,9 @@ pub fn read_package(_state: &SharingState, content: &str) -> Result<SharedPlanVi
         ));
     }
     let package: SharePackage = serde_json::from_str(content)
-        .map_err(|_| BackendError::invalid("invalid_share_package", "分享包格式或内容无效"))?;
+        .map_err(|_| BackendError::new("invalid_share_package", "分享包格式或内容无效"))?;
     if package.format != "deep-tutor-share" || package.version != 1 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "unsupported_share_package",
             "仅支持第一版 Deep Tutor 分享包",
         ));
@@ -554,7 +551,7 @@ fn package_path(path: &Path, error_code: &str) -> Result<()> {
     {
         Ok(())
     } else {
-        Err(BackendError::invalid(
+        Err(BackendError::new(
             error_code,
             "分享文件必须使用 .dtshare 扩展名",
         ))
@@ -579,10 +576,7 @@ pub fn read_package_file(state: &SharingState, path: &Path) -> Result<SharedPlan
     package_path(path, "invalid_share_file")?;
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
-        return Err(BackendError::invalid(
-            "invalid_share_file",
-            "分享路径不是文件",
-        ));
+        return Err(BackendError::new("invalid_share_file", "分享路径不是文件"));
     }
     if metadata.len() > MAX_PACKAGE_BYTES as u64 {
         return Err(BackendError::new(
@@ -592,6 +586,6 @@ pub fn read_package_file(state: &SharingState, path: &Path) -> Result<SharedPlan
     }
     let bytes = std::fs::read(path)?;
     let content = String::from_utf8(bytes)
-        .map_err(|_| BackendError::invalid("invalid_share_package", "分享包不是有效 UTF-8 JSON"))?;
+        .map_err(|_| BackendError::new("invalid_share_package", "分享包不是有效 UTF-8 JSON"))?;
     read_package(state, &content)
 }

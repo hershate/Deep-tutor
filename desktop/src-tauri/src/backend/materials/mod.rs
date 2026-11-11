@@ -405,7 +405,7 @@ fn material(row: &Row<'_>, root: &Path) -> rusqlite::Result<Material> {
 
 fn get(conn: &Connection, root: &Path, id: i64) -> Result<Material> {
     if id <= 0 {
-        return Err(BackendError::invalid("invalid_id", "资料标识必须是正整数"));
+        return Err(BackendError::new("invalid_id", "资料标识必须是正整数"));
     }
     conn.query_row(
         "SELECT id, title, kind, size, sha256, status, progress, text_length, parse_mode, error_code, error_message, warning, source_meta
@@ -495,7 +495,7 @@ fn validate_source(path: &Path) -> Result<(String, String, Vec<u8>, String)> {
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.trim().is_empty() && name.len() <= 500)
         .ok_or_else(|| {
-            BackendError::invalid("invalid_file_name", "文件名不能为空且不能超过 500 字节")
+            BackendError::new("invalid_file_name", "文件名不能为空且不能超过 500 字节")
         })?;
     let kind = path
         .extension()
@@ -731,19 +731,19 @@ pub(crate) fn import_text_with_source<R: Runtime>(
 ) -> Result<IngestResult> {
     let title = title.trim();
     if title.is_empty() || title.len() > 200 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_title",
             "文本资料标题不能为空且不能超过 200 字节",
         ));
     }
     if content.trim().is_empty() || content.len() > 500_000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_text",
             "文本资料须包含 1 到 500000 字节的内容",
         ));
     }
     if content.contains('\0') {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_text",
             "文本资料不得包含 NUL 字符",
         ));
@@ -1441,7 +1441,7 @@ pub fn export_original(state: &MaterialState, id: i64, destination: &Path) -> Re
 
 pub(crate) fn atomic_export(destination: &Path, bytes: &[u8]) -> Result<()> {
     if destination.file_name().is_none() {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_destination",
             "导出目标必须是文件",
         ));

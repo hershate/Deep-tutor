@@ -190,19 +190,19 @@ fn validate_scope(
         || input.back.trim().is_empty()
         || input.back.len() > 20_000
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_card_content",
             "记忆卡正面须为 1 到 8000 字节，背面须为 1 到 20000 字节",
         ));
     }
     if input.tag.as_deref().is_some_and(|tag| tag.len() > 100) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_card_tag",
             "记忆卡标签不能超过 100 字节",
         ));
     }
     if input.node_id.is_some() && input.plan_id.is_none() {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_card_scope",
             "关联知识点必须同时选择学习方案",
         ));
@@ -292,7 +292,7 @@ pub fn update<R: Runtime>(
     input: CardInput,
 ) -> Result<ReviewCard> {
     if id <= 0 {
-        return Err(BackendError::invalid("invalid_card_id", "记忆卡标识无效"));
+        return Err(BackendError::new("invalid_card_id", "记忆卡标识无效"));
     }
     let (plan_id, node_id) = validate_scope(&input, state)?;
     let store = state.store()?;
@@ -409,7 +409,7 @@ pub fn grade<R: Runtime>(
     grade: &str,
 ) -> Result<GradeResult> {
     if !["again", "hard", "good", "easy"].contains(&grade) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_review_grade",
             "复习反馈必须为再来一次、困难、良好或轻松",
         ));

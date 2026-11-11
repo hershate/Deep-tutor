@@ -71,22 +71,21 @@ fn parse(bytes: &[u8]) -> Result<RemoteConfig> {
         ));
     }
     let value: Value = serde_json::from_slice(bytes)
-        .map_err(|_| BackendError::invalid("invalid_sync_payload", "远端配置不是有效 JSON"))?;
+        .map_err(|_| BackendError::new("invalid_sync_payload", "远端配置不是有效 JSON"))?;
     reject_sensitive(&value)?;
-    let config: RemoteConfig = serde_json::from_value(value).map_err(|_| {
-        BackendError::invalid("invalid_sync_payload", "远端配置结构不符合脱敏配置约定")
-    })?;
+    let config: RemoteConfig = serde_json::from_value(value)
+        .map_err(|_| BackendError::new("invalid_sync_payload", "远端配置结构不符合脱敏配置约定"))?;
     if config.version != 1
         || config.notice != "API keys are never exported."
         || config.providers.len() > 200
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_sync_payload",
             "远端配置版本或档案数量无效",
         ));
     }
     if !["direct", "routing", "aggregate"].contains(&config.routing.mode.as_str()) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_sync_payload",
             "远端路由模式无效",
         ));

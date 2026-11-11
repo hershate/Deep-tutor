@@ -199,7 +199,7 @@ fn relative_path(value: &str) -> Result<PathBuf> {
             .components()
             .all(|part| matches!(part, Component::Normal(_)))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_backup_path",
             "备份包含不安全的相对路径",
         ));
@@ -344,7 +344,7 @@ fn collect_files(
             relative.extension().and_then(|value| value.to_str()),
             Some("json" | "md" | "txt")
         ) {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_artifact_path",
                 "备份产物类型不受支持",
             ));
@@ -398,7 +398,7 @@ pub fn export<R: Runtime>(
         .and_then(|value| value.to_str())
         .is_some_and(|value| value.eq_ignore_ascii_case("dtbackup"))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_backup_destination",
             "全量备份必须使用 .dtbackup 扩展名",
         ));
@@ -550,7 +550,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
         .and_then(|value| value.to_str())
         .is_some_and(|value| value.eq_ignore_ascii_case("dtbackup"))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_backup_file",
             "请选择 .dtbackup 全量备份",
         ));
@@ -564,22 +564,19 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
     // 用户拿到与场景相反的导出侧文案，误导排障方向
     let file = fs::File::open(path)?;
     let mut archive = ZipArchive::new(file)
-        .map_err(|_| BackendError::invalid("invalid_backup", "备份文件损坏或不是有效的归档"))?;
+        .map_err(|_| BackendError::new("invalid_backup", "备份文件损坏或不是有效的归档"))?;
     if archive.len() < 2 || archive.len() > 20_002 {
-        return Err(BackendError::invalid(
-            "invalid_backup",
-            "备份归档条目数量无效",
-        ));
+        return Err(BackendError::new("invalid_backup", "备份归档条目数量无效"));
     }
     let manifest: Manifest = serde_json::from_slice(&read_bounded(
         &mut archive
             .by_name("manifest.json")
-            .map_err(|_| BackendError::invalid("invalid_backup", "备份缺少清单条目"))?,
+            .map_err(|_| BackendError::new("invalid_backup", "备份缺少清单条目"))?,
         MAX_MANIFEST_BYTES as u64,
     )?)
-    .map_err(|_| BackendError::invalid("invalid_backup_manifest", "备份清单格式无效"))?;
+    .map_err(|_| BackendError::new("invalid_backup_manifest", "备份清单格式无效"))?;
     if manifest.format != "deep-tutor-backup" || manifest.version != 3 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "unsupported_backup",
             "仅支持第三版 Deep Tutor 全量备份",
         ));
@@ -596,7 +593,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
             .map(String::as_str)
             .any(|table| !current_tables.contains(table))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_backup_manifest",
             "备份数据库或表清单无效（如为更新版本创建的备份，请先升级应用）",
         ));
@@ -642,7 +639,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
     if names.iter().any(|name| !TABLES.contains(&name.as_str())) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "unsupported_backup_schema",
             "备份包含不支持的数据表",
         ));
@@ -667,7 +664,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
     for file in &manifest.files {
         relative_path(&file.path)?;
         if !valid_hash(&file.sha256) || file.bytes > MAX_FILE_BYTES || !paths.insert(&file.path) {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_backup_file_entry",
                 "备份文件路径、大小或哈希无效",
             ));

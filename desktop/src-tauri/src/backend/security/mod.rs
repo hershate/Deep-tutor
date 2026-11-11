@@ -130,7 +130,7 @@ where
 
 pub(crate) fn user_workspace_path(root: &Path, user_id: i64) -> Result<PathBuf> {
     if user_id <= 0 || root == Path::new(":memory:") {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_workspace",
             "工作区用户或数据库路径无效",
         ));
@@ -1100,7 +1100,7 @@ pub fn create_user<R: Runtime>(
     require_admin(&store.conn, current.id)?;
     let name = name.trim().to_string();
     if name.is_empty() || name.len() > 80 || !["管理员", "成员"].contains(&role.as_str()) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_user",
             "用户名称须为 1 到 80 字节，角色须为管理员或成员",
         ));
@@ -1253,7 +1253,7 @@ pub fn create_token<R: Runtime>(
     let (current, _) = current(&store.conn, state)?;
     let name = name.trim().to_string();
     if name.is_empty() || name.len() > 60 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_token_name",
             "令牌名称须为 1 到 60 字节",
         ));
@@ -1388,7 +1388,7 @@ pub fn set_quota<R: Runtime>(
     require_admin(&store.conn, current.id)?;
     active_user(&store.conn, user_id)?;
     if !RESOURCES.iter().any(|(name, _)| name == &resource) || !(1..=100_000).contains(&limit) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_quota",
             "配额资源无效或上限须为 1 到 100000",
         ));

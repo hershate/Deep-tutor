@@ -172,9 +172,8 @@ fn now() -> Result<String> {
 }
 
 fn parse_time(value: &str) -> Result<OffsetDateTime> {
-    OffsetDateTime::parse(value, &Rfc3339).map_err(|_| {
-        BackendError::invalid("invalid_room_time", "预约时间必须是有效的 RFC 3339 时间")
-    })
+    OffsetDateTime::parse(value, &Rfc3339)
+        .map_err(|_| BackendError::new("invalid_room_time", "预约时间必须是有效的 RFC 3339 时间"))
 }
 
 /// 25#15：入库前把任意偏移的 RFC 3339 时间统一为 UTC Z 形态——后续到期/重叠
@@ -379,14 +378,14 @@ fn post_row(conn: &Connection, id: i64) -> Result<PostView> {
 fn posts(conn: &Connection, kind: Option<&str>, query: Option<&str>) -> Result<Vec<PostView>> {
     if let Some(kind) = kind {
         if !["discussion", "peer_review", "resource"].contains(&kind) {
-            return Err(BackendError::invalid("invalid_post_kind", "讨论类型无效"));
+            return Err(BackendError::new("invalid_post_kind", "讨论类型无效"));
         }
     }
     // 124#8：长度先于 lowercase 判定（对齐 engagement 口径）——İ 等字符
     // lowercase 后字节膨胀，先转换再判会让前端已放行的 200 字节输入被拒
     let query = query.unwrap_or("").trim();
     if query.len() > 200 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_search_query",
             "搜索词不能超过 200 字节",
         ));
@@ -485,19 +484,19 @@ pub fn create_post<R: Runtime>(
     let title = input.title.trim();
     let body = input.body.trim();
     if title.is_empty() || title.len() > 200 || body.is_empty() || body.len() > 20_000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_post_content",
             "标题须为 1 到 200 字节，正文须为 1 到 20000 字节",
         ));
     }
     if !["discussion", "peer_review", "resource"].contains(&input.kind.as_str()) {
-        return Err(BackendError::invalid("invalid_post_kind", "讨论类型无效"));
+        return Err(BackendError::new("invalid_post_kind", "讨论类型无效"));
     }
     let store = state.store()?;
     let project_title = if input.kind == "peer_review" {
         let project_id = input
             .project_id
-            .ok_or_else(|| BackendError::invalid("project_required", "项目互评必须关联真实项目"))?;
+            .ok_or_else(|| BackendError::new("project_required", "项目互评必须关联真实项目"))?;
         store
             .collection("projects")?
             .value
@@ -511,7 +510,7 @@ pub fn create_post<R: Runtime>(
             .map(Some)?
     } else {
         if input.project_id.is_some() {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_project_link",
                 "只有项目互评可以关联项目",
             ));
@@ -546,7 +545,7 @@ pub fn reply<R: Runtime>(
 ) -> Result<ReplyView> {
     let body = body.trim();
     if body.is_empty() || body.len() > 10_000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_reply",
             "回复须为 1 到 10000 字节",
         ));
@@ -587,7 +586,7 @@ pub fn toggle_reaction<R: Runtime>(
     kind: String,
 ) -> Result<PostView> {
     if !["like", "bookmark"].contains(&kind.as_str()) {
-        return Err(BackendError::invalid("invalid_reaction", "反应类型无效"));
+        return Err(BackendError::new("invalid_reaction", "反应类型无效"));
     }
     let store = state.store()?;
     let exists: bool = store.conn.query_row(
@@ -723,7 +722,7 @@ pub fn create_group<R: Runtime>(
         || input.schedule.trim().is_empty()
         || input.schedule.len() > 100
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_group",
             "小组名称、主题与常规时间安排不能为空，且不能超过长度限制",
         ));
@@ -890,14 +889,14 @@ pub fn create_room<R: Runtime>(
         || input.topic.len() > 2000
         || !(10..=240).contains(&input.duration_minutes)
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_room",
             "房间标题、主题与时长无效；时长须为 10 到 240 分钟",
         ));
     }
     let start = parse_time(&input.start_at)?;
     if start <= OffsetDateTime::now_utc() {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_room_time",
             "预约开始时间必须晚于当前时间",
         ));

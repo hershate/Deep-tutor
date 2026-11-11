@@ -369,9 +369,9 @@ fn numeric_id(id: &str) -> Result<i64> {
     let id = id.strip_prefix('p').unwrap_or(id);
     let id = id
         .parse::<i64>()
-        .map_err(|_| BackendError::invalid("invalid_provider_id", "供应商档案标识无效"))?;
+        .map_err(|_| BackendError::new("invalid_provider_id", "供应商档案标识无效"))?;
     if id <= 0 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_provider_id",
             "供应商档案标识无效",
         ));
@@ -435,7 +435,7 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
             .any(|c| c.is_control() || matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069))
     };
     if input.name.trim().is_empty() || input.name.len() > 100 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_provider_name",
             "档案名称不能为空且不能超过 100 字符",
         ));
@@ -447,16 +447,13 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
             .as_deref()
             .is_some_and(|note| !display_safe(note))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_provider_name",
             "档案名称、模型或备注包含不允许的控制或方向覆写字符",
         ));
     }
     if !["官方", "兼容服务", "本地模型"].contains(&input.kind.as_str()) {
-        return Err(BackendError::invalid(
-            "invalid_provider_kind",
-            "供应商类型无效",
-        ));
+        return Err(BackendError::new("invalid_provider_kind", "供应商类型无效"));
     }
     if ![
         "OpenAI Chat",
@@ -466,13 +463,13 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
     ]
     .contains(&input.protocol.as_str())
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "unsupported_protocol",
             "上游协议不受支持",
         ));
     }
     if input.default_model.trim().is_empty() || input.default_model.len() > 200 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_model",
             "默认模型不能为空且不能超过 200 字符",
         ));
@@ -486,22 +483,19 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
             .iter()
             .any(|model| model.trim().is_empty() || model.len() > 200 || !display_safe(model))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_model",
             "模型列表为空项、含不可显示字符、过长或超过 200 项",
         ));
     }
     if input.note.as_deref().is_some_and(|note| note.len() > 1000) {
-        return Err(BackendError::invalid(
-            "invalid_note",
-            "备注不能超过 1000 字符",
-        ));
+        return Err(BackendError::new("invalid_note", "备注不能超过 1000 字符"));
     }
     // 54#1：上限对齐 Windows 凭据库实际限制（keyring 2560 字节 ≈ 1280 个
     // UTF-16 码元，非 BMP 字符按代理对计 4 字节）——原先 4096 字节放行的
     // 长 Key 到密钥库层必败，且报错无长度指向
     if input.api_key.as_deref().is_some_and(|key| key.len() > 1200) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_credential",
             "API Key 不能超过 1200 字节（系统密钥库上限约 1280 字符）",
         ));
@@ -740,9 +734,9 @@ pub fn deep_link<R: Runtime>(
     link: &str,
 ) -> Result<ProviderProfile> {
     let url = reqwest::Url::parse(link)
-        .map_err(|_| BackendError::invalid("invalid_deep_link", "Deep Link 格式无效"))?;
+        .map_err(|_| BackendError::new("invalid_deep_link", "Deep Link 格式无效"))?;
     if url.scheme() != "deeptutor" || url.host_str() != Some("provider") {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_deep_link",
             "Deep Link 必须使用 deeptutor://provider",
         ));
@@ -761,8 +755,8 @@ pub fn deep_link<R: Runtime>(
         }
     }
     let model = model.unwrap_or_else(|| "custom-chat-model".into());
-    let base_url = base_url
-        .ok_or_else(|| BackendError::invalid("invalid_deep_link", "Deep Link 缺少 baseUrl"))?;
+    let base_url =
+        base_url.ok_or_else(|| BackendError::new("invalid_deep_link", "Deep Link 缺少 baseUrl"))?;
     // 85#2：name/model 拒绝控制字符与 bidi 覆盖字符——恶意 deep link 可用
     // U+202E（RTL 覆盖）等在设置页列表中伪装官方条目名（React 文本节点
     // 自动转义无 XSS，属文案伪装/钓鱼面）
@@ -772,7 +766,7 @@ pub fn deep_link<R: Runtime>(
             .any(|c| c.is_control() || matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069))
     };
     if !display_safe(&model) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_deep_link",
             "Deep Link 的 model 参数包含不允许的字符",
         ));
@@ -787,10 +781,9 @@ pub fn deep_link<R: Runtime>(
     } else {
         "兼容服务"
     };
-    let name =
-        name.ok_or_else(|| BackendError::invalid("invalid_deep_link", "Deep Link 缺少 name"))?;
+    let name = name.ok_or_else(|| BackendError::new("invalid_deep_link", "Deep Link 缺少 name"))?;
     if !display_safe(&name) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_deep_link",
             "Deep Link 的 name 参数包含不允许的字符",
         ));
@@ -973,7 +966,7 @@ fn validate_request_id(request_id: &str) -> Result<()> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_request_id",
             "请求标识须为 1 到 64 位字母、数字、短横线或下划线",
         ));
@@ -1073,7 +1066,7 @@ fn begin_chat<R: Runtime>(
     let model = match model.map(str::trim).filter(|model| !model.is_empty()) {
         Some(model) if model.len() <= 200 => model.to_string(),
         Some(_) => {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_model",
                 "模型名不能超过 200 字节",
             ))

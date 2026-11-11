@@ -32,7 +32,7 @@ struct NoteSource {
 }
 
 fn invalid(code: &str, message: &str) -> BackendError {
-    BackendError::invalid(code, message)
+    BackendError::new(code, message)
 }
 
 fn truncate(value: &str, maximum: usize) -> String {

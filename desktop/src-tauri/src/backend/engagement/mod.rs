@@ -239,7 +239,7 @@ fn validate_profile(input: &ProfileInput) -> Result<()> {
         || !valid_time(&input.quiet_start)
         || !valid_time(&input.quiet_end)
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_profile",
             "学习档案、语言、每周时长、学习方式或免打扰时间不符合约定",
         ));
@@ -253,7 +253,7 @@ fn validate_profile(input: &ProfileInput) -> Result<()> {
     // 提示），不再按意外输入对待
     if let Some(date) = &input.diagnostic_started_at {
         OffsetDateTime::parse(date, &Rfc3339)
-            .map_err(|_| BackendError::invalid("invalid_diagnostic_time", "学习诊断时间无效"))?;
+            .map_err(|_| BackendError::new("invalid_diagnostic_time", "学习诊断时间无效"))?;
     }
     Ok(())
 }
@@ -369,7 +369,7 @@ fn pages(query: &str) -> Vec<SearchResult> {
 pub fn search(state: &EngagementState, query: String) -> Result<Vec<SearchResult>> {
     let query = query.trim().to_string();
     if query.len() > 200 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_search_query",
             "搜索内容不能超过 200 字节",
         ));

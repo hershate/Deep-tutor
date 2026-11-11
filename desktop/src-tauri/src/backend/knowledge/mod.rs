@@ -206,7 +206,7 @@ fn load_scope(state: &KnowledgeState, ids: &[i64]) -> Result<Vec<Scope>> {
         || ids.iter().any(|id| *id <= 0)
         || ids.iter().collect::<HashSet<_>>().len() != ids.len()
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_knowledge_scope",
             "请选择 1 到 8 份不重复的资料",
         ));
@@ -394,7 +394,7 @@ fn search_hit(
 pub fn search(state: &KnowledgeState, query: &str) -> Result<Vec<KnowledgeHit>> {
     let query = query.trim();
     if query.is_empty() || query.len() > 200 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_search_query",
             "检索词须为 1 到 200 字节",
         ));
@@ -517,7 +517,7 @@ pub fn ask<R: Runtime>(
 ) -> Result<KnowledgeSession> {
     let question = question.trim().to_string();
     if question.is_empty() || question.len() > 8000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_knowledge_question",
             "问题须为 1 到 8000 字节",
         ));

@@ -126,7 +126,7 @@ pub fn regenerate<R: Runtime>(
 ) -> Result<Plan> {
     let id = plan_id(id)?;
     if !(2..=6).contains(&scope) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_regeneration_scope",
             "局部重生成仅支持知识图谱、阶段设计、资源检索、学习排期和五维校验",
         ));

@@ -282,7 +282,7 @@ fn validate_id(id: &str) -> Result<()> {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-' | b'_')
         })
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_plugin_id",
             "插件 ID 只能包含小写字母、数字、点、短横线与下划线，且不能以符号开头或结尾",
         ));
@@ -297,7 +297,7 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
         || manifest.description.len() > 2000
         || manifest.kind != "events"
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_plugin_manifest",
             "当前仅支持声明式事件插件，名称与说明必须符合长度限制",
         ));
@@ -309,13 +309,13 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
             .split('.')
             .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()));
     if !valid_version {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_plugin_version",
             "插件版本须为 major.minor.patch 数字形式",
         ));
     }
     if manifest.subscriptions.len() > 32 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_plugin_subscriptions",
             "单个插件最多订阅 32 个事件模式",
         ));
@@ -330,7 +330,7 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
             false
         };
         if !valid || pattern.len() > 100 || !seen.insert(pattern) {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_plugin_subscriptions",
                 "事件订阅必须是允许的原生命名空间或 *，且不能重复",
             ));
@@ -341,13 +341,13 @@ fn validate(manifest: &PluginManifest) -> Result<()> {
 
 fn parse_manifest(content: &str) -> Result<PluginManifest> {
     if content.is_empty() || content.len() > 200_000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_plugin_manifest",
             "插件清单须为 1 到 200000 字节",
         ));
     }
     let manifest: PluginManifest = serde_json::from_str(content).map_err(|_| {
-        BackendError::invalid("invalid_plugin_manifest", "插件清单不是受支持的 JSON 结构")
+        BackendError::new("invalid_plugin_manifest", "插件清单不是受支持的 JSON 结构")
     })?;
     validate(&manifest)?;
     Ok(manifest)

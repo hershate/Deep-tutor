@@ -119,9 +119,9 @@ pub(crate) fn plan_id(value: &str) -> Result<i64> {
     let id = value.strip_prefix("plan-").unwrap_or(value);
     let id = id
         .parse::<i64>()
-        .map_err(|_| BackendError::invalid("invalid_plan_id", "学习方案标识无效"))?;
+        .map_err(|_| BackendError::new("invalid_plan_id", "学习方案标识无效"))?;
     if id <= 0 {
-        return Err(BackendError::invalid("invalid_plan_id", "学习方案标识无效"));
+        return Err(BackendError::new("invalid_plan_id", "学习方案标识无效"));
     }
     Ok(id)
 }
@@ -296,20 +296,20 @@ fn validate_input(state: &LearningState, input: &PlanInput) -> Result<PlanInput>
         || input.level.trim().is_empty()
         || input.level.len() > 1000
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_learning_goal",
             "目标与当前基础不能为空且各不能超过 1000 字节",
         ));
     }
     if !(10..=600).contains(&input.daily_minutes) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_daily_minutes",
             "每日时长必须位于 10 到 600 分钟",
         ));
     }
     let _ = validate::deadline(&input.deadline)?;
     if input.material_ids.is_empty() || input.material_ids.len() > 8 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_materials",
             "每个方案须选择 1 到 8 份已解析资料",
         ));
@@ -319,7 +319,7 @@ fn validate_input(state: &LearningState, input: &PlanInput) -> Result<PlanInput>
         .as_deref()
         .is_some_and(|value| value.len() > 1000)
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_milestone",
             "里程碑说明不能超过 1000 字节",
         ));

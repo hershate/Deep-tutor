@@ -5,7 +5,6 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
-#[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -112,6 +111,60 @@ pub struct EventPage {
     pub latest_id: i64,
     #[serde(rename = "hasMore")]
     pub has_more: bool,
+}
+
+/// 127#13：坏行跳过等只读路径诊断——eprintln 在 release
+///（windows_subsystem=windows）下 stderr 不可见，坏行来源无从追查；
+/// 尽力追加到数据根的 diagnostics.log（32KB 截断轮转，任何失败静默，
+/// 不得反向影响读路径）
+pub(crate) fn append_diagnostic(account_path: &Path, line: &str) {
+    use std::io::Write as _;
+    let Some(root) = account_path.parent() else {
+        return;
+    };
+    let path = root.join("diagnostics.log");
+    if fs::metadata(&path)
+        .map(|meta| meta.len() > 32 * 1024)
+        .unwrap_or(false)
+    {
+        let _ = fs::write(&path, []);
+    }
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let stamp = OffsetDateTime::now_utc().format(&Rfc3339).ok();
+        let _ = writeln!(file, "{} {}", stamp.as_deref().unwrap_or("?"), line);
+    }
+}
+
+/// 127#7：security_quotas 只读连接缓存（按路径）——高频写路径的配额
+/// 检查不再每次开关连接；连接失效（如换库/迁移）时重建一次
+fn with_accounts<T>(account_path: &Path, read: impl Fn(&Connection) -> Result<T>) -> Result<T> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Connection>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(connection) = guard.get(account_path) {
+        if let Ok(result) = read(connection) {
+            return Ok(result);
+        }
+        // 旧连接失效（文件被替换/锁状态异常）——丢弃后重建
+        guard.remove(account_path);
+    }
+    let connection =
+        Connection::open_with_flags(account_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| {
+                BackendError::new(
+                    "account_store_unavailable",
+                    &format!("账户库不可读，无法校验配额（{error}）"),
+                )
+            })?;
+    let result = read(&connection);
+    if result.is_ok() {
+        guard.insert(account_path.to_path_buf(), connection);
+    }
+    result
 }
 
 pub struct Store {
@@ -252,18 +305,65 @@ impl Store {
             // （SecurityState 惰性创建后长存的账户连接即可触发）；BEGIN
             // IMMEDIATE 阻塞其他写者直至复制完成，drop 后释放
             source.execute_batch("BEGIN IMMEDIATE")?;
-            // 先写临时文件再原子改名：复制中途崩溃不会在正式路径留下截断的库
+            // 先写临时文件再原子改名：复制中途崩溃不会在正式路径留下截断的库。
+            // 127#8：主文件连同 -wal/-shm 一起复制——checkpoint 与 BEGIN
+            // 之间的空档内并发提交只落 WAL 不落主文件，此前只复制主文件
+            // 会把这些提交从迁移产物中静默丢失；写锁在手无新提交，目标侧
+            // 打开后 checkpoint(TRUNCATE) 把复制来的 WAL 折叠进主文件
             let staged = path.with_file_name(format!(
                 "{}.migration-tmp",
                 path.file_name()
                     .and_then(|name| name.to_str())
                     .unwrap_or("store")
             ));
-            let copy_result = fs::copy(&root, &staged).and_then(|_| fs::rename(&staged, &path));
+            let copy_result = (|| -> std::io::Result<()> {
+                fs::copy(&root, &staged)?;
+                let root_name = root
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default();
+                let staged_name = staged
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default();
+                // -shm 是共享内存索引（SQLite 自行重建）且被活跃连接锁定
+                //（Windows 共享冲突），只复制承载未折叠提交的 -wal
+                for suffix in ["-wal"] {
+                    let side = root.with_file_name(format!("{root_name}{suffix}"));
+                    if side.exists() {
+                        fs::copy(
+                            &side,
+                            staged.with_file_name(format!("{staged_name}{suffix}")),
+                        )?;
+                    }
+                }
+                for suffix in ["", "-wal"] {
+                    let from = staged.with_file_name(format!("{staged_name}{suffix}"));
+                    if from.exists() {
+                        fs::rename(
+                            &from,
+                            &path.with_file_name(format!(
+                                "{}{suffix}",
+                                path.file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("store")
+                            )),
+                        )?;
+                    }
+                }
+                Ok(())
+            })();
+            let copied_wal = copy_result.is_ok();
             drop(source);
             if let Err(error) = copy_result {
                 let _ = fs::remove_file(&staged);
                 return Err(error.into());
+            }
+            if copied_wal {
+                let target = Connection::open(&path)?;
+                // 折叠复制来的 WAL；失败不阻断（WAL 保留，下次打开 SQLite
+                // 自行回放，内容不丢）
+                let _ = target.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
             }
         }
         let conn = Connection::open(&path)?;
@@ -502,17 +602,24 @@ impl Store {
         let Some(user_id) = self.owner_id else {
             return Ok(());
         };
-        let accounts = Connection::open_with_flags(
-            &self.account_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
-        let limit = accounts
-            .query_row(
-                "SELECT item_limit FROM security_quotas WHERE user_id = ?1 AND resource = ?2",
-                params![user_id, resource],
-                |row| row.get(0),
-            )
-            .optional()?;
+        // 127#7：只读账户连接按路径进程级缓存——原先每条写命令的配额检查
+        // 都新开文件+读 header+查询+关闭；打开失败也独立成码（原先泛化
+        // storage_failed 引导用户检查数据目录，真实原因是根库不可用）
+        let limit = with_accounts(&self.account_path, |accounts| {
+            accounts
+                .query_row(
+                    "SELECT item_limit FROM security_quotas WHERE user_id = ?1 AND resource = ?2",
+                    params![user_id, resource],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| {
+                    BackendError::new(
+                        "account_store_unavailable",
+                        &format!("账户库不可读，无法校验配额（{error}）"),
+                    )
+                })
+        })?;
         let Some(limit) = limit else {
             return Ok(());
         };
@@ -537,7 +644,7 @@ impl Store {
             "agent_memory" => {
                 conn.query_row("SELECT COUNT(*) FROM agent_memory", [], |row| row.get(0))?
             }
-            _ => return Err(BackendError::invalid("invalid_quota", "未知的资源配额")),
+            _ => return Err(BackendError::new("invalid_quota", "未知的资源配额")),
         };
         let additional = i64::try_from(additional).unwrap_or(i64::MAX);
         if used.saturating_add(additional) > limit {
@@ -569,19 +676,16 @@ impl Store {
 
     pub fn collection(&self, namespace: &str) -> Result<Collection> {
         if namespace == "drafts" {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_collection",
                 "草稿须按标识读取，不能作为普通集合读取",
             ));
         }
         if !Self::namespace_allowed(namespace) {
-            return Err(BackendError::invalid(
-                "unknown_collection",
-                "不支持的数据集合",
-            ));
+            return Err(BackendError::new("unknown_collection", "不支持的数据集合"));
         }
         Ok(Collection {
-            value: Self::collection_value(&self.conn, namespace)?,
+            value: Self::collection_value(&self.conn, namespace, &self.account_path)?,
             revision: Self::revision(&self.conn, namespace)?,
         })
     }
@@ -589,7 +693,11 @@ impl Store {
     /// 53#4：在指定连接（如 IMMEDIATE 事务内）读取集合内容——孤儿清理需要
     /// 与 DELETE 同事务地重读任务集合，旧口径「快照读 + 各自 autocommit 的
     /// DELETE」在毫秒窗内会误删并发 adopt/保存刚插入的排期行
-    pub(crate) fn collection_value(conn: &Connection, namespace: &str) -> Result<Value> {
+    pub(crate) fn collection_value(
+        conn: &Connection,
+        namespace: &str,
+        account_path: &Path,
+    ) -> Result<Value> {
         let mut stmt = conn.prepare("SELECT data FROM kv WHERE namespace = ?1 ORDER BY rowid")?;
         let rows = stmt.query_map(params![namespace], |row| row.get::<_, String>(0))?;
         let mut items = Vec::new();
@@ -603,7 +711,10 @@ impl Store {
             }
         }
         if skipped > 0 {
-            eprintln!("kv namespace {namespace}: {skipped} 行损坏已跳过");
+            append_diagnostic(
+                account_path,
+                &format!("kv namespace {namespace}: {skipped} 行损坏已跳过"),
+            );
         }
         Ok(if namespace == "preferences" {
             items.into_iter().next().unwrap_or_else(Self::defaults)
@@ -741,10 +852,7 @@ impl Store {
             ));
         }
         if !Self::namespace_allowed(namespace) {
-            return Err(BackendError::invalid(
-                "unknown_collection",
-                "不支持的数据集合",
-            ));
+            return Err(BackendError::new("unknown_collection", "不支持的数据集合"));
         }
         let normalized = if namespace == "tasks" {
             Some(self.normalize_tasks(value)?)
@@ -786,9 +894,10 @@ impl Store {
         if namespace == "preferences" {
             Self::insert_json(&tx, namespace, "current", value)?;
         } else {
-            for item in value.as_array().ok_or_else(|| {
-                BackendError::invalid("collection_must_be_array", "集合必须是数组")
-            })? {
+            for item in value
+                .as_array()
+                .ok_or_else(|| BackendError::new("collection_must_be_array", "集合必须是数组"))?
+            {
                 Self::insert_json(&tx, namespace, &record_id(item)?, item)?;
             }
         }
@@ -813,11 +922,11 @@ impl Store {
     fn validate_draft_id(id: &str) -> Result<()> {
         let suffix = id
             .strip_prefix("deep-tutor-draft-")
-            .ok_or_else(|| BackendError::invalid("invalid_draft_id", "草稿标识不符合应用约定"))?;
+            .ok_or_else(|| BackendError::new("invalid_draft_id", "草稿标识不符合应用约定"))?;
         if (suffix == "new" || suffix.parse::<u64>().is_ok_and(|id| id > 0)) && id.len() <= 128 {
             Ok(())
         } else {
-            Err(BackendError::invalid(
+            Err(BackendError::new(
                 "invalid_draft_id",
                 "草稿标识不符合应用约定",
             ))
@@ -991,7 +1100,7 @@ impl Store {
     #[allow(dead_code)]
     pub fn events_since(&self, last_id: i64) -> Result<EventPage> {
         if last_id < 0 {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_event_cursor",
                 "事件游标不能为负数",
             ));
@@ -1020,7 +1129,10 @@ impl Store {
             let payload = match serde_json::from_str(&payload) {
                 Ok(value) => value,
                 Err(_) => {
-                    eprintln!("event #{id} payload 损坏已跳过");
+                    append_diagnostic(
+                        &self.account_path,
+                        &format!("event #{id} payload 损坏已跳过"),
+                    );
                     continue;
                 }
             };
@@ -1044,15 +1156,15 @@ impl Store {
 fn field<'a>(object: &'a Map<String, Value>, key: &str) -> Result<&'a Value> {
     object
         .get(key)
-        .ok_or_else(|| BackendError::invalid("missing_field", "记录缺少必需字段"))
+        .ok_or_else(|| BackendError::new("missing_field", "记录缺少必需字段"))
 }
 
 fn text(object: &Map<String, Value>, key: &str, max: usize, blank: bool) -> Result<()> {
     let value = field(object, key)?
         .as_str()
-        .ok_or_else(|| BackendError::invalid("invalid_field", "文本字段类型不正确"))?;
+        .ok_or_else(|| BackendError::new("invalid_field", "文本字段类型不正确"))?;
     if value.len() > max || (!blank && value.trim().is_empty()) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_field",
             "文本字段为空或超过长度上限",
         ));
@@ -1064,34 +1176,31 @@ fn boolean(object: &Map<String, Value>, key: &str) -> Result<()> {
     if field(object, key)?.is_boolean() {
         Ok(())
     } else {
-        Err(BackendError::invalid("invalid_field", "布尔字段类型不正确"))
+        Err(BackendError::new("invalid_field", "布尔字段类型不正确"))
     }
 }
 
 fn progress(object: &Map<String, Value>, key: &str) -> Result<()> {
     let value = field(object, key)?
         .as_f64()
-        .ok_or_else(|| BackendError::invalid("invalid_field", "进度必须是数字"))?;
+        .ok_or_else(|| BackendError::new("invalid_field", "进度必须是数字"))?;
     if value.is_finite() && (0.0..=100.0).contains(&value) {
         Ok(())
     } else {
-        Err(BackendError::invalid(
-            "invalid_field",
-            "进度必须位于 0 到 100",
-        ))
+        Err(BackendError::new("invalid_field", "进度必须位于 0 到 100"))
     }
 }
 
 fn record_id(record: &Value) -> Result<String> {
     let object = record
         .as_object()
-        .ok_or_else(|| BackendError::invalid("invalid_record", "记录必须是对象"))?;
+        .ok_or_else(|| BackendError::new("invalid_record", "记录必须是对象"))?;
     let id = object
         .get("id")
         .and_then(Value::as_i64)
-        .ok_or_else(|| BackendError::invalid("invalid_id", "记录标识必须是正整数"))?;
+        .ok_or_else(|| BackendError::new("invalid_id", "记录标识必须是正整数"))?;
     if id <= 0 {
-        return Err(BackendError::invalid("invalid_id", "记录标识必须是正整数"));
+        return Err(BackendError::new("invalid_id", "记录标识必须是正整数"));
     }
     Ok(id.to_string())
 }
@@ -1100,17 +1209,14 @@ fn allowed_fields(object: &Map<String, Value>, allowed: &[&str]) -> Result<()> {
     if object.keys().all(|key| allowed.contains(&key.as_str())) {
         Ok(())
     } else {
-        Err(BackendError::invalid(
-            "unknown_field",
-            "记录包含不支持的字段",
-        ))
+        Err(BackendError::new("unknown_field", "记录包含不支持的字段"))
     }
 }
 
 pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> {
     let items = value
         .as_array()
-        .ok_or_else(|| BackendError::invalid("collection_must_be_array", "集合必须是数组"))?;
+        .ok_or_else(|| BackendError::new("collection_must_be_array", "集合必须是数组"))?;
     if items.len() > 10_000 {
         return Err(BackendError::new("quota_exceeded", "集合记录数量超过上限"));
     }
@@ -1124,9 +1230,9 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
         }
         let object = item
             .as_object()
-            .ok_or_else(|| BackendError::invalid("invalid_record", "记录必须是对象"))?;
+            .ok_or_else(|| BackendError::new("invalid_record", "记录必须是对象"))?;
         if !ids.insert(record_id(item)?) {
-            return Err(BackendError::invalid("duplicate_id", "记录标识不能重复"));
+            return Err(BackendError::new("duplicate_id", "记录标识不能重复"));
         }
         text(object, "title", 500, false)?;
         match namespace {
@@ -1150,9 +1256,9 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                 boolean(object, "done")?;
                 let duration = field(object, "duration")?
                     .as_u64()
-                    .ok_or_else(|| BackendError::invalid("invalid_duration", "时长必须是正整数"))?;
+                    .ok_or_else(|| BackendError::new("invalid_duration", "时长必须是正整数"))?;
                 if !(1..=10_080).contains(&duration) {
-                    return Err(BackendError::invalid(
+                    return Err(BackendError::new(
                         "invalid_duration",
                         "时长必须位于 1 到 10080 分钟",
                     ));
@@ -1160,7 +1266,7 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                 if !["学习", "练习", "复习", "项目"]
                     .contains(&field(object, "kind")?.as_str().unwrap_or_default())
                 {
-                    return Err(BackendError::invalid("invalid_kind", "任务类型不受支持"));
+                    return Err(BackendError::new("invalid_kind", "任务类型不受支持"));
                 }
             }
             "notes" => {
@@ -1184,7 +1290,7 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                         .unwrap_or(&Value::Null)
                         .is_number()
                 {
-                    return Err(BackendError::invalid(
+                    return Err(BackendError::new(
                         "invalid_field",
                         "笔记关联的项目版本标识必须是数字",
                     ));
@@ -1199,7 +1305,7 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                 if !["PDF", "视频", "网页", "音频", "文件"]
                     .contains(&field(object, "type")?.as_str().unwrap_or_default())
                 {
-                    return Err(BackendError::invalid("invalid_kind", "资料类型不受支持"));
+                    return Err(BackendError::new("invalid_kind", "资料类型不受支持"));
                 }
                 text(object, "meta", 1_000, true)?;
                 progress(object, "progress")?;
@@ -1225,31 +1331,26 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                     text(object, "planId", 64, false)?;
                 }
                 progress(object, "progress")?;
-                let milestones = field(object, "milestones")?.as_array().ok_or_else(|| {
-                    BackendError::invalid("invalid_milestones", "里程碑必须是数组")
-                })?;
+                let milestones = field(object, "milestones")?
+                    .as_array()
+                    .ok_or_else(|| BackendError::new("invalid_milestones", "里程碑必须是数组"))?;
                 if milestones.len() > 200 {
                     return Err(BackendError::new("quota_exceeded", "里程碑数量超过上限"));
                 }
                 let mut milestone_ids = BTreeSet::new();
                 for milestone in milestones {
                     let object = milestone.as_object().ok_or_else(|| {
-                        BackendError::invalid("invalid_milestone", "里程碑必须是对象")
+                        BackendError::new("invalid_milestone", "里程碑必须是对象")
                     })?;
                     allowed_fields(object, &["id", "title", "done"])?;
                     if !milestone_ids.insert(record_id(milestone)?) {
-                        return Err(BackendError::invalid("duplicate_id", "里程碑标识不能重复"));
+                        return Err(BackendError::new("duplicate_id", "里程碑标识不能重复"));
                     }
                     text(object, "title", 500, false)?;
                     boolean(object, "done")?;
                 }
             }
-            _ => {
-                return Err(BackendError::invalid(
-                    "unknown_collection",
-                    "不支持的数据集合",
-                ))
-            }
+            _ => return Err(BackendError::new("unknown_collection", "不支持的数据集合")),
         }
     }
     Ok(())
@@ -1258,7 +1359,7 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
 pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
     let object = value
         .as_object()
-        .ok_or_else(|| BackendError::invalid("invalid_preferences", "偏好必须是对象"))?;
+        .ok_or_else(|| BackendError::new("invalid_preferences", "偏好必须是对象"))?;
     allowed_fields(
         object,
         &[
@@ -1301,7 +1402,7 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
     if object.contains_key("weeklyHours")
         && !(1..=80).contains(&field(object, "weeklyHours")?.as_u64().unwrap_or_default())
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_weekly_hours",
             "每周投入须为 1 到 80 小时",
         ));
@@ -1310,7 +1411,7 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
         && !["稳妥", "标准", "冲刺"]
             .contains(&field(object, "planIntensity")?.as_str().unwrap_or_default())
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_intensity",
             "学习强度须为稳妥、标准或冲刺",
         ));
@@ -1337,7 +1438,7 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
                     && minute.parse::<u32>().is_ok_and(|minute| minute < 60)
             });
             if !valid {
-                return Err(BackendError::invalid(
+                return Err(BackendError::new(
                     "invalid_quiet_time",
                     "免打扰时间格式无效",
                 ));
@@ -1350,8 +1451,12 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
     {
         text(object, "diagnosticStartedAt", 64, false)?;
     }
-    if !["light", "dark"].contains(&field(object, "theme")?.as_str().unwrap_or_default()) {
-        return Err(BackendError::invalid("invalid_theme", "主题不受支持"));
+    // 127#14：theme 与其余字段同为可选——原先唯一隐式必填，任何未来的
+    // 偏好局部更新路径会被 missing_field 拒绝且错误不指向字段；缺省回落 light
+    if object.contains_key("theme")
+        && !["light", "dark"].contains(&field(object, "theme")?.as_str().unwrap_or_default())
+    {
+        return Err(BackendError::new("invalid_theme", "主题不受支持"));
     }
     Ok(())
 }
@@ -1359,7 +1464,7 @@ pub(crate) fn validate_preferences(value: &Value) -> Result<()> {
 pub(crate) fn validate_draft(value: &Value) -> Result<()> {
     let object = value
         .as_object()
-        .ok_or_else(|| BackendError::invalid("invalid_draft", "草稿必须是对象"))?;
+        .ok_or_else(|| BackendError::new("invalid_draft", "草稿必须是对象"))?;
     allowed_fields(object, &["id", "title", "content", "tag", "savedAt"])?;
     if serde_json::to_vec(value)?.len() > MAX_RECORD_BYTES {
         return Err(BackendError::new("record_too_large", "草稿超过 1 MB 上限"));
@@ -1368,10 +1473,7 @@ pub(crate) fn validate_draft(value: &Value) -> Result<()> {
     text(object, "content", MAX_RECORD_BYTES, true)?;
     text(object, "tag", 100, false)?;
     if object.contains_key("savedAt") && !field(object, "savedAt")?.is_number() {
-        return Err(BackendError::invalid(
-            "invalid_field",
-            "草稿保存时间必须是数字",
-        ));
+        return Err(BackendError::new("invalid_field", "草稿保存时间必须是数字"));
     }
     Ok(())
 }

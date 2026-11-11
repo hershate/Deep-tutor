@@ -31,7 +31,7 @@ pub fn import_archive<R: Runtime>(
         .and_then(|value| value.to_str())
         .is_none_or(|value| !value.eq_ignore_ascii_case("zip"))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_archive_format",
             "资料包必须使用 .zip 扩展名",
         ));
@@ -47,7 +47,7 @@ pub fn import_archive<R: Runtime>(
     }
     let file = std::fs::File::open(&source)?;
     let mut archive = zip::ZipArchive::new(file)
-        .map_err(|_| BackendError::invalid("invalid_archive", "ZIP 资料包结构无效"))?;
+        .map_err(|_| BackendError::new("invalid_archive", "ZIP 资料包结构无效"))?;
     let mut outcomes = Vec::new();
     let mut skipped = Vec::new();
     let mut total = 0_u64;
@@ -56,9 +56,9 @@ pub fn import_archive<R: Runtime>(
     for index in 0..archive.len() {
         let mut entry = archive
             .by_index(index)
-            .map_err(|_| BackendError::invalid("invalid_archive_entry", "无法读取资料包条目"))?;
+            .map_err(|_| BackendError::new("invalid_archive_entry", "无法读取资料包条目"))?;
         let path = entry.enclosed_name().ok_or_else(|| {
-            BackendError::invalid("unsafe_archive_path", "资料包包含不安全的文件路径")
+            BackendError::new("unsafe_archive_path", "资料包包含不安全的文件路径")
         })?;
         if entry.is_dir() {
             continue;
@@ -74,7 +74,7 @@ pub fn import_archive<R: Runtime>(
             .file_name()
             .and_then(|value| value.to_str())
             .filter(|name| !name.trim().is_empty() && name.len() <= 500)
-            .ok_or_else(|| BackendError::invalid("invalid_archive_entry", "资料包文件名无效"))?
+            .ok_or_else(|| BackendError::new("invalid_archive_entry", "资料包文件名无效"))?
             .to_string();
         let kind = path
             .extension()
@@ -114,10 +114,10 @@ pub fn import_archive<R: Runtime>(
             .take(MAX_FILE_BYTES + 1)
             .read_to_end(&mut bytes)
             .map_err(|_| {
-                BackendError::invalid("invalid_archive_entry", "资料包条目损坏、加密或读取失败")
+                BackendError::new("invalid_archive_entry", "资料包条目损坏、加密或读取失败")
             })?;
         if bytes.len() as u64 != entry.size() || bytes.len() as u64 > MAX_FILE_BYTES {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_archive_entry",
                 "资料包条目实际大小与目录不符",
             ));

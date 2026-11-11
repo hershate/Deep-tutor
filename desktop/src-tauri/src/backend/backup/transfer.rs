@@ -87,7 +87,7 @@ fn table_label(table: &str) -> &str {
 }
 
 fn invalid_record() -> BackendError {
-    BackendError::invalid(
+    BackendError::new(
         "invalid_backup_record",
         "备份记录类型、标识或内容不符合当前结构",
     )
@@ -143,7 +143,7 @@ fn schema(conn: &Connection, table: &str) -> Result<Vec<Column>> {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_')
         {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_backup_schema",
                 "备份包含不允许的列名，已拒绝导入",
             ));
@@ -174,7 +174,7 @@ fn read_tables(source: &Connection, target: &Connection) -> Result<Transfer> {
                 .copied()
                 .collect::<BTreeSet<_>>();
             if !unknown.is_empty() {
-                return Err(BackendError::invalid(
+                return Err(BackendError::new(
                     "unsupported_backup_schema",
                     "备份表字段来自更新版本的应用，请先升级再导入",
                 ));
@@ -688,7 +688,7 @@ fn foreign_keys(conn: &Connection, table: &str) -> Result<Vec<(String, &'static 
                 .copied()
                 .find(|name| *name == target)
                 .ok_or_else(|| {
-                    BackendError::invalid("unsupported_backup_schema", "备份外键目标不受支持")
+                    BackendError::new("unsupported_backup_schema", "备份外键目标不受支持")
                 })?;
             Ok((column, target))
         })
@@ -1421,7 +1421,7 @@ fn target_relative(entry: &FileEntry, maps: &IdMap) -> Result<String> {
             if Path::new(name).file_stem().and_then(|value| value.to_str())
                 != Some(entry.sha256.as_str())
             {
-                return Err(BackendError::invalid(
+                return Err(BackendError::new(
                     "invalid_backup_path",
                     "资料文件名与内容哈希不一致",
                 ));
@@ -1454,7 +1454,7 @@ fn target_relative(entry: &FileEntry, maps: &IdMap) -> Result<String> {
             }
             Ok(format!("agent-workspaces/{session}/scratch/{relative}"))
         }
-        _ => Err(BackendError::invalid(
+        _ => Err(BackendError::new(
             "invalid_backup_path",
             "备份文件不属于允许的应用目录",
         )),

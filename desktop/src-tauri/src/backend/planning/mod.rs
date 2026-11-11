@@ -97,7 +97,7 @@ fn timestamp(value: OffsetDateTime) -> Result<String> {
 
 fn date(value: &str) -> Result<time::Date> {
     time::Date::parse(value, &time::format_description::well_known::Iso8601::DATE)
-        .map_err(|_| BackendError::invalid("invalid_schedule_date", "排期日期格式无效"))
+        .map_err(|_| BackendError::new("invalid_schedule_date", "排期日期格式无效"))
 }
 
 fn monday(value: time::Date) -> Result<time::Date> {
@@ -133,9 +133,9 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
     // 归一到周一后 +7 天）越界时 time 的 Add 实现直接 panic，而 planning
     // 命令全部为同步命令属主线程级故障；week_end 一经验证，下方 offset<7
     // 的逐日加法必不越界
-    let week_end = week_start.checked_add(Duration::days(7)).ok_or_else(|| {
-        BackendError::invalid("invalid_schedule_date", "排期周已超出可表示日期范围")
-    })?;
+    let week_end = week_start
+        .checked_add(Duration::days(7))
+        .ok_or_else(|| BackendError::new("invalid_schedule_date", "排期周已超出可表示日期范围"))?;
     let start_text = week_start.to_string();
     let end_text = week_end.to_string();
     let mut events_by_day: BTreeMap<String, Vec<ScheduleEvent>> = BTreeMap::new();
@@ -152,7 +152,7 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
         // 先只读探测，无孤儿直接跳过清理（并发新插入的孤儿留给下一轮
         // 惰性清理，删除路径仍走 53#4 的同事务快照）
         let tasks = {
-            let snapshot = Store::collection_value(&store.conn, "tasks")?;
+            let snapshot = Store::collection_value(&store.conn, "tasks", &store.account_path)?;
             let live_ids: Vec<i64> = snapshot
                 .as_array()
                 .into_iter()
@@ -171,7 +171,7 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
                 let tx = store
                     .conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)?;
-                let tasks = Store::collection_value(&tx, "tasks")?;
+                let tasks = Store::collection_value(&tx, "tasks", &store.account_path)?;
                 let live_ids: Vec<i64> = tasks
                     .as_array()
                     .into_iter()
@@ -370,7 +370,7 @@ fn factor(intensity: &str) -> Result<f64> {
         "稳妥" => Ok(0.8),
         "标准" => Ok(1.0),
         "冲刺" => Ok(1.2),
-        _ => Err(BackendError::invalid(
+        _ => Err(BackendError::new(
             "invalid_intensity",
             "学习强度须为稳妥、标准或冲刺",
         )),
@@ -635,7 +635,7 @@ pub fn update_goal<R: Runtime>(
     }
     let goal = input.goal.trim().to_string();
     if goal.is_empty() || goal.len() > 200 || !(1..=80).contains(&input.weekly_hours) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_goal",
             "目标须为 1 到 200 字节，每周投入须为 1 到 80 小时",
         ));
@@ -643,7 +643,7 @@ pub fn update_goal<R: Runtime>(
     // 126#9：截止日不早于今天——原先仅验格式，过去日期静默落库，到
     // regenerate 才经 within_deadline=false 间接暴露（多一轮生成）
     if date(&input.deadline)? < super::store::now_local().date() {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_deadline",
             "目标截止日期不能早于今天",
         ));
@@ -680,7 +680,7 @@ pub fn update_goal<R: Runtime>(
         // 31#22：与 start 入口（learning::validate_input）对齐——空/全空白
         // level 同样拒绝，原先只查长度，空白可落 input_json 并进入提示词
         if level.trim().is_empty() || level.len() > 1000 {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_level",
                 "当前掌握情况不能为空且不能超过 1000 字节",
             ));

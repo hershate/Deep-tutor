@@ -231,10 +231,33 @@ pub fn configured_directory(pointer: &Path, default_root: &Path) -> Result<PathB
     Ok(stored.data_root)
 }
 
+/// 127#12：进程崩溃在指针写中途残留的 storage-location.{旧pid}.tmp——
+/// 新进程 pid 不同永不触碰（save 只覆盖自己 pid 的 tmp），逐次崩溃累积；
+/// 清扫同目录全部 *.{pid 数字}.tmp（调用点自身 tmp 尚未创建/已 rename）
+fn sweep_pointer_tmps(pointer: &Path) {
+    let Some(directory) = pointer.parent() else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(stem) = name.strip_suffix(".tmp") {
+            if let Some(pid_part) = stem.rsplit('.').next() {
+                if !pid_part.is_empty() && pid_part.bytes().all(|byte| byte.is_ascii_digit()) {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+}
+
 pub fn save_location(pointer: &Path, selected: &Path) -> Result<PathBuf> {
     let _lock = LOCATION_LOCK
         .lock()
         .map_err(|_| BackendError::new("storage_config_unavailable", "数据目录配置锁不可用"))?;
+    sweep_pointer_tmps(pointer);
     prepare_directory(selected)?;
     Store::root(selected.join("deep-tutor.db"))?;
     let parent = pointer
@@ -340,6 +363,8 @@ pub fn initialize<R: Runtime>(
     configuration_error: Option<BackendError>,
 ) {
     prepare(app, root, default_root, pointer);
+    // 127#12：启动清扫崩溃残留的指针 tmp（save 只清理自己 pid 的）
+    sweep_pointer_tmps(pointer);
     // 111#6：缺失探测收敛进 initialize 本体——原先只在冷启动的
     // initialize_background 探测，重试初始化重建目录后第二次起提示缺失；
     // 与 GUI 路径同点（prepare 之后、assemble 建目录之前）
@@ -353,7 +378,17 @@ pub fn initialize<R: Runtime>(
         Some(error) => Err(error),
         None => assemble(app, root),
     };
+    let succeeded = result.is_ok();
     state.set_failure(result.err());
+    // 127#12：目录已重建成功时清除「已按缺失路径新建」提示——原先与新
+    // pending 文案并存矛盾；目录仍缺失（note 重新写入）保持提示
+    if succeeded {
+        if let Some(state) = app.try_state::<StartupState>() {
+            if let Ok(mut notice) = state.notice.lock() {
+                *notice = None;
+            }
+        }
+    }
     state
         .running
         .store(false, std::sync::atomic::Ordering::Release);
@@ -412,8 +447,16 @@ pub fn initialize_background<R: Runtime + 'static>(
 }
 
 fn assemble<R: Runtime>(app: &AppHandle<R>, root: &Path) -> Result<()> {
+    // 127#10：时区偏移在启动单线程期预热一次——探测此前全部发生在
+    // 命令/线程池上下文，Unix 多线程健全性检查失败时 UTC 被静默缓存
+    let _ = crate::backend::store::now_local();
     let path = root.join("deep-tutor.db");
-    app.manage(security::SecurityState::new(&path));
+    // 127#16：retry 重入 assemble 时不再依赖 Tauri2 的二次 manage no-op
+    // 语义——已注册的 State 显式沿用（目录不变由 pending 守卫保证，
+    // 路径一致；store 连接仍在下方闭包内替换）
+    if app.try_state::<security::SecurityState>().is_none() {
+        app.manage(security::SecurityState::new(&path));
+    }
     prepare_directory(root)?;
     // 22#1：装配先于会话初始化、无 principal——显式以 user1 打开引导库
     // （含旧版单库向 user1 工作区的迁移），不再依赖 Store::new 的隐式回退；
@@ -427,19 +470,25 @@ fn assemble<R: Runtime>(app: &AppHandle<R>, root: &Path) -> Result<()> {
     let practice_state = practice::PracticeState::new(&path, &provider_state, &learning_state);
     let review_state = review::ReviewState::new(&path, &learning_state);
     let sharing_state = sharing::SharingState::new(&learning_state);
-    app.manage(BackendState {
-        store: Mutex::new(store),
-        materials: material_state,
-        providers: provider_state,
-        learning: learning_state,
-        agent: agent_state,
-        practice: practice_state,
-        review: review_state,
-        knowledge: knowledge_state,
-        community: community::CommunityState::new(&path),
-        plugins: plugins::PluginState::new(&path)?,
-        sharing: sharing_state,
-    });
+    // 127#16：重试路径沿用已注册实例（不再依赖 Tauri2 二次 manage 的
+    // no-op 语义）——目录不变由 pending 守卫保证、路径一致，下方
+    // initialize_session 与 recover 族照常对旧实例重跑（首次失败发生在
+    // recover 中段时，retry 需要补跑未完成的域）
+    if app.try_state::<BackendState>().is_none() {
+        app.manage(BackendState {
+            store: Mutex::new(store),
+            materials: material_state,
+            providers: provider_state,
+            learning: learning_state,
+            agent: agent_state,
+            practice: practice_state,
+            review: review_state,
+            knowledge: knowledge_state,
+            community: community::CommunityState::new(&path),
+            plugins: plugins::PluginState::new(&path)?,
+            sharing: sharing_state,
+        });
+    }
     let principal = match security::initialize_session(app, &app.state::<security::SecurityState>())
     {
         Ok(principal) => Some(principal),

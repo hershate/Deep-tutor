@@ -14,10 +14,6 @@ impl BackendError {
         }
     }
 
-    pub fn invalid(code: &str, message: &str) -> Self {
-        Self::new(code, message)
-    }
-
     fn storage() -> Self {
         Self::new(
             "storage_failed",
@@ -81,7 +77,10 @@ impl From<zip::result::ZipError> for BackendError {
 
 impl From<time::error::Format> for BackendError {
     fn from(_: time::error::Format) -> Self {
-        Self::storage()
+        // 127#13：原先映射 storage_failed「无法读写本地数据」——唯一调用链
+        // 是 now() 的 RFC3339 格式化（防御位），一旦触发用户被引导检查
+        // 磁盘/数据目录，排查方向完全错位；独立成码自释
+        Self::new("time_format_failed", "时间格式化失败，请重启应用后重试")
     }
 }
 

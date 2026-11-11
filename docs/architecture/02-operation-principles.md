@@ -22,9 +22,9 @@ sequenceDiagram
     FE->>FE: get_app_state 全量校准(游标取快照 lastEventId)
 ```
 
-1. 目录决策（`startup.rs:18-36`）：读 `app_local_data_dir/storage-location.json`（≤4096B，version==1，`StoredLocation` :22-27）失败则回退 `app_data_dir`。`validate_location`（:91-135）拒绝：相对路径/根目录/`..` 段/UNC 网络目录/Windows 与 Program Files 目录。`prepare_directory`（:159）自动创建缺失目录，无对话框。
-2. `assemble`（:414-474）顺序：`SecurityState` → `prepare_directory` → `Store::at_user(&path, 1)`（显式以 user1 打开引导库，含旧版单库向 user1 工作区的迁移；后续 `with_user(principal)` 重建时才用 `Store::new`）→ 10 个域 State 构造（materials/providers/learning/knowledge/agent/practice/review/sharing/community/plugins）→ `BackendState` manage → `security::initialize_session`（无有效会话、`auth_sessions` 全表为空（真首启）且存在活跃管理员时自动签发首位会话，1.1.8/119#1——登出留有已撤销行，重启不再自动恢复；`SEC/mod.rs` initialize :797）→ `with_user(principal)` 内重建 store 连接并逐模块 `recover`（materials→providers chats/routing→learning→agent→practice→projects→knowledge→sync→reports，`startup.rs:451-471`；reports 把残留 running/paused 专注会话收尾为 interrupted）→ 独立 `with_user` 启动 sync 调度线程（:472-474）。
-3. 失败语义：初始化线程 panic 被 catch（:312-320）置 `startup_failed`；前端 20 秒看门狗（`src/backend/useBackendState.ts` armTimeout :114）后显示 DataDirectoryPanel，提供重试（`retry_storage_initialization` 仅在未运行且无 pending 时重新 `initialize`，`startup.rs:527`）、改目录（写 pointer 原子替换 `.tmp`+rename，:225-240）、恢复默认（只删 pointer 不动数据，:244-256）、立即重启。
+1. 目录决策（`startup.rs:198`）：读 `app_local_data_dir/storage-location.json`（≤4096B，version==1，`StoredLocation` :22-27）失败则回退 `app_data_dir`。`validate_location`（:116-168）拒绝：相对路径/根目录/`..` 段/UNC 网络目录/Windows 与 Program Files 目录。`prepare_directory`（:184）自动创建缺失目录，无对话框。
+2. `assemble`（:445）顺序：时区偏移单线程期预热（127#10）→ `SecurityState`（127#16：retry 重入时已注册则沿用，不再依赖二次 manage 的 no-op 语义）→ `prepare_directory` → `Store::at_user(&path, 1)`（显式以 user1 打开引导库，含旧版单库向 user1 工作区的迁移；后续 `with_user(principal)` 重建时才用 `Store::new`）→ 10 个域 State 构造（materials/providers/learning/knowledge/agent/practice/review/sharing/community/plugins）→ `BackendState` manage → `security::initialize_session`（无有效会话、`auth_sessions` 全表为空（真首启）且存在活跃管理员时自动签发首位会话，1.1.8/119#1——登出留有已撤销行，重启不再自动恢复）→ `with_user(principal)` 内重建 store 连接并逐模块 `recover`（materials→providers chats/routing→learning→agent→practice→projects→knowledge→sync→reports；reports 把残留 running/paused 专注会话收尾为 interrupted）→ 独立 `with_user` 启动 sync 调度线程。指针写中途崩溃残留的 `{pid}.tmp` 在启动与每次 save 时清扫（127#12）；目录缺失提示（notice）在重建成功/改目录后清除。
+3. 失败语义：初始化线程 panic 被 catch（`initialize_background` :412 附近）置 `startup_failed`；前端 20 秒看门狗（`src/backend/useBackendState.ts` armTimeout）后显示 DataDirectoryPanel，提供重试（`retry_storage_initialization` :572 仅在未运行且无 pending 时重新 `initialize`）、改目录（写 pointer 原子替换 `.tmp`+rename，`save_location` :252）、恢复默认（`reset_location` :288 只删 pointer 不动数据）、立即重启。
 4. 命令可用性：未就绪时守卫 `ensure_ready`（`SEC/guard.rs:150`）对除存储外的命令返回 `startup_not_ready`，前端据此继续轮询。
 
 启动目录决策与失败出口：
@@ -55,7 +55,7 @@ flowchart TD
 
 `Store::open`（`store.rs:124-262`）每次打开：
 1. 解析工作区路径（无 owner=根库；有 owner=`users/{id}/`）。
-2. `STORE_OPEN_LOCK` 全局互斥（store.rs:20）串行化打开与 user-1 旧库复制。
+2. 打开互斥分两态（107#5）：首开（含 user-1 旧库复制/迁移/schema 建立）持 `STORE_OPEN_LOCK` 全局锁；同路径稳态打开经 `STORE_OPENED` 登记跳锁——原实现无条件持锁，user1 首迁（GB 级数十秒）会让进程内所有 `Store::new` 排队（store.rs:255-273）。
 3. PRAGMA：WAL（非 WAL 才切换）、`foreign_keys=ON`、`busy_timeout=10000`、`synchronous=NORMAL`（WAL 常规搭配：断电最多丢最后一次已确认提交，outbox 顺序与重放语义不变）。
 4. `max(PRAGMA user_version, meta.schema_version) > SCHEMA_VERSION(3)` → `unsupported_schema` 拒绝降级（:216-231；user_version 惯例只写 1、版本实际记录在 meta 表，双取最大防任一通道漏记）。
 5. 建四张通用表（:187-210，events 附表达式索引 `events_kind_request ON events(kind, json_extract(payload, '$.requestId'))`，流式 delta 重放免全表扫描），计算 `schema_fingerprint`（sqlite_master 全量 SHA-256，:100-125）；与 `meta.schema_fingerprint` 或 `schema_version` 记录不一致时依次执行 15 个模块 `migrate`（:230-250），再回写指纹与版本（:253-258）。指纹未变且记录版本不低于代码 SCHEMA_VERSION 才零迁移（测试 store.rs:1289 幂等 / :1315 版本门禁补列）；DROP 表造成的漂移会被修复重跑。
@@ -551,7 +551,9 @@ stateDiagram-v2
 - **线程**：全部后台线程经 `security::thread_builder()`（SEC/mod.rs:100）创建以继承 principal（thread-local PRINCIPAL :34；`session_principal` :76 供 async 命令从会话派生）。裸线程无 principal 时 `Store::new` 返回 `store_unavailable`（fail-closed，store.rs:74-88；测试环境回退根库语义）。命名线程：`backend-startup`、`learning-plan-{id}`、`lecture-{id}`、`wiki-answer-{id}`、`practice-generate-{id}`、`practice-grade-{id}`、`project-feedback-{id}`、`agent-run-{id}`、`material-parse-{id}`、`sync-{id}`、调度线程。全部 catch_unwind，panic 映射 `task_panicked` 落失败态。
 - **锁**：`BackendState.store: Mutex<Store>`（全局单连接）；`STORE_OPEN_LOCK`（打开互斥）；`WORKSPACE_SWITCH: RwLock`（切换写锁/命令读锁）；各域 `active: Mutex<HashMap<id, Arc<AtomicBool>>>` 取消注册表；maintenance `OPERATION`；sync 全局 `ACTIVE/NEXT_JOB`；startup `LOCATION_LOCK`（pointer 原子写）。
 - **SQLite 并发**：WAL + synchronous=NORMAL + busy_timeout 10s；写路径 `unchecked_transaction`；关键防重用 Immediate 事务（agent send、resume、start_focus、备份 prepare_ids、熔断读改写）或条件 UPDATE（review grade）。
-- **停止协议**：各域 `stop` 置取消标志 + 取消上游请求 + 15s 轮询等待 active map 清空（learning L/mod.rs:856、providers P/mod.rs:1292、materials M/mod.rs:120、agent :1172、sync :896）；`security::guard::stop_all` 逐域独立停并汇总结果（reports::stop 收尾专注会话为 interrupted，plans/实践/知识等各自停），maintenance 与备份导入复用同一入口；重置（reset_application，backend/commands.rs:82）先停五类任务，DB reset 成功后才删原件备份与凭据。
+- **停止协议**：各域 `stop` 置取消标志 + 取消上游请求 + 15s 轮询等待 active map 清空（learning L/mod.rs:856、providers P/mod.rs:1292、materials M/mod.rs:120、agent :1172、sync :896）；`security::guard::stop_all` 八域（agent/练习/知识/方案/模型请求/同步/资料解析/专注）scoped threads **并行**独立停并汇总结果（73#9；reports::stop 收尾专注会话为 interrupted），maintenance 与备份导入复用同一入口；重置（reset_application，backend/commands.rs:82）先并行停八域，DB reset 成功后才删原件备份与凭据。
+
+事件表不随重置清除：`store.reset` 清 15 模块表 + kv 六 namespace，`events` 原样保留（`lastEventId` 单调语义与前端游标续接依赖保留；回放可见重置前的 namespace/revision 轨迹，载荷不含正文）——这是有意取舍。
 
 停止协议：
 
@@ -568,7 +570,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[reset_application] --> B[停五类任务 agent practice knowledge learning providers chats sync]
+    A[reset_application] --> B[并行停八域 agent practice knowledge learning providers chats sync materials focus]
     B --> C[materials.prepare_reset 备份原件清单]
     C --> D[store.reset 单事务清 15 模块表 + kv + 种子默认偏好]
     D -->|成功| E[finish_reset 删除原件 + purge 全部凭据 + 插件文件重置]

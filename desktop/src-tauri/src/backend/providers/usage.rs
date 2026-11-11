@@ -170,7 +170,7 @@ pub fn save_settings<R: Runtime>(
         || settings.daily_usd < 0.0
         || !(1..=3).contains(&settings.regeneration_limit)
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_usage_settings",
             "预算须为不小于 0 的有限金额，方案重生成上限须为 1 到 3 次",
         ));
@@ -209,7 +209,7 @@ pub fn upsert_rate<R: Runtime>(
 ) -> Result<UsageRate> {
     let profile = super::get(state, &input.provider_id)?;
     if !profile.models.contains(&input.model) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_rate_model",
             "费率必须关联供应商档案中的真实模型",
         ));
@@ -221,7 +221,7 @@ pub fn upsert_rate<R: Runtime>(
         || input.input_per_million > 1_000_000.0
         || input.output_per_million > 1_000_000.0
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_usage_rate",
             "费率须为有限、非负且合理的金额",
         ));
@@ -231,7 +231,7 @@ pub fn upsert_rate<R: Runtime>(
         .id
         .trim_start_matches('p')
         .parse::<i64>()
-        .map_err(|_| BackendError::invalid("invalid_provider_id", "供应商标识无效"))?;
+        .map_err(|_| BackendError::new("invalid_provider_id", "供应商标识无效"))?;
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
     tx.execute(
@@ -322,7 +322,7 @@ fn local_date(value: &str, offset: time::UtcOffset) -> Result<time::Date> {
 pub fn overview(state: &ProviderState, days: Option<u32>) -> Result<UsageOverview> {
     let days = days.unwrap_or(7);
     if !(1..=31).contains(&days) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_usage_days",
             "用量趋势仅支持 1 到 31 天",
         ));

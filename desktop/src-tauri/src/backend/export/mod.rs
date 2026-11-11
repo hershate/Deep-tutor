@@ -207,8 +207,7 @@ fn section(heading: String, paragraphs: Vec<String>, bullets: Vec<String>) -> Ex
 }
 
 fn completed_plan(state: &LearningState, id: Option<&str>) -> Result<Plan> {
-    let id =
-        id.ok_or_else(|| BackendError::invalid("plan_required", "此导出范围需要选择学习方案"))?;
+    let id = id.ok_or_else(|| BackendError::new("plan_required", "此导出范围需要选择学习方案"))?;
     let plan = learning::get(state, id)?;
     if plan.result.is_none() || !["done", "degraded"].contains(&plan.status.as_str()) {
         return Err(BackendError::new(
@@ -336,7 +335,7 @@ fn lecture_document(state: &LearningState, input: &ExportInput) -> Result<Export
     let stage_id = input
         .stage_id
         .as_deref()
-        .ok_or_else(|| BackendError::invalid("stage_required", "导出讲义需要选择学习阶段"))?;
+        .ok_or_else(|| BackendError::new("stage_required", "导出讲义需要选择学习阶段"))?;
     let lecture = learning::lecture::get(state, &plan.id, stage_id, input.version)?;
     let index = input.unit_index.unwrap_or(lecture.current_unit);
     let content = lecture
@@ -577,13 +576,13 @@ pub fn export<R: Runtime>(
     destination: &Path,
 ) -> Result<ExportResult> {
     if matches!(input.format, ExportFormat::Ics) && !matches!(input.scope, ExportScope::Schedule) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_export_combination",
             "ICS 只支持学习日程范围",
         ));
     }
     if matches!(input.format, ExportFormat::Apkg) && matches!(input.scope, ExportScope::Schedule) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_export_combination",
             "日程请使用 ICS 导出，不生成复习卡",
         ));
@@ -603,7 +602,7 @@ pub fn export<R: Runtime>(
         .and_then(|value| value.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case(input.format.extension()))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_export_destination",
             "导出文件扩展名必须与所选格式一致",
         ));

@@ -306,7 +306,7 @@ pub fn start_focus<R: Runtime>(
     planned_seconds: u64,
 ) -> Result<FocusSession> {
     if !(60..=14_400).contains(&planned_seconds) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_focus_duration",
             "专注时长须为 60 到 14400 秒",
         ));
@@ -542,7 +542,7 @@ fn period_bounds(period: &str) -> Result<(OffsetDateTime, i64, OffsetDateTime)> 
             (today.date() - start).whole_days().max(0) + 1
         }
         _ => {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_period",
                 "报告周期须为 4w、8w 或 semester",
             ))
@@ -1149,10 +1149,10 @@ pub fn save_checkin<R: Runtime>(
         &input.date,
         &time::format_description::well_known::Iso8601::DATE,
     )
-    .map_err(|_| BackendError::invalid("invalid_checkin_date", "打卡日期格式无效"))?;
+    .map_err(|_| BackendError::new("invalid_checkin_date", "打卡日期格式无效"))?;
     let local = super::store::now_local();
     if date > local.date() {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "future_checkin",
             "不能为未到来的日期打卡",
         ));
@@ -1160,14 +1160,14 @@ pub fn save_checkin<R: Runtime>(
     // 25#16：日历只枚举近 84 天——更早的打卡会被接受入库但永不展示、不进
     // 统计（"存而不显"），封住下界使写入与展示口径一致
     if date < local.date() - time::Duration::days(83) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_checkin_date",
             "只能为最近 84 天内的日期打卡",
         ));
     }
     let note = input.note.trim().to_string();
     if !(1..=1440).contains(&input.minutes) || note.is_empty() || note.len() > 4000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_checkin",
             "打卡分钟须为 1 到 1440，笔记须为 1 到 4000 字节",
         ));
@@ -1195,7 +1195,7 @@ pub fn adopt_recommendations<R: Runtime>(
         || ids.len() > 3
         || ids.iter().collect::<std::collections::BTreeSet<_>>().len() != ids.len()
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_recommendations",
             "请选择一至三条不同的建议",
         ));
@@ -1273,7 +1273,7 @@ pub fn export_report<R: Runtime>(
         .and_then(|value| value.to_str())
         .is_some_and(|value| value.eq_ignore_ascii_case("csv"))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_report_destination",
             "学习报告必须使用 .csv 扩展名",
         ));

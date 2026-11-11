@@ -96,7 +96,7 @@ fn string<'a>(arguments: &'a Value, key: &str) -> Result<&'a str> {
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            BackendError::invalid(
+            BackendError::new(
                 "invalid_tool_arguments",
                 format!("工具参数 {key} 必须是非空字符串").as_str(),
             )
@@ -105,13 +105,13 @@ fn string<'a>(arguments: &'a Value, key: &str) -> Result<&'a str> {
 
 fn number(arguments: &Value, key: &str) -> Result<i64> {
     let value = arguments.get(key).and_then(Value::as_i64).ok_or_else(|| {
-        BackendError::invalid(
+        BackendError::new(
             "invalid_tool_arguments",
             format!("工具参数 {key} 必须是整数").as_str(),
         )
     })?;
     if value <= 0 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_tool_arguments",
             format!("工具参数 {key} 必须为正数").as_str(),
         ));
@@ -121,13 +121,13 @@ fn number(arguments: &Value, key: &str) -> Result<i64> {
 
 fn index(arguments: &Value, key: &str) -> Result<usize> {
     let value = arguments.get(key).and_then(Value::as_u64).ok_or_else(|| {
-        BackendError::invalid(
+        BackendError::new(
             "invalid_tool_arguments",
             format!("工具参数 {key} 必须是非负整数").as_str(),
         )
     })?;
     usize::try_from(value).map_err(|_| {
-        BackendError::invalid(
+        BackendError::new(
             "invalid_tool_arguments",
             format!("工具参数 {key} 超出索引范围").as_str(),
         )
@@ -148,7 +148,7 @@ fn sources(state: &AgentState, session: &AgentSession) -> Result<Vec<Source>> {
 
 fn content(value: Value, sources: &[Source]) -> Result<LectureContent> {
     let content: LectureContent = serde_json::from_value(value)
-        .map_err(|_| BackendError::invalid("invalid_artifact_content", "产物不是有效的讲义单元"))?;
+        .map_err(|_| BackendError::new("invalid_artifact_content", "产物不是有效的讲义单元"))?;
     learning::lecture::validate_content(&content, sources)?;
     Ok(content)
 }
@@ -166,7 +166,7 @@ fn scratch_root(state: &AgentState, session: &AgentSession) -> Result<PathBuf> {
 
 fn artifact_path(state: &AgentState, session: &AgentSession, value: &str) -> Result<PathBuf> {
     if value.is_empty() || value.len() > 128 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_artifact_path",
             "产物相对路径不能为空且不能超过 128 字节",
         ));
@@ -177,7 +177,7 @@ fn artifact_path(state: &AgentState, session: &AgentSession, value: &str) -> Res
         .all(|part| matches!(part, Component::Normal(_)))
         || path.components().count() > 6
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_artifact_path",
             "产物路径不得包含绝对路径、父级目录或前缀",
         ));
@@ -186,7 +186,7 @@ fn artifact_path(state: &AgentState, session: &AgentSession, value: &str) -> Res
         path.extension().and_then(|extension| extension.to_str()),
         Some("json" | "md" | "txt")
     ) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_artifact_path",
             "产物仅支持 JSON、Markdown 或文本文件",
         ));
@@ -425,7 +425,7 @@ fn memory_key(value: &str) -> Result<String> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_memory_key",
             "记忆键须为 1 到 64 位字母、数字、短横线或下划线",
         ));
@@ -435,7 +435,7 @@ fn memory_key(value: &str) -> Result<String> {
 
 fn memory_value(value: &str) -> Result<String> {
     if value.trim().is_empty() || value.len() > 4000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_memory_value",
             "记忆内容不能为空且不能超过 4000 字节",
         ));
@@ -489,7 +489,7 @@ pub fn execute<R: Runtime>(
     step: u32,
 ) -> Result<Value> {
     if call.id.is_empty() || call.id.len() > 128 || call.arguments.len() > 64 * 1024 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_tool_call",
             "工具调用标识或参数超过限制",
         ));
@@ -547,14 +547,14 @@ pub fn execute<R: Runtime>(
         Ok(value) if value.is_object() => value,
         Ok(_) => {
             finish_failed_tool_call(&store, &call.id, "工具参数必须是 JSON 对象")?;
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_tool_arguments",
                 "工具参数必须是 JSON 对象",
             ));
         }
         Err(_) => {
             finish_failed_tool_call(&store, &call.id, "工具参数不是有效 JSON")?;
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_tool_arguments",
                 "工具参数不是有效 JSON",
             ));
@@ -582,11 +582,11 @@ pub fn execute<R: Runtime>(
                     let id = reference
                         .trim_start_matches("artifact:")
                         .parse::<i64>()
-                        .map_err(|_| BackendError::invalid("invalid_reference", "产物引用无效"))?;
+                        .map_err(|_| BackendError::new("invalid_reference", "产物引用无效"))?;
                     let (_, _, _, content, _) = read_artifact(state, session, id)?;
                     Ok(json!({"status": "done", "content": content}))
                 }
-                _ => Err(BackendError::invalid(
+                _ => Err(BackendError::new(
                     "invalid_reference",
                     "仅支持 plan、lecture:<阶段> 或 artifact:<ID> 引用",
                 )),
@@ -624,7 +624,7 @@ pub fn execute<R: Runtime>(
                 }
                 let updated: LectureContent = serde_json::from_str(&raw.replacen(old, new, 1))
                     .map_err(|_| {
-                        BackendError::invalid("invalid_artifact_content", "编辑后的讲义结构无效")
+                        BackendError::new("invalid_artifact_content", "编辑后的讲义结构无效")
                     })?;
                 commit_artifact(
                     app,
@@ -812,13 +812,13 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
                 payload
                     .get("key")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| BackendError::invalid("invalid_approval", "记忆审批缺少键"))?,
+                    .ok_or_else(|| BackendError::new("invalid_approval", "记忆审批缺少键"))?,
             )?;
             let value = memory_value(
                 payload
                     .get("value")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| BackendError::invalid("invalid_approval", "记忆审批缺少内容"))?,
+                    .ok_or_else(|| BackendError::new("invalid_approval", "记忆审批缺少内容"))?,
             )?;
             // 31#42：IMMEDIATE——与 25#18 注释宣称一致，DEFERRED 下配额计数仍处读快照
             let tx = store.write_transaction()?;
@@ -841,7 +841,9 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
             let event = Store::event(
                 &tx,
                 "agent.memory_changed",
-                json!({"approvalId": id, "key": key, "action": "saved"}),
+                // 129#6：补归属键——原先既无 sessionId 又无 runId，事件驱动
+                // 消费者需反查 approvals 表才能关联会话
+                json!({"approvalId": id, "sessionId": session.id, "key": key, "action": "saved"}),
             )?;
             tx.commit()?;
             emit(app, &event);
@@ -852,7 +854,7 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
                 payload
                     .get("key")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| BackendError::invalid("invalid_approval", "记忆审批缺少键"))?,
+                    .ok_or_else(|| BackendError::new("invalid_approval", "记忆审批缺少键"))?,
             )?;
             let tx = store.conn.unchecked_transaction()?;
             tx.execute("DELETE FROM agent_memory WHERE key = ?1", params![key])?;
@@ -860,7 +862,7 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
             let event = Store::event(
                 &tx,
                 "agent.memory_changed",
-                json!({"approvalId": id, "key": key, "action": "deleted"}),
+                json!({"approvalId": id, "sessionId": session.id, "key": key, "action": "deleted"}),
             )?;
             tx.commit()?;
             emit(app, &event);
@@ -870,7 +872,7 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
             let artifact_id = payload
                 .get("artifactId")
                 .and_then(Value::as_i64)
-                .ok_or_else(|| BackendError::invalid("invalid_approval", "产物审批缺少 ID"))?;
+                .ok_or_else(|| BackendError::new("invalid_approval", "产物审批缺少 ID"))?;
             let expected_sha256 = payload
                 .get("sha256")
                 .and_then(Value::as_str)
@@ -878,14 +880,11 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
                     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
                 })
                 .ok_or_else(|| {
-                    BackendError::invalid(
-                        "approval_outdated",
-                        "旧审批未绑定产物哈希，请重新请求提升",
-                    )
+                    BackendError::new("approval_outdated", "旧审批未绑定产物哈希，请重新请求提升")
                 })?;
             promote(app, state, &session, id, artifact_id, expected_sha256)
         }
-        _ => Err(BackendError::invalid("invalid_approval", "未知审批类型")),
+        _ => Err(BackendError::new("invalid_approval", "未知审批类型")),
     }
 }
 
@@ -1019,12 +1018,12 @@ fn promote<R: Runtime>(
 pub fn cancel_approval<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> Result<()> {
     let id = numeric_id(id)?;
     let store = state.store()?;
-    let (kind, payload): (String, String) = store
+    let (kind, payload, session_id): (String, String, i64) = store
         .conn
         .query_row(
-            "SELECT kind, payload_json FROM agent_approvals WHERE id = ?1 AND status = 'pending'",
+            "SELECT kind, payload_json, session_id FROM agent_approvals WHERE id = ?1 AND status = 'pending'",
             params![id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?
         .ok_or_else(|| BackendError::new("approval_resolved", "审批不存在或已处理"))?;
@@ -1045,7 +1044,7 @@ pub fn cancel_approval<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &
     let event = Store::event(
         &tx,
         "agent.approval_cancelled",
-        json!({"approvalId": id, "kind": kind}),
+        json!({"approvalId": id, "sessionId": session_id, "kind": kind}),
     )?;
     tx.commit()?;
     emit(app, &event);

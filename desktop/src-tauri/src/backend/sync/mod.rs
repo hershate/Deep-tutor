@@ -188,7 +188,7 @@ fn validate_input(input: &SyncConfigInput) -> Result<SyncConfig> {
         || !valid_remote_path(&input.remote_path)
         || !input.remote_path.ends_with(".json")
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_sync_path",
             "同步类型或远端对象路径无效",
         ));
@@ -212,7 +212,7 @@ fn validate_input(input: &SyncConfigInput) -> Result<SyncConfig> {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')
             })
         {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_s3_config",
                 "S3 区域、bucket 或签名方式无效",
             ));
@@ -222,13 +222,13 @@ fn validate_input(input: &SyncConfigInput) -> Result<SyncConfig> {
             || !input.region.is_empty()
             || !input.bucket.is_empty()
         {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_webdav_config",
                 "WebDAV 认证方式无效",
             ));
         }
         if input.auth_kind == "basic" && input.username.trim().is_empty() {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_sync_username",
                 "Basic 认证需要账号",
             ));
@@ -628,7 +628,7 @@ fn run<R: Runtime>(
                 })
             }
         }
-        _ => Err(BackendError::invalid(
+        _ => Err(BackendError::new(
             "invalid_sync_job",
             "同步任务类型不受支持",
         )),
@@ -679,7 +679,7 @@ fn start_with_path<R: Runtime>(
     remote_path: Option<String>,
 ) -> Result<SyncJobView> {
     if !["check", "upload", "download", "import", "restore"].contains(&kind.as_str()) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_sync_job",
             "同步任务类型不受支持",
         ));
@@ -697,13 +697,13 @@ fn start_with_path<R: Runtime>(
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
         })
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_sync_destination",
             "下载配置必须使用 .json 文件",
         ));
     }
     if ["check", "upload", "import"].contains(&kind.as_str()) && destination.is_some() {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_sync_destination",
             "该同步任务不接受本地输出路径",
         ));
@@ -823,7 +823,7 @@ pub fn restore<R: Runtime>(
             .and_then(|value| value.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
     }) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_sync_destination",
             "版本下载必须使用 .json 文件",
         ));

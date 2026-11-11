@@ -215,12 +215,9 @@ pub(crate) fn numeric_id(value: &str) -> Result<i64> {
     let value = value.strip_prefix("agent-").unwrap_or(value);
     let id = value
         .parse::<i64>()
-        .map_err(|_| BackendError::invalid("invalid_agent_id", "Agent 会话标识无效"))?;
+        .map_err(|_| BackendError::new("invalid_agent_id", "Agent 会话标识无效"))?;
     if id <= 0 {
-        return Err(BackendError::invalid(
-            "invalid_agent_id",
-            "Agent 会话标识无效",
-        ));
+        return Err(BackendError::new("invalid_agent_id", "Agent 会话标识无效"));
     }
     Ok(id)
 }
@@ -347,14 +344,14 @@ pub fn new_session<R: Runtime>(
         .filter(|title| !title.is_empty())
         .unwrap_or("新学习会话");
     if title.len() > 160 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_session_title",
             "会话标题不能超过 160 字节",
         ));
     }
     let budget = budget_tokens.unwrap_or(16_000);
     if !(1024..=65_536).contains(&budget) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_token_budget",
             "会话 Token 预算必须位于 1024 到 65536",
         ));
@@ -625,7 +622,7 @@ pub fn send<R: Runtime>(
     let session_id = numeric_id(session_id)?;
     let content = content.trim().to_string();
     if content.is_empty() || content.len() > 32_000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_agent_message",
             "消息不能为空且不能超过 32000 字节",
         ));

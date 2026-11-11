@@ -90,7 +90,7 @@ fn signature(
     let date = now.format(&date_format)?;
     let host = url
         .host_str()
-        .ok_or_else(|| BackendError::invalid("invalid_sync_endpoint", "S3 地址缺少主机"))?;
+        .ok_or_else(|| BackendError::new("invalid_sync_endpoint", "S3 地址缺少主机"))?;
     // 94#5：默认端口不进 canonical host——endpoint 显式写 https://host:443
     // 时底层按惯例发不带端口的 Host 头，canonical 带端口即签名不匹配 403
     let host = match url.port() {
@@ -262,7 +262,7 @@ fn execute(
     let payload_hash = format!("{:x}", Sha256::digest(body.as_deref().unwrap_or_default()));
     let mut request = client.request(
         reqwest::Method::from_bytes(method.as_bytes())
-            .map_err(|_| BackendError::invalid("invalid_sync_method", "不支持的同步请求方法"))?,
+            .map_err(|_| BackendError::new("invalid_sync_method", "不支持的同步请求方法"))?,
         url.clone(),
     );
     if method == "PROPFIND" {

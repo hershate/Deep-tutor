@@ -82,7 +82,7 @@ fn resolve(value: Url, allow_loopback: bool) -> Result<Target> {
         || value.password().is_some()
         || value.as_str().len() > 900
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_web_url",
             "网页地址必须是有效的 HTTP/HTTPS 地址，不能包含凭据且不超过 900 字节",
         ));
@@ -101,7 +101,7 @@ fn resolve(value: Url, allow_loopback: bool) -> Result<Target> {
         ]
         .contains(&key.to_ascii_lowercase().as_str())
     }) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "web_credentials_blocked",
             "网页地址不得携带密钥或访问令牌参数",
         ));
@@ -114,7 +114,7 @@ fn resolve(value: Url, allow_loopback: bool) -> Result<Target> {
         .to_string();
     let port = value
         .port_or_known_default()
-        .ok_or_else(|| BackendError::invalid("invalid_web_url", "网页地址缺少有效端口"))?;
+        .ok_or_else(|| BackendError::new("invalid_web_url", "网页地址缺少有效端口"))?;
     let addresses = (host.as_str(), port)
         .to_socket_addrs()
         .map_err(|_| BackendError::new("web_unreachable", "无法解析网页主机地址"))?
@@ -186,7 +186,7 @@ fn document(value: Url, depth: u8) -> Result<Document> {
             .ok_or_else(|| BackendError::new("web_redirect_invalid", "网页重定向缺少有效目标"))?;
         let target = url
             .join(location)
-            .map_err(|_| BackendError::invalid("invalid_web_url", "网页重定向地址无效"))?;
+            .map_err(|_| BackendError::new("invalid_web_url", "网页重定向地址无效"))?;
         return document(target, depth + 1);
     }
     if status.as_u16() == 403 || status.as_u16() == 429 {
@@ -338,8 +338,8 @@ fn truncate(value: &str) -> String {
 }
 
 pub fn fetch(value: &str) -> Result<WebPage> {
-    let url = Url::parse(value)
-        .map_err(|_| BackendError::invalid("invalid_web_url", "网页地址格式无效"))?;
+    let url =
+        Url::parse(value).map_err(|_| BackendError::new("invalid_web_url", "网页地址格式无效"))?;
     let document = document(url, 0)?;
     let parsed = html::parse(&document.body, false)?;
     let text = if document.content_type.starts_with("text/plain") {
@@ -392,7 +392,7 @@ pub fn fetch(value: &str) -> Result<WebPage> {
 fn candidate_url(base: &Url, value: &str) -> Result<Url> {
     let mut url = base
         .join(value)
-        .map_err(|_| BackendError::invalid("invalid_web_url", "检索结果链接无效"))?;
+        .map_err(|_| BackendError::new("invalid_web_url", "检索结果链接无效"))?;
     if url
         .host_str()
         .is_some_and(|host| host.eq_ignore_ascii_case("duckduckgo.com"))
@@ -404,7 +404,7 @@ fn candidate_url(base: &Url, value: &str) -> Result<Url> {
             .map(|(_, value)| value.into_owned())
         {
             url = Url::parse(&target)
-                .map_err(|_| BackendError::invalid("invalid_web_url", "检索结果跳转链接无效"))?;
+                .map_err(|_| BackendError::new("invalid_web_url", "检索结果跳转链接无效"))?;
         }
     }
     resolve(url, cfg!(test)).map(|target| target.url)
@@ -413,7 +413,7 @@ fn candidate_url(base: &Url, value: &str) -> Result<Url> {
 pub fn search(query: &str, limit: usize) -> Result<Value> {
     let query = query.trim();
     if query.is_empty() || query.len() > 300 || !(1..=5).contains(&limit) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_search_query",
             "检索词须为 1 到 300 字节，结果数须为 1 到 5",
         ));

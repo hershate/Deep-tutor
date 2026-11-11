@@ -61,7 +61,7 @@ pub fn validate(kind: &str, bytes: &[u8]) -> Result<()> {
         "gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
         "webp" => bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP"),
         _ => {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "unsupported_media_kind",
                 "该资料不是可预览的音视频或图片",
             ))
@@ -70,7 +70,7 @@ pub fn validate(kind: &str, bytes: &[u8]) -> Result<()> {
     if valid {
         Ok(())
     } else {
-        Err(BackendError::invalid(
+        Err(BackendError::new(
             "invalid_media_format",
             "媒体文件内容与扩展名或文件签名不符",
         ))
@@ -188,7 +188,7 @@ pub fn chunk_bytes(state: &MaterialState, id: i64, offset: u64, length: u64) -> 
         ));
     }
     if offset > total || length == 0 || length > MAX_CHUNK_BYTES {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_media_range",
             "媒体读取范围无效，单次最多读取 256 KiB",
         ));

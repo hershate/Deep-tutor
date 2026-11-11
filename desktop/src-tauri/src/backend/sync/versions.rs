@@ -25,13 +25,13 @@ fn base(config: &SyncConfig) -> Result<String> {
         .remote_path
         .strip_suffix(".json")
         .map(str::to_string)
-        .ok_or_else(|| BackendError::invalid("invalid_sync_path", "同步对象必须使用 .json 文件"))
+        .ok_or_else(|| BackendError::new("invalid_sync_path", "同步对象必须使用 .json 文件"))
 }
 
 pub fn valid_version_path(config: &SyncConfig, path: &str) -> Result<()> {
     let prefix = format!("{}/versions/", base(config)?);
     let name = path.strip_prefix(&prefix).ok_or_else(|| {
-        BackendError::invalid("invalid_sync_version", "只能恢复当前配置历史目录中的版本")
+        BackendError::new("invalid_sync_version", "只能恢复当前配置历史目录中的版本")
     })?;
     if name.is_empty()
         || name.len() > 200
@@ -41,7 +41,7 @@ pub fn valid_version_path(config: &SyncConfig, path: &str) -> Result<()> {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
         || !name.ends_with(".json")
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_sync_version",
             "历史版本文件名无效",
         ));

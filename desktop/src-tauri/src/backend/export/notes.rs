@@ -94,7 +94,7 @@ pub fn archive<R: Runtime>(
         .and_then(|value| value.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
     {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_export_destination",
             "笔记归档必须使用 .zip 扩展名",
         ));

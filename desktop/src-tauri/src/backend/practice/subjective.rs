@@ -132,9 +132,9 @@ pub fn submit<R: Runtime>(
         .as_str()
         .map(str::trim)
         .filter(|answer| !answer.is_empty())
-        .ok_or_else(|| BackendError::invalid("invalid_answer", "主观题答案不能为空"))?;
+        .ok_or_else(|| BackendError::new("invalid_answer", "主观题答案不能为空"))?;
     if actual.len() > 30_000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_answer",
             "主观题答案不能超过 30000 字节",
         ));

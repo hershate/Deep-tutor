@@ -194,7 +194,7 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
     let Some(target) = target else {
         return reject(
             invoke,
-            BackendError::invalid("invalid_user_id", "本地用户标识无效"),
+            BackendError::new("invalid_user_id", "本地用户标识无效"),
         );
     };
     let security = app.state::<SecurityState>();

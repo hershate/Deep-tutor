@@ -212,7 +212,7 @@ pub fn workspace(state: &ProjectState) -> Result<ProjectWorkspace> {
 
 fn project(state: &ProjectState, id: i64) -> Result<Value> {
     if id <= 0 {
-        return Err(BackendError::invalid("invalid_project", "项目标识无效"));
+        return Err(BackendError::new("invalid_project", "项目标识无效"));
     }
     let projects = state.store()?.collection("projects")?.value;
     projects
@@ -307,7 +307,7 @@ pub fn submit<R: Runtime>(
 ) -> Result<ProjectWorkspace> {
     let content = input.content.trim();
     if content.is_empty() || content.len() > 100_000 || content.contains('\0') {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_project_submission",
             "成果正文须为 1 到 100000 字节且不含 NUL",
         ));
@@ -679,7 +679,7 @@ pub fn iteration_note<R: Runtime>(
 ) -> Result<Value> {
     let content = input.content.trim();
     if content.is_empty() || content.len() > 100_000 || content.contains('\0') {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_note",
             "迭代笔记须为 1 到 100000 字节且不含 NUL",
         ));

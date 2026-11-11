@@ -12,7 +12,7 @@ pub fn today() -> Date {
 
 pub fn deadline(value: &str) -> Result<Date> {
     Date::parse(value, &Iso8601::DATE)
-        .map_err(|_| BackendError::invalid("invalid_deadline", "截止日期必须是有效的 YYYY-MM-DD"))
+        .map_err(|_| BackendError::new("invalid_deadline", "截止日期必须是有效的 YYYY-MM-DD"))
 }
 
 pub fn validate_graph(graph: &Graph, sources: &[Source]) -> Result<()> {
@@ -214,7 +214,7 @@ pub fn schedule(
     milestone: Option<Date>,
 ) -> Result<(Schedule, Vec<ScheduledStage>)> {
     if !(10..=600).contains(&daily_minutes) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_daily_minutes",
             "每日时长必须位于 10 到 600 分钟",
         ));

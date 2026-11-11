@@ -595,11 +595,11 @@ pub(crate) fn response_usage(body: &Value) -> Option<TokenUsage> {
 
 pub(crate) fn argument_object(arguments: &str) -> Result<Value> {
     let value = serde_json::from_str::<Value>(arguments)
-        .map_err(|_| BackendError::invalid("invalid_tool_arguments", "工具参数不是有效 JSON"))?;
+        .map_err(|_| BackendError::new("invalid_tool_arguments", "工具参数不是有效 JSON"))?;
     if value.is_object() {
         Ok(value)
     } else {
-        Err(BackendError::invalid(
+        Err(BackendError::new(
             "invalid_tool_arguments",
             "工具参数必须是 JSON 对象",
         ))

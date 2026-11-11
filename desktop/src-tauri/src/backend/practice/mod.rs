@@ -540,7 +540,7 @@ pub fn generate<R: Runtime>(
 ) -> Result<PracticeSetDetail> {
     let count = input.count.unwrap_or(5);
     if !(1..=20).contains(&count) {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_question_count",
             "练习数量须为 1 到 20 题",
         ));
@@ -613,44 +613,38 @@ pub fn generate<R: Runtime>(
     if !["adaptive", "basic", "advanced", "comprehensive"]
         .contains(&input.difficulty.as_deref().unwrap_or("adaptive"))
     {
-        return Err(BackendError::invalid("invalid_difficulty", "练习难度无效"));
+        return Err(BackendError::new("invalid_difficulty", "练习难度无效"));
     }
     if !["immediate", "deferred", "hints"].contains(&feedback_mode.as_str()) {
-        return Err(BackendError::invalid(
-            "invalid_feedback_mode",
-            "反馈方式无效",
-        ));
+        return Err(BackendError::new("invalid_feedback_mode", "反馈方式无效"));
     }
     let mode = input.mode.as_deref().unwrap_or("targeted");
     if !["targeted", "exam"].contains(&mode) {
-        return Err(BackendError::invalid(
-            "invalid_practice_mode",
-            "练习模式无效",
-        ));
+        return Err(BackendError::new("invalid_practice_mode", "练习模式无效"));
     }
     let time_limit = input.time_limit_minutes.unwrap_or(45);
     let pass_score = input.pass_score_percent.unwrap_or(80);
     if mode == "exam" {
         if feedback_mode != "deferred" {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_feedback_mode",
                 "模拟考试必须在交卷后统一反馈",
             ));
         }
         if !(1..=240).contains(&time_limit) {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_exam_time_limit",
                 "考试时长须为 1 到 240 分钟",
             ));
         }
         if !(1..=100).contains(&pass_score) {
-            return Err(BackendError::invalid(
+            return Err(BackendError::new(
                 "invalid_pass_score",
                 "建议通过百分比须为 1 到 100",
             ));
         }
     } else if input.time_limit_minutes.is_some() || input.pass_score_percent.is_some() {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_exam_configuration",
             "考试时长与通过百分比只适用于模拟考试",
         ));
@@ -1328,12 +1322,12 @@ pub fn submit<R: Runtime>(
     let expected: Value = serde_json::from_str(&expected)?;
     let correct = match kind.as_str() {
         "choice" => {
-            let selected = answer.as_u64().ok_or_else(|| {
-                BackendError::invalid("invalid_answer", "单选题答案必须是选项下标")
-            })?;
+            let selected = answer
+                .as_u64()
+                .ok_or_else(|| BackendError::new("invalid_answer", "单选题答案必须是选项下标"))?;
             let options: Vec<String> = serde_json::from_str(&options)?;
             if selected >= options.len() as u64 {
-                return Err(BackendError::invalid("invalid_answer", "所选选项不存在"));
+                return Err(BackendError::new("invalid_answer", "所选选项不存在"));
             }
             Some(selected) == expected.as_u64()
         }
@@ -1341,11 +1335,11 @@ pub fn submit<R: Runtime>(
             let actual = answer
                 .as_str()
                 .filter(|answer| !answer.trim().is_empty())
-                .ok_or_else(|| BackendError::invalid("invalid_answer", "填空题答案不能为空"))?;
+                .ok_or_else(|| BackendError::new("invalid_answer", "填空题答案不能为空"))?;
             // 25#9：对齐主观题的 30,000 字节上限——生成侧填空限 1,000 字，
             // 用户作答原无上限，超大载荷会经 normalize 全量直写 response_json
             if actual.len() > 30_000 {
-                return Err(BackendError::invalid(
+                return Err(BackendError::new(
                     "invalid_answer",
                     "填空题答案不能超过 30000 字节",
                 ));
@@ -1410,7 +1404,10 @@ pub fn submit<R: Runtime>(
     let mut events = vec![Store::event(
         &tx,
         kind,
-        json!({"setId": set_id, "questionId": question_id, "answerId": answer_id, "answered": answered, "correct": reveal.then_some(correct)}),
+        // 129#6：载荷键集与主观题路径（subjective.rs submit）对齐——原先
+        // 缺 requestId，按该键分支的事件消费者在客观题路径拿到 undefined
+        //（客观题即时判分无模型请求，恒为 null）
+        json!({"setId": set_id, "questionId": question_id, "answerId": answer_id, "answered": answered, "correct": reveal.then_some(correct), "requestId": null}),
     )?];
     if let Some(source_question_id) =
         variants::mark_mastered(&tx, question_id, correct && set.feedback_mode != "hints")?

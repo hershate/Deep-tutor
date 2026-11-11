@@ -313,7 +313,7 @@ pub fn save_note<R: Runtime>(
     let id = plan_id(id)?;
     let content = content.trim();
     if content.is_empty() || content.len() > 100_000 {
-        return Err(BackendError::invalid(
+        return Err(BackendError::new(
             "invalid_note",
             "批注不能为空且不能超过 100000 字节",
         ));

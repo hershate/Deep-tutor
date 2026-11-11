@@ -53,7 +53,7 @@ pub fn reveal_path<R: Runtime>(
     let target = super::lexical_absolute(std::path::Path::new(&path));
     let data_root = super::lexical_absolute(startup.data_root());
     if !super::reveal::is_known(&target) && target != data_root {
-        return Err(super::error::BackendError::invalid(
+        return Err(super::error::BackendError::new(
             "reveal_not_allowed",
             "只能定位数据目录或本应用刚导出的文件",
         ));

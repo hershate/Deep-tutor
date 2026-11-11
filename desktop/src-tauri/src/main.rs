@@ -52,13 +52,26 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
             .manage(security::SecurityState::for_verification(
                 &data_root.join("deep-tutor.db"),
             ));
-        startup::initialize(
-            app.handle(),
-            &data_root,
-            &default_root,
-            &pointer,
-            configuration_error,
-        );
+        // 127#9：verify 分支对 assemble panic 兜底——原先 unwind 穿到
+        // builder.run().expect 以 101 退出，CI 把「verify 契约失败」误读成
+        // 「应用崩溃」；对齐 50#1 契约（校验不过 → exit 2）
+        if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            startup::initialize(
+                app.handle(),
+                &data_root,
+                &default_root,
+                &pointer,
+                configuration_error,
+            );
+        })) {
+            let detail = panic
+                .downcast_ref::<&str>()
+                .map(|value| (*value).to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "未知 panic".into());
+            eprintln!("verify-native: assemble 崩溃——{detail}");
+            std::process::exit(2);
+        }
     } else {
         startup::initialize_background(
             app.handle(),
