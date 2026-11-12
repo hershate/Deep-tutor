@@ -86,8 +86,7 @@ fn read_request(stream: &mut TcpStream) -> Option<String> {
             // 133#2：请求头尚未收齐（TCP 分段/头部跨多个 read）时继续读——原先
             // `?` 把「头未完整」与「对端关闭」合并成 None，worker 视作无请求
             // 弃连接，被测客户端的请求凭空消失
-            let Some(header_end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n")
-            else {
+            let Some(header_end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") else {
                 continue;
             };
             let headers = String::from_utf8_lossy(&request[..header_end]);

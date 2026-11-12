@@ -1366,7 +1366,10 @@ fn truncated_tool_results_stay_valid_json_with_status() {
     );
     // 130#10：旧版「前缀+说明」行重放包装标 unknown——原始状态无法还原，
     // 硬编码 done 会对 failed 的长输出语义失真
-    let legacy = format!("{}（内容已截断）", "长".repeat(MODEL_TOOL_CONTENT_LIMIT + 100));
+    let legacy = format!(
+        "{}（内容已截断）",
+        "长".repeat(MODEL_TOOL_CONTENT_LIMIT + 100)
+    );
     let replayed = truncate_replay_for_model(&legacy);
     let parsed: serde_json::Value = serde_json::from_str(&replayed).unwrap();
     assert_eq!(parsed["status"], "unknown");

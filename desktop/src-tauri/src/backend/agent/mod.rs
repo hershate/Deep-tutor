@@ -693,17 +693,19 @@ const SESSION_OUTPUT_TOKENS_SQL: &str = "SELECT COALESCE(SUM(CASE WHEN json_extr
 
 fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
     let store = state.store()?;
-    Ok(store.conn.query_row(
-        // 08#7：部分供应商不回传 usage 字段，原先这些请求对预算贡献 0，
-        // 长会话的已耗被系统性低估；缺失时按输出长度保守估算（字节数/2），
-        // 预算护栏不失真。25#17：原按字符数/2 计，中文 1 字符≈1+ token 被
-        // 低估 2-4 倍、穿透预算护栏；改按字节数/2——ASCII 约为 2 倍高估、
-        // 中文约 1.5 token/字，与"宁可高估"的注释口径一致
-        SESSION_OUTPUT_TOKENS_SQL,
-        params![session_id],
-        |row| row.get::<_, i64>(0),
-    )?
-    .max(0) as u64)
+    Ok(store
+        .conn
+        .query_row(
+            // 08#7：部分供应商不回传 usage 字段，原先这些请求对预算贡献 0，
+            // 长会话的已耗被系统性低估；缺失时按输出长度保守估算（字节数/2），
+            // 预算护栏不失真。25#17：原按字符数/2 计，中文 1 字符≈1+ token 被
+            // 低估 2-4 倍、穿透预算护栏；改按字节数/2——ASCII 约为 2 倍高估、
+            // 中文约 1.5 token/字，与"宁可高估"的注释口径一致
+            SESSION_OUTPUT_TOKENS_SQL,
+            params![session_id],
+            |row| row.get::<_, i64>(0),
+        )?
+        .max(0) as u64)
 }
 
 fn get_run(state: &AgentState, id: i64) -> Result<AgentRun> {
@@ -876,12 +878,14 @@ fn begin_step<R: Runtime>(
     if status != "running" {
         return Err(BackendError::new("cancelled", "Agent 运行已取消"));
     }
-    let previous_attempt = store.conn.query_row(
-        "SELECT attempt FROM agent_runs WHERE id = ?1",
-        params![run.id],
-        |row| row.get::<_, i64>(0),
-    )?
-    .clamp(0, u32::MAX as i64) as u32;
+    let previous_attempt = store
+        .conn
+        .query_row(
+            "SELECT attempt FROM agent_runs WHERE id = ?1",
+            params![run.id],
+            |row| row.get::<_, i64>(0),
+        )?
+        .clamp(0, u32::MAX as i64) as u32;
     let retry = !completed && current.is_some();
     let reusable = retry && providers::completed_chat(&state.providers, current.as_deref())?;
     let attempt = if retry && !reusable {

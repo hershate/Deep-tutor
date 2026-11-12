@@ -261,10 +261,7 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &PracticeState, answer_id: i64) 
                 let failure = match result {
                     Ok(Ok(())) => None,
                     Ok(Err(error)) => Some(error),
-                    Err(_) => Some(BackendError::new(
-                        "task_panicked",
-                        "主观评分任务异常终止",
-                    )),
+                    Err(_) => Some(BackendError::new("task_panicked", "主观评分任务异常终止")),
                 };
                 if let Some(error) = failure {
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

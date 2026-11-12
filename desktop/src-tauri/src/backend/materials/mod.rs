@@ -1454,8 +1454,7 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
         let kind = material.kind.to_ascii_lowercase();
         // 137#1：删除/导出前校验库值成分——毒数据返回类型化错误而非越界删除
         validate_original_parts(&material.sha256, &kind)?;
-        fs::remove_file(original_path(&state.root(), &material.sha256, &kind))
-        .map_err(|_| {
+        fs::remove_file(original_path(&state.root(), &material.sha256, &kind)).map_err(|_| {
             BackendError::new(
                 "cleanup_failed",
                 "资料记录已删除，但原件清理失败，请检查应用数据目录",

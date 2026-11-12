@@ -340,8 +340,8 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                         let mut statement = target.prepare(
                             "SELECT id FROM local_users WHERE display_name = ?1 AND role = ?2 ORDER BY id",
                         )?;
-                        let rows =
-                            statement.query_map(params![display, role], |row| row.get::<_, i64>(0))?;
+                        let rows = statement
+                            .query_map(params![display, role], |row| row.get::<_, i64>(0))?;
                         rows.collect::<std::result::Result<Vec<_>, _>>()?
                     };
                     if let Some(id) = matches.first() {
@@ -365,8 +365,7 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                 // 拒绝整包防止毒行落地后经删除/导出越出工作区
                 if let Some(hash) = row.get("sha256").and_then(Value::as_str) {
                     if !hash.is_empty()
-                        && (hash.len() != 64
-                            || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                        && (hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
                     {
                         return Err(BackendError::new(
                             "backup_constraint_failed",

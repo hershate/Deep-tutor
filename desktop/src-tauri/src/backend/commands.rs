@@ -1007,7 +1007,12 @@ mod tests {
         // 130#4：65 个合法文件——超限整包 Err 且前 64 个不被暂存（重试语义：
         // 修掉多余文件后再导入从零开始，不再永远卡在第 65 条）
         let sixty_five_owned: Vec<(String, Vec<u8>)> = (0..65)
-            .map(|index| (format!("file-{index}.txt"), format!("内容 {index}").into_bytes()))
+            .map(|index| {
+                (
+                    format!("file-{index}.txt"),
+                    format!("内容 {index}").into_bytes(),
+                )
+            })
             .collect();
         let sixty_five: Vec<(&str, &[u8])> = sixty_five_owned
             .iter()

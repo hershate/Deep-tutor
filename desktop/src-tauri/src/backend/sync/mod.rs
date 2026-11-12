@@ -537,16 +537,14 @@ fn run<R: Runtime>(
                     result: json!({"reachable": true, "objectPresent": true, "note": ""}),
                     local_path: None,
                 }),
-                Err(error) if error.code == "sync_object_not_found" => {
-                    Ok(Outcome {
-                        result: json!({
-                            "reachable": true,
-                            "objectPresent": false,
-                            "note": "服务连接正常；同步对象尚未创建，首次上传后自动建立",
-                        }),
-                        local_path: None,
-                    })
-                }
+                Err(error) if error.code == "sync_object_not_found" => Ok(Outcome {
+                    result: json!({
+                        "reachable": true,
+                        "objectPresent": false,
+                        "note": "服务连接正常；同步对象尚未创建，首次上传后自动建立",
+                    }),
+                    local_path: None,
+                }),
                 Err(error) => Err(error),
             }
         }
