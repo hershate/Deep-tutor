@@ -410,10 +410,11 @@ pub(crate) fn read_json(response: reqwest::blocking::Response) -> Result<Value> 
         // 400 {"error":{"message":"Invalid model"}} 的真实原因与 Cloudflare
         // WAF 的 HTML 拦截页全部丢失，只剩状态码猜谜误导排障
         let mut bytes = Vec::new();
-        let _ = response
-            .take(4096)
-            .read_to_end(&mut bytes)
-            .map_err(|_| BackendError::new("invalid_response", "供应商响应读取失败"))?;
+        // 153#2：读错误体失败（WAF/网关发状态行后 RST）不再上抛
+        // invalid_response——那会丢掉已到手的 429/5xx/408 状态码映射，
+        // 使本应重试/转移的瞬态故障被判终态；容忍读失败，保留空 body
+        // 继续走状态码映射（对齐 protocol.rs 异步版 read_error_detail）
+        let _ = response.take(4096).read_to_end(&mut bytes);
         let base = http_error(status);
         if let Ok(body) = serde_json::from_slice::<Value>(&bytes) {
             if let Some(message) = body.pointer("/error/message").and_then(Value::as_str) {

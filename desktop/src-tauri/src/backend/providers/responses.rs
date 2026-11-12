@@ -284,6 +284,33 @@ where
                                 .ok_or_else(|| {
                                     output.error("invalid_tool_call", "工具调用缺少 output_index")
                                 })? as usize;
+                            // 153#6：个别代理只发 done（携带完整参数）不发
+                            // added——未命中索引时以 done 携带的完整字段兜底
+                            // 登记，原先静默丢弃且无诊断（对照 delta/done 路径
+                            // 对缺失索引显式报错的口径，此处数据完整可自愈）
+                            if !output.tool_calls.contains_key(&index)
+                                && item.get("arguments").and_then(Value::as_str).is_some()
+                            {
+                                let call = ToolCall {
+                                    id: item
+                                        .get("call_id")
+                                        .and_then(Value::as_str)
+                                        .or_else(|| item.get("id").and_then(Value::as_str))
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                    name: item
+                                        .get("name")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                    arguments: String::new(),
+                                };
+                                eprintln!(
+                                    "responses stream: output_item.done without added (index {index})——补登记 {}",
+                                    call.name
+                                );
+                                output.tool_calls.insert(index, call);
+                            }
                             if let Some(call) = output.tool_calls.get_mut(&index) {
                                 if let Some(arguments) =
                                     item.get("arguments").and_then(Value::as_str)
@@ -346,10 +373,29 @@ where
                             })
                             .or_else(|| event.pointer("/error/message").and_then(Value::as_str))
                             .unwrap_or("模型响应失败");
+                        // 153#5：流内错误细分 error.code——对齐 Gemini
+                        // （RESOURCE_EXHAUSTED→rate_limited）与 Anthropic
+                        // （overloaded_error→provider_unavailable）的口径；
+                        // 原先一律 provider_error，本应重试/转移的瞬态故障
+                        // （rate_limit_exceeded/server_error/timeout）被判终态
+                        let upstream_code = event
+                            .get("code")
+                            .and_then(Value::as_str)
+                            .or_else(|| event.pointer("/response/error/code").and_then(Value::as_str))
+                            .or_else(|| event.pointer("/error/code").and_then(Value::as_str))
+                            .unwrap_or_default();
+                        let code = match upstream_code {
+                            "rate_limit_exceeded" => "rate_limited",
+                            "server_error" | "internal_error" | "overloaded_error" => {
+                                "provider_unavailable"
+                            }
+                            "timeout" | "request_timeout" => "provider_timeout",
+                            _ => "provider_error",
+                        };
                         // 66#4：上游 message 截断到 200 字符——对齐 openai/gemini
                         // 的防长技术细节/注入文案口径（原先整段直传）
                         return Err(output.error(
-                            "provider_error",
+                            code,
                             &message.chars().take(200).collect::<String>(),
                         ));
                     }

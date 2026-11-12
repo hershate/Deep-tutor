@@ -1114,10 +1114,9 @@ fn begin_chat<R: Runtime>(
         }
         None => get(state, &provider_id)?.default_model,
     };
-    let cancels = state
-        .chat_cancels
-        .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "模型请求状态不可用"))?;
+    // 81#4 + 153#4：chat_cancels 锁内只留登记与 contains 检查——原先幂等
+    // chat()（SQLite 查询，125#8 首次物化前还会全量重放 provider.chat_delta
+    // 事件）也在持锁期间执行，长流重建期间其他请求的取消/停机全部阻塞
     match chat(state, request_id) {
         Ok(existing) => {
             if existing.provider_id != provider_id || existing.model != model {
@@ -1126,7 +1125,13 @@ fn begin_chat<R: Runtime>(
                     "请求标识已用于其他供应商或模型，不会覆盖原请求",
                 ));
             }
-            if existing.status == "running" && cancels.contains_key(request_id) {
+            if existing.status == "running"
+                && state
+                    .chat_cancels
+                    .lock()
+                    .map_err(|_| BackendError::new("store_unavailable", "模型请求状态不可用"))?
+                    .contains_key(request_id)
+            {
                 return Err(BackendError::new(
                     "request_active",
                     "该请求正在执行，不会重复调用模型",
@@ -1137,10 +1142,6 @@ fn begin_chat<R: Runtime>(
         Err(error) if error.code == "not_found" => {}
         Err(error) => return Err(error),
     }
-    // 81#4：锁内只做幂等检查与登记，SQLite 查询/事务移出锁窗口——原先
-    // chat() 与 tx.commit()（busy_timeout 最长 10s）都在 chat_cancels 持锁
-    // 期间执行，恰逢备份导入等长写事务时取消/停机全部阻塞在同一把锁上
-    drop(cancels);
     let store = state.store()?;
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;

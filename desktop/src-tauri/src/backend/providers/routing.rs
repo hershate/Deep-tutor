@@ -702,9 +702,14 @@ fn circuit_permit(
                     "上游正在进行半开探测，未发起并行请求",
                 )));
             }
+            // 153#3：翻回 open 时刷新 opened_at——原先保留熔断打开的旧时间，
+            // open 分支随即又翻回 half_open 放行探测，此后每个顺序到达的
+            // 请求都完整走链拿到探测许可（悬挂探测被替换为无界并行探测）；
+            // 刷新后按新冷却期整周期重启：冷却期内 circuit_open，期满恰一个
+            // 请求翻 half_open——单探测语义恢复
             let changed = conn.execute(
-                "UPDATE provider_circuits SET state = 'open' WHERE provider_id = ?1 AND state = 'half_open'",
-                params![provider_id],
+                "UPDATE provider_circuits SET state = 'open', opened_at = ?2 WHERE provider_id = ?1 AND state = 'half_open'",
+                params![provider_id, now()?],
             )?;
             if changed == 1 {
                 return circuit_permit(conn, provider_id, cooldown);

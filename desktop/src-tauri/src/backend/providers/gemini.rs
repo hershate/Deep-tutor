@@ -90,20 +90,26 @@ fn update_usage(output: &mut StreamOutput, usage: &Value) {
         output_tokens: None,
         cached_input_tokens: None,
     });
-    // 34#17：完整新值 > 旧完整值 > 局部新值——后续事件只带 thoughts 缺
-    // candidates 时（个别网关），不得以局部值回退已累计的完整 output_tokens
+    // 34#17：不得以局部值回退已累计的完整 output_tokens（个别网关只带
+    // thoughts 缺 candidates）。
+    // 153#1：Gemini 的 usageMetadata 为**累计量**而非增量——非 thinking
+    // 模型每 chunk 只带 candidatesTokenCount（thoughts 缺省恒走局部路径），
+    // 原先 complete > 旧值 > 局部 的优先级会把最终 chunk 的累计值钉死在
+    // 首 chunk 值上持续低报；改取大（max）后任一来源的更大累计值生效
     let complete_output = candidates
         .zip(thoughts)
         .map(|(candidates, thoughts)| candidates.saturating_add(thoughts));
     let partial_output = candidates.or(thoughts);
+    let output_tokens = [previous.output_tokens, complete_output, partial_output]
+        .into_iter()
+        .flatten()
+        .max();
     output.usage = Some(TokenUsage {
         input_tokens: usage
             .get("promptTokenCount")
             .and_then(Value::as_u64)
             .or(previous.input_tokens),
-        output_tokens: complete_output
-            .or(previous.output_tokens)
-            .or(partial_output),
+        output_tokens,
         cached_input_tokens: usage
             .get("cachedContentTokenCount")
             .and_then(Value::as_u64)
