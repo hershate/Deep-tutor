@@ -22,6 +22,28 @@ pub struct ArchiveImportResult {
 /// 中途任一条目非法时整包 Err、零落盘，重试语义与决策文档一致），只保留
 /// 条目序号与元数据；阶段二按序号 seek 回读暂存。条目计数只数文件（目录
 /// 条目不占 64 个名额；上限口径为 50MB 本体 / 200MB 解压总量）。
+
+/// 154#4：zip 条目名解码——zip crate 对未置 UTF-8 标志的条目按 cp437
+/// 解码，而中文 Windows 压缩工具（WinRAR/资源管理器）实为 GBK：按
+/// 「原始字节 UTF-8 → GB18030（无错且含 CJK）→ zip 默认解码」取显示名。
+/// GBK 中文件名经 cp437 恒可解出合法乱码（to_str 失败路径不可达），
+/// 不处理则乱码标题静默入库。
+pub(crate) fn entry_display_name<R: std::io::Read>(entry: &zip::read::ZipFile<'_, R>) -> String {
+    let raw = entry.name_raw();
+    if let Ok(text) = std::str::from_utf8(raw) {
+        return text.to_string();
+    }
+    let (text, _, had_errors) = encoding_rs::GB18030.decode(raw);
+    if !had_errors && text.chars().any(is_cjk) {
+        return text.into_owned();
+    }
+    entry.name().to_string()
+}
+
+fn is_cjk(character: char) -> bool {
+    matches!(character as u32, 0x3400..=0x9FFF | 0xF900..=0xFAFF)
+}
+
 pub fn import_archive<R: Runtime>(
     app: &AppHandle<R>,
     state: &MaterialState,
@@ -72,15 +94,18 @@ pub fn import_archive<R: Runtime>(
                 "资料包最多包含 64 个文件",
             ));
         }
-        let title = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .filter(|name| !name.trim().is_empty() && name.len() <= 500)
-            .ok_or_else(|| BackendError::new("invalid_archive_entry", "资料包文件名无效"))?
-            .to_string();
-        let kind = path
-            .extension()
-            .and_then(|value| value.to_str())
+        // 154#4：标题与扩展名取解码后的显示名（enclosed_name 的 cp437
+        // 解码对 GBK 名是乱码）；路径穿越校验仍以 enclosed_name 为准
+        let display = entry_display_name(&entry);
+        let file_name = display.rsplit(['/', '\\']).next().unwrap_or("");
+        let title = if !file_name.trim().is_empty() && file_name.len() <= 500 {
+            file_name.to_string()
+        } else {
+            return Err(BackendError::new("invalid_archive_entry", "资料包文件名无效"));
+        };
+        let kind = file_name
+            .rsplit_once('.')
+            .map(|(_, extension)| extension)
             .unwrap_or("")
             .to_ascii_lowercase();
         if kind == "zip" {

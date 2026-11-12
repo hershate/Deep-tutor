@@ -252,7 +252,11 @@ fn xml_text(bytes: &[u8], kind: &str, cancel: &Arc<AtomicBool>) -> Result<String
                 }
                 let name = event.local_name();
                 let name = name.as_ref();
-                if kind == "epub" && matches!(name, "script" | "style") {
+                // 154#3：已在忽略态时不重设基准——嵌套同名
+                // <script>a<script>b</script>c</script> 的内层 End 原先
+                // 恰好命中被覆盖的基准深度而提前解除忽略，外层 script
+                // 内的文本泄入正文
+                if kind == "epub" && matches!(name, "script" | "style") && ignored_depth == 0 {
                     ignored_depth = depth;
                 }
                 if matches!(name, "t" | "tab") {
@@ -302,7 +306,7 @@ fn xml_text(bytes: &[u8], kind: &str, cancel: &Arc<AtomicBool>) -> Result<String
                 if name == "t" {
                     text_tag = false;
                 }
-                if ignored_depth == depth {
+                if ignored_depth != 0 && ignored_depth == depth {
                     ignored_depth = 0;
                 }
                 depth = depth.saturating_sub(1);

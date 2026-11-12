@@ -440,6 +440,11 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
     // 10#20：候选普遍不可达时不再无限串行抓取（单次 12s 超时 × 全部候选
     // 会阻塞分钟级且无中间事件），最多尝试验证 10 个候选
     const MAX_CANDIDATE_FETCHES: usize = 10;
+    // 154#6：检索总额预算——单候选最坏 4 请求（首页+3 跳）×12s 超时，
+    // 10 候选最坏 ≈8 分钟且无中间事件（10#20 只限了候选数）；超预算即
+    // 返回已验证结果，剩余候选以省略说明
+    const SEARCH_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+    let started = std::time::Instant::now();
     let mut fetches = 0usize;
     for candidate in parsed
         .candidates
@@ -447,6 +452,10 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
         .filter(|candidate| !candidate.href.is_empty() && !candidate.title.is_empty())
     {
         if results.len() >= limit || fetches >= MAX_CANDIDATE_FETCHES {
+            break;
+        }
+        if started.elapsed() >= SEARCH_BUDGET {
+            rejected.push(json!({"note": "检索已达 60 秒总额预算，剩余候选已省略"}));
             break;
         }
         fetches += 1;

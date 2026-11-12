@@ -252,6 +252,7 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
             parse_mode TEXT NOT NULL DEFAULT '',
             text_length INTEGER NOT NULL DEFAULT 0,
             warning TEXT,
+            warning_source TEXT,
             error_code TEXT,
             error_message TEXT,
             source_meta TEXT NOT NULL DEFAULT '',
@@ -279,6 +280,9 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS material_jobs_active ON material_jobs(material_id, status);",
     )?;
+    // 154#2：警示溯源列——区分入库期警示（网页截断，10#25 要跨解析保留）
+    // 与解析期警示（degraded 乱码/跳页，成功重解析应清除）
+    super::store::ensure_column(conn, "materials", "warning_source", "TEXT")?;
     Ok(())
 }
 
@@ -295,8 +299,8 @@ pub fn import_metadata(conn: &Connection, value: &Value, id: i64) -> Result<i64>
     let meta = value.get("meta").and_then(Value::as_str).unwrap_or("");
     let timestamp = now()?;
     conn.execute(
-        "INSERT INTO materials (id, title, kind, size, sha256, status, progress, warning, source_meta, created_at, updated_at)
-         VALUES (?1, ?2, ?3, 0, NULL, 'metadata_only', 0, ?4, ?5, ?6, ?6)",
+        "INSERT INTO materials (id, title, kind, size, sha256, status, progress, warning, warning_source, source_meta, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 0, NULL, 'metadata_only', 0, ?4, 'ingest', ?5, ?6, ?6)",
         params![id, title, kind, "原件未随元数据备份提供", meta, timestamp],
     )?;
     Ok(id)
@@ -670,8 +674,8 @@ fn stage_validated<R: Runtime>(
         // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
         store.ensure_quota_in_tx(&tx, "materials", 1)?;
         tx.execute(
-            "INSERT INTO materials (title, kind, size, sha256, status, progress, warning, source_meta, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 'staged', 0, ?7, ?5, ?6, ?6)",
+            "INSERT INTO materials (title, kind, size, sha256, status, progress, warning, warning_source, source_meta, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'staged', 0, ?7, CASE WHEN ?7 IS NULL THEN NULL ELSE 'ingest' END, ?5, ?6, ?6)",
             params![title, kind, bytes.len() as i64, sha256, source_url.unwrap_or(""), timestamp, initial_warning],
         )?;
         let id = tx.last_insert_rowid();
@@ -999,8 +1003,14 @@ pub(crate) fn finish_parse<R: Runtime>(
     // 98#5 与 lecture/projects 的 1.1.8 口径，materials 是同族第三个域）；
     // 取消交叠时解析结果照存（material_text/长度/模式均写入，镜像「已生成
     // 单元保留」）但终态记 cancelled
+    // 154#2：警示按溯源更新——成功重解析清除上一轮解析期警示（原先
+    // COALESCE 恒保留，degraded 修复后警示永久残留）；入库期警示
+    // （warning_source='ingest'，网页截断）跨解析保留（10#25）
     let changed = tx.execute(
-        "UPDATE materials SET status = ?2, progress = 100, text_length = ?3, parse_mode = ?4, warning = COALESCE(?5, warning), error_code = NULL, error_message = NULL, updated_at = ?6 WHERE id = ?1 AND status IN ('queued', 'parsing')",
+        "UPDATE materials SET status = ?2, progress = 100, text_length = ?3, parse_mode = ?4,
+            warning = CASE WHEN ?5 IS NOT NULL THEN ?5 WHEN COALESCE(warning_source, 'parse') = 'parse' THEN NULL ELSE warning END,
+            warning_source = CASE WHEN ?5 IS NOT NULL THEN 'parse' WHEN COALESCE(warning_source, 'parse') = 'parse' THEN NULL ELSE warning_source END,
+            error_code = NULL, error_message = NULL, updated_at = ?6 WHERE id = ?1 AND status IN ('queued', 'parsing')",
         params![id, final_status, parsed.text.chars().count() as i64, parsed.mode, parsed.warning, now()?],
     )?;
     let cancelled_warning;
@@ -1452,16 +1462,19 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     let store = state.store()?;
     let material = get(&store.conn, &state.root(), id)?;
     let in_use: bool = store.conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM learning_plan_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM knowledge_session_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM project_versions WHERE material_id = ?1)",
+        "SELECT EXISTS(SELECT 1 FROM learning_plan_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM knowledge_session_materials WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM project_versions WHERE material_id = ?1) OR EXISTS(SELECT 1 FROM agent_artifacts a, json_each(a.content_json, '$.citations') c WHERE json_extract(c.value, '$.materialId') = ?1)",
         params![id],
         |row| row.get(0),
     )?;
     if in_use {
         // 65#6：project_versions.material_id 是 SET NULL——被项目版本引用时
-        // 原先静默断链，与 learning/knowledge 两域的友好拒绝口径对齐
+        // 原先静默断链，与 learning/knowledge 两域的友好拒绝口径对齐。
+        // 154#7：第四域 agent_artifacts——产物 content_json 内嵌
+        // citations.materialId 无外键，方案删除后产物存留，原先不拦截
+        // 会使导出/提升后的引用悬空不可溯源
         return Err(BackendError::new(
             "material_in_use",
-            "该资料已被学习方案、Wiki 问答或项目版本引用，不能删除其原文证据",
+            "该资料已被学习方案、Wiki 问答、项目版本或 Agent 产物引用，不能删除其原文证据",
         ));
     }
     let tx = store.conn.unchecked_transaction()?;

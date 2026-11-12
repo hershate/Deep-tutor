@@ -186,10 +186,16 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<NoteSource>> {
                 "单条笔记超过 1 MB 上限",
             ));
         }
-        let title = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .ok_or_else(|| invalid("invalid_note_title", "笔记文件名不是有效 UTF-8"))?
+        // 154#4：标题按 UTF-8→GB18030→默认 的顺序解码显示名——GBK 压缩
+        // 包名原先经 cp437 解出乱码且报「不是有效 UTF-8」
+        let display = super::materials::archive::entry_display_name(&entry);
+        let title = display
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or("")
+            .rsplit_once('.')
+            .map(|(stem, _)| stem)
+            .unwrap_or_else(|| display.rsplit(['/', '\\']).next().unwrap_or(""))
             .to_string();
         let mut bytes = Vec::new();
         entry
