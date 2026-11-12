@@ -13,6 +13,7 @@ use tauri::{AppHandle, Runtime};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+// resources/embedding 只保留旧配置兼容与历史日志读取；实际模型任务为前五项。
 pub const TASKS: [&str; 7] = [
     "agent",
     "plan",

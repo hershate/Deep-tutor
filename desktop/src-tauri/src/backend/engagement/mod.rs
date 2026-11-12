@@ -231,7 +231,7 @@ fn validate_profile(input: &ProfileInput) -> Result<()> {
         || input.role.len() > 100
         || input.goal.len() > 200
         || !["zh-CN", "en-US"].contains(&input.language.as_str())
-        || ![8, 15, 25].contains(&input.weekly_hours)
+        || !(1..=80).contains(&input.weekly_hours)
         || !["案例与练习结合", "先系统阅读，再集中练习", "以项目实践为主"]
             .contains(&input.learning_style.as_str())
         || !["先追问，再针对讲解", "直接给出完整讲解", "苏格拉底式引导"]

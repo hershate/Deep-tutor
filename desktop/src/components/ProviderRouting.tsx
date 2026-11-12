@@ -8,13 +8,11 @@ import { statusName } from '../status'
 const modeNames: Record<string, string> = { direct: '直连', routing: '任务路由', aggregate: '聚合' }
 
 export const taskRoutes: { id: TaskRouteId; name: string; hint: string }[] = [
-  { id: 'agent', name: 'Agent 会话', hint: '支持当前学习上下文' },
+  { id: 'agent', name: 'Agent 会话', hint: '通用问答或可选学习上下文' },
   { id: 'plan', name: '方案生成', hint: '生成与校验学习方案' },
-  { id: 'lecture', name: '自学讲义', hint: '基于资料生成逐单元讲义' },
-  { id: 'practice', name: '测验与判分', hint: '需要稳定结构化输出' },
+  { id: 'lecture', name: '自学讲义', hint: '按方案生成逐单元讲义' },
+  { id: 'practice', name: '测验、判分与项目评价', hint: '需要稳定结构化输出' },
   { id: 'wiki', name: 'Wiki 引用问答', hint: '依据引用范围回答' },
-  { id: 'resources', name: '资源检索', hint: '检索与筛选学习资源' },
-  { id: 'embedding', name: '向量嵌入', hint: '本地知识库索引与召回' },
 ]
 export const emptyRouting: RoutingSettings = { mode: 'direct', routes: {}, aggregateProviderIds: [], aggregateDefault: null, failover: [], circuit: { failures: 3, cooldown: 60, timeout: 45, retries: 2 } }
 type Save = (settings: RoutingSettings) => Promise<boolean>

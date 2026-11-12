@@ -628,11 +628,21 @@ pub fn upsert<R: Runtime>(
             "provider.profile_saved",
             json!({"providerId": id_string, "hasKey": has_key}),
         )?;
+        // 161#1：首个启用档案同时成为默认档案；已有选择不因新增或导入改变。
+        let active_event = if input.enabled.unwrap_or(true) && active_conn(&tx)?.is_none() {
+            tx.execute(
+                "INSERT INTO provider_meta (key, value) VALUES ('active_provider', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![id_string],
+            )?;
+            Some(Store::event(&tx, "provider.active_changed", json!({"providerId": id_string}))?)
+        } else {
+            None
+        };
         tx.commit()?;
-        Ok(event)
+        Ok((event, active_event))
     })();
-    let event = match result {
-        Ok(event) => event,
+    let (event, active_event) = match result {
+        Ok(events) => events,
         Err(error) => {
             if key_provided {
                 restore_credential(state, &id_string, previous_key)?;
@@ -641,6 +651,9 @@ pub fn upsert<R: Runtime>(
         }
     };
     emit(app, &event);
+    if let Some(event) = active_event {
+        emit(app, &event);
+    }
     get(state, &id_string)
 }
 

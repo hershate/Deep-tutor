@@ -255,6 +255,7 @@ export type ProviderRequest = {
   createdAt: string
   updatedAt: string
 }
+// resources/embedding 仅用于读取旧配置与历史日志；没有对应执行链，不在路由编辑器展示。
 export type TaskRouteId = 'agent' | 'plan' | 'lecture' | 'practice' | 'wiki' | 'resources' | 'embedding'
 export type RouteAssignment = { providerId: string | null; model: string | null }
 export type CircuitSettings = { failures: number; cooldown: number; timeout: number; retries: number }

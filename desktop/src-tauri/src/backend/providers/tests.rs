@@ -1819,3 +1819,14 @@ fn disconnect_before_any_event_is_endpoint_unreachable() {
     assert_eq!(request.error.unwrap().code, "endpoint_unreachable");
     assert_eq!(request.output, "");
 }
+
+#[test]
+fn first_enabled_profile_becomes_active_without_an_extra_setup_step() {
+    let (app, state) = setup();
+    assert_eq!(active(&state).unwrap(), None);
+    let first = upsert(app.handle(), &state, input("http://127.0.0.1:1")).unwrap();
+    assert_eq!(active(&state).unwrap().as_deref(), Some(first.id.as_str()));
+    let second = upsert(app.handle(), &state, input("http://127.0.0.1:2")).unwrap();
+    assert_eq!(active(&state).unwrap().as_deref(), Some(first.id.as_str()));
+    assert_ne!(first.id, second.id);
+}

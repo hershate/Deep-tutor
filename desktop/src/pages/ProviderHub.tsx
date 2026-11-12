@@ -176,9 +176,8 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     return () => { disposed = true; unlisten?.(); throttledChatRefresh.cancel() }
   }, [refresh])
 
-  // 32#21：预览 effect 依赖基元化——原先依赖 profiles/routing 的数组身份，
-  // 每个 provider.* 事件刷新都触发重复 export_provider_config
-  const configKey = `${view}|${activeId}|${routing.mode}|${profiles.map(profile => `${profile.id}:${profile.enabled}:${profile.hasKey}:${profile.models.length}:${profile.defaultModel}`).join(',')}`
+  // 预览键覆盖实际导出的全部非敏感字段；编辑地址、协议、模型名或路由后必须重读。
+  const configKey = JSON.stringify({ view, activeId, routing, profiles })
   useEffect(() => {
     if (view !== '配置与同步') return
     let current = true
@@ -194,6 +193,11 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     const provider = profiles.find(profile => profile.id === routing.routes.agent?.providerId && profile.enabled) ?? activeProfile
     return provider?.models ?? []
   }, [profiles, routing, activeProfile])
+  const canSend = routing.mode === 'aggregate'
+    ? routing.aggregateProviderIds.length > 0
+    : routing.mode === 'routing'
+      ? Boolean(routing.routes.agent?.providerId || activeId)
+      : Boolean(activeId)
   const toggleAggregate = (id: string) => {
     const included = routing.aggregateProviderIds.includes(id)
     if (included && routing.aggregateDefault === id) { notify('聚合默认供应商不能移出，请先更换默认项'); return }
@@ -391,7 +395,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     } catch (error) { notify(backendErrorMessage(error)) } finally { setBusy('') }
   }
   const startChat = async () => {
-    if ((!activeId && routing.mode !== 'aggregate') || !prompt.trim() || streamBusy) return
+    if (!canSend || !prompt.trim() || streamBusy) return
     const requestId = `manual-${crypto.randomUUID()}`
     requestIdRef.current = requestId
     upstreamRequestIdRef.current = requestId
@@ -420,7 +424,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
       <section className="surface native-chat-panel">
         <SectionHeader title="真实模型流式请求" description={`${routing.mode === 'direct' ? '当前供应商直连' : routing.mode === 'routing' ? '原生任务路由' : '聚合模型选择'} · 实际协议由上游档案决定`} action={<Badge tone={liveRequest?.status === 'done' ? 'green' : 'neutral'}>{liveRequest ? `原生状态：${statusName(liveRequest.status)}` : '尚未请求'}</Badge>} />
         <label>请求内容<textarea rows={3} maxLength={16000} value={prompt} onChange={event => setPrompt(event.target.value)} /></label>
-        <div className="form-grid"><label>请求模型<select value={requestModel} onChange={event => setRequestModel(event.target.value)}><option value="">使用路由与默认模型</option>{[...new Set(requestModels)].map(model => <option key={model} value={model}>{model}</option>)}</select></label><label>最大输出 tokens<input type="number" min={1} max={16384} value={maxTokens} onChange={event => setMaxTokens(Math.max(1, Math.min(16384, Number(event.target.value) || 1)))} /></label><div className="editor-actions"><Button variant="secondary" onClick={() => void cancelChat()} disabled={!streamBusy}><Square size={15} />取消请求</Button><Button onClick={() => void startChat()} disabled={(!activeId && routing.mode !== 'aggregate') || !prompt.trim() || streamBusy}>{streamBusy ? <LoaderCircle size={16} className="spin" /> : <Zap size={16} />}发送真实请求</Button></div></div>
+        <div className="form-grid"><label>请求模型<select value={requestModel} onChange={event => setRequestModel(event.target.value)}><option value="">使用路由与默认模型</option>{[...new Set(requestModels)].map(model => <option key={model} value={model}>{model}</option>)}</select></label><label>最大输出 tokens<input type="number" min={1} max={16384} value={maxTokens} onChange={event => setMaxTokens(Math.max(1, Math.min(16384, Number(event.target.value) || 1)))} /></label><div className="editor-actions"><Button variant="secondary" onClick={() => void cancelChat()} disabled={!streamBusy}><Square size={15} />取消请求</Button><Button onClick={() => void startChat()} disabled={!canSend || !prompt.trim() || streamBusy}>{streamBusy ? <LoaderCircle size={16} className="spin" /> : <Zap size={16} />}发送真实请求</Button></div></div>
         {streamError && <div className="form-error" role="alert"><CircleAlert size={16} />{streamError}</div>}
         {liveRequest && <><pre className="native-chat-output">{liveRequest.output || (liveRequest.status === 'running' ? '等待上游返回文本…' : '没有已保存的文本输出')}</pre><div className="provider-health-summary"><span>实际上游：{profiles.find(profile => profile.id === liveRequest.providerId)?.name ?? liveRequest.providerId}</span><span>模型：{liveRequest.model}</span><span>实际尝试：{liveRequest.attempts} 次</span><span>{liveRequest.usage ? `输入 ${liveRequest.usage.inputTokens ?? '未报告'} · 输出 ${liveRequest.usage.outputTokens ?? '未报告'} tokens` : '上游未报告用量'}</span><span>{liveRequest.latencyMs === null ? '等待终态' : `${liveRequest.latencyMs} ms`}</span></div>{liveRequest.error && <div className="form-error" role="alert"><CircleAlert size={16} />{liveRequest.error.code}：{liveRequest.error.message}</div>}</>}
       </section>
