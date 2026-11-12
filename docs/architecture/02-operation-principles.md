@@ -84,7 +84,7 @@ flowchart TD
     N --> O[回写新指纹与 schema_version]
 ```
 
-## 3. 事件系统与 Last-Event-ID 续接
+## 3. 事件系统与快照校准续接
 
 后端写路径（事务内 `Store::event` store.rs:768 → commit → `emit` backend/commands.rs:22）保证**终态先落盘再发送**。事件 id 由 events 表 AUTOINCREMENT 单调递增。
 
