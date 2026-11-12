@@ -28,7 +28,9 @@
   store.
 - Use one material parse worker. Keep pending jobs in SQLite, support cancellation while queued,
   do not start another job after stopping, and register the next job before retiring the old one.
-- Events have monotonically increasing ids and support Last-Event-ID replay. Persist a
+- Events have monotonically increasing ids on a single `backend://event` channel. The
+  frontend reconnects via event-triggered full-state snapshot reconciliation (cursor is the
+  snapshot's `lastEventId`; no per-page incremental fetch). Persist a
   terminal result before emitting it. Reconnecting must not repeat execution or billing.
 - Cancellation and failure paths retain all tokens and costs already consumed.
 - API keys enter the OS keyring through one-time forms. They never enter WebView storage,
