@@ -25,9 +25,12 @@ struct StoredLocation {
 }
 
 pub struct StartupState {
-    root: PathBuf,
     default_root: PathBuf,
     pointer: PathBuf,
+    // 152#4：root 需在重试成功后回写（外部改指针 + 进程内 retry 时
+    // assemble 用新 root 建库，而 data_root()/overview 仍指旧目录直到
+    // 重启）——改 Mutex 以支持运行中更新
+    root: Mutex<PathBuf>,
     pending_root: Mutex<Option<PathBuf>>,
     failure: Mutex<Option<BackendError>>,
     running: std::sync::atomic::AtomicBool,
@@ -51,8 +54,27 @@ pub struct StartupOverview {
 
 impl StartupState {
     /// 当前应用数据根目录：导出等写盘命令用它做第二道路径遏制（08#2）
-    pub fn data_root(&self) -> &std::path::Path {
-        &self.root
+    /// 152#4：返回克隆（root 为可回写的 Mutex 字段）
+    pub fn data_root(&self) -> std::path::PathBuf {
+        self.root
+            .lock()
+            .map(|root| root.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+    }
+
+    /// 重试成功后回写实际装配的根目录（152#4）
+    fn set_root(&self, next: PathBuf) {
+        match self.root.lock() {
+            Ok(mut root) => *root = next,
+            Err(poisoned) => *poisoned.into_inner() = next,
+        }
+    }
+
+    fn current_root(&self) -> PathBuf {
+        self.root
+            .lock()
+            .map(|root| root.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
     }
 
     /// 默认数据根目录（未迁移时的位置）：迁移后旧默认目录仍存历史数据，
@@ -72,7 +94,7 @@ impl StartupState {
     #[cfg(test)]
     pub(crate) fn for_tests(root: &Path, default_root: &Path) -> Self {
         Self {
-            root: root.to_path_buf(),
+            root: Mutex::new(root.to_path_buf()),
             default_root: default_root.to_path_buf(),
             pointer: root.join("storage-location.json"),
             pending_root: Mutex::new(None),
@@ -306,7 +328,7 @@ pub fn reset_location(pointer: &Path) -> Result<()> {
 fn prepare<R: Runtime>(app: &AppHandle<R>, root: &Path, default_root: &Path, pointer: &Path) {
     if app.try_state::<StartupState>().is_none() {
         app.manage(StartupState {
-            root: root.to_path_buf(),
+            root: Mutex::new(root.to_path_buf()),
             default_root: default_root.to_path_buf(),
             pointer: pointer.to_path_buf(),
             pending_root: Mutex::new(None),
@@ -314,6 +336,11 @@ fn prepare<R: Runtime>(app: &AppHandle<R>, root: &Path, default_root: &Path, poi
             running: std::sync::atomic::AtomicBool::new(false),
             notice: Mutex::new(None),
         });
+    }
+    // 152#4：State 已存在（重试路径）时同步刷新 root——外部改指针后
+    // retry 以新 root 装配，data_root()/overview 不得滞留旧目录
+    else {
+        app.state::<StartupState>().set_root(root.to_path_buf());
     }
 }
 
@@ -543,7 +570,7 @@ fn overview<R: Runtime>(app: &AppHandle<R>) -> Result<StartupOverview> {
         .try_state::<StartupState>()
         .ok_or_else(|| BackendError::new("startup_unavailable", "本地启动状态不可用"))?;
     Ok(StartupOverview {
-        data_root: state.root.clone(),
+        data_root: state.current_root(),
         default_data_root: state.default_root.clone(),
         pending_data_root: state.pending()?,
         ready: !state.running()
@@ -584,8 +611,14 @@ pub mod commands {
             {
                 return overview(&app);
             }
+            // 152#3：守卫通过即在命令线程同步置位 running——原先在
+            // spawn_blocking 闭包内才置位，两次并发 retry 都能通过守卫
+            // 形成双路 assemble（对照 initialize_background 的同步置位）
+            state
+                .running
+                .store(true, std::sync::atomic::Ordering::Release);
             let configured = configured_directory(&state.pointer, &state.default_root);
-            let root = configured.clone().unwrap_or_else(|_| state.root.clone());
+            let root = configured.clone().unwrap_or_else(|_| state.current_root());
             (
                 root,
                 state.default_root.clone(),
@@ -595,10 +628,6 @@ pub mod commands {
         };
         let background_app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            let state = background_app.state::<StartupState>();
-            state
-                .running
-                .store(true, std::sync::atomic::Ordering::Release);
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 initialize(
                     &background_app,
@@ -654,7 +683,7 @@ pub mod commands {
             use tauri::Manager;
             let state = app.state::<StartupState>();
             reset_location(&state.pointer)?;
-            let pending = (state.root != state.default_root).then(|| state.default_root.clone());
+            let pending = (state.current_root() != state.default_root).then(|| state.default_root.clone());
             state.set_pending(pending)?;
             overview(&app)
         })

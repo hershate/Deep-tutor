@@ -114,6 +114,7 @@ pub async fn test_provider<R: Runtime>(
 }
 
 #[tauri::command(async)]
+#[allow(dead_code)] // 151#2：注册表移除后仅协议测试直调使用（main.rs 注释在案）
 pub async fn stream_provider_chat<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,

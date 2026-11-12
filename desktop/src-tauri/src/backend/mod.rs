@@ -40,7 +40,7 @@ pub(crate) fn reject_data_root_destination<R: tauri::Runtime>(
     let root = state.data_root();
     let root = root
         .canonicalize()
-        .unwrap_or_else(|_| lexical_absolute(root));
+        .unwrap_or_else(|_| lexical_absolute(&root));
     // 65#5：迁移数据目录后，旧默认目录仍存有历史库与原件——导出目的地
     // 选在旧默认目录内同样拒绝，防止覆盖历史数据
     let default_root = state.default_data_root();

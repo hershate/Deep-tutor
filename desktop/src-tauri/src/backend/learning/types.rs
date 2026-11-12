@@ -140,6 +140,9 @@ pub struct ValidationReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
+// 151#3：本结构为全库唯一 rename_all="snake_case"——仅 validate 内部消费、
+// 从不跨 IPC 返回（前端 LearningValidation 对应 camelCase 的 ValidationReport）。
+// 不得按「全库 camelCase」假设改其字段名。
 pub struct ModelReport {
     pub dependency_closure: CheckResult,
     pub difficulty_step: CheckResult,

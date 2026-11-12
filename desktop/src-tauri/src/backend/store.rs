@@ -18,7 +18,10 @@ pub(crate) const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// v2（34#1）：provider_requests 增列 agent_session_id（31#1 引入时漏递增，
 /// 已在版本 1 记录过指纹的存量库跳过迁移，Agent 域 SQL 报 no such column）
 /// v3（99#5）：provider_circuits 增列 last_failure_at（失败计数时间窗）
-const SCHEMA_VERSION: i64 = 3;
+/// v4（129 波补递增，152#2）：索引三补三删进 migrate()（129#2/#3/#4 的
+/// CREATE/DROP INDEX）——当时未递增版本，v3 时代建库的存量库指纹自洽
+/// （索引是迁移产物非前提）导致该批索引修复对升级库永不执行
+const SCHEMA_VERSION: i64 = 4;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
 // 107#5：每路径一次性的「schema 已就绪」登记——首开（迁移/schema 建立/
 // user1 整库迁移段）持全局锁，同路径后续打开跳锁；原实现无条件持锁，
@@ -323,6 +326,14 @@ impl Store {
                     .and_then(|name| name.to_str())
                     .unwrap_or("store")
             ));
+            // 152#1：清扫上次失败/崩溃残留的 staged 临时件——rename 主文件
+            // 成功而 -wal 失败的路径会留下 migration-tmp-wal，不清扫则永久滞留
+            for stale in ["-wal", ""] {
+                let _ = fs::remove_file(staged.with_file_name(format!(
+                    "{}{stale}",
+                    staged.file_name().and_then(|name| name.to_str()).unwrap_or_default()
+                )));
+            }
             let copy_result = (|| -> std::io::Result<()> {
                 fs::copy(&root, &staged)?;
                 let root_name = root
@@ -344,7 +355,12 @@ impl Store {
                         )?;
                     }
                 }
-                for suffix in ["", "-wal"] {
+                // 152#1：-wal 先落位、主文件后落位——主文件一旦先落位，
+                // 二次 rename 失败（目标被杀软锁定/IO 错误/两 rename 间崩溃）
+                // 会使 path.exists() 为真，下次打开跳过整段迁移并打开缺 WAL
+                // 帧的库（127#8 要保的提交静默丢失）；反序时主文件未落位，
+                // 失败重试会自然重做迁移
+                for suffix in ["-wal", ""] {
                     let from = staged.with_file_name(format!("{staged_name}{suffix}"));
                     if from.exists() {
                         fs::rename(
@@ -1789,6 +1805,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, "3");
+        // 152#2：SCHEMA_VERSION 递增至 4（129 波索引迁移补登记）
+        assert_eq!(version, "4");
     }
 }

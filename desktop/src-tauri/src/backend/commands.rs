@@ -51,7 +51,7 @@ pub fn reveal_path<R: Runtime>(
 ) -> Result<()> {
     use tauri_plugin_opener::OpenerExt;
     let target = super::lexical_absolute(std::path::Path::new(&path));
-    let data_root = super::lexical_absolute(startup.data_root());
+    let data_root = super::lexical_absolute(&startup.data_root());
     if !super::reveal::is_known(&target) && target != data_root {
         return Err(super::error::BackendError::new(
             "reveal_not_allowed",

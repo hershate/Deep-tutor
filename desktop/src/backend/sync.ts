@@ -20,7 +20,8 @@ export type SyncJob = {
   kind: 'check' | 'upload' | 'download' | 'import' | 'restore'
   status: 'running' | 'cancelling' | 'done' | 'failed' | 'cancelled' | 'interrupted'
   remotePath: string
-  result: null | { profiles?: number; routingMode?: string; activeProvider?: string | null; sha256?: string; bytes?: number; reachable?: boolean; remoteConfirmed?: boolean; historyPath?: string; versions?: number }
+  // 151#1：删去 Rust 从不写入的 routingMode/activeProvider 两键（死类型字段）
+  result: null | { profiles?: number; sha256?: string; bytes?: number; reachable?: boolean; remoteConfirmed?: boolean; historyPath?: string; versions?: number }
   localPath: string | null
   error: BackendError | null
   createdAt: string

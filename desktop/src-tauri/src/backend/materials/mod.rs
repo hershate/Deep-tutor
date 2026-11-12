@@ -593,16 +593,39 @@ fn stage_validated<R: Runtime>(
         .optional()?
     {
         // 11#15：命中去重但原件丢失（外部删除/杀毒隔离）时补写原件，
-        // 否则该内容永远报 missing_original，且被方案引用时删除也被阻止
-        let destination = original_path(&state.root(), &sha256, &kind);
+        // 否则该内容永远报 missing_original，且被方案引用时删除也被阻止。
+        // 154#1：回补路径以**现有行**的 kind 构造——原先用本次导入的 kind，
+        // 跨扩展名导入（a.txt 原件丢失后再导入同内容 b.md）会把字节写到
+        // {sha}.md（无行引用），现有行 original_available 仍 false，回补失效
+        // 且产生孤儿副本
+        let existing_kind: String = store.conn.query_row(
+            "SELECT kind FROM materials WHERE id = ?1",
+            params![existing],
+            |row| row.get(0),
+        )?;
+        let destination = original_path(&state.root(), &sha256, &existing_kind);
         if !destination.is_file() {
             fs::create_dir_all(destination.parent().unwrap_or(&state.root()))?;
             let temporary = destination.with_extension(format!(
-                "{kind}.restore-{}-{}",
+                "{existing_kind}.restore-{}-{}",
                 std::process::id(),
                 TEMP_ID.fetch_add(1, Ordering::Relaxed)
             ));
-            fs::write(&temporary, &bytes)?;
+            // 152#9：对齐其余原子写实现——落盘后 sync 再 rename（原先
+            // fs::write 无 fsync，崩溃窗口留半写 tmp）
+            let mut refill = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)?;
+            let written = (|| -> std::io::Result<()> {
+                std::io::Write::write_all(&mut refill, &bytes)?;
+                refill.sync_all()
+            })();
+            drop(refill);
+            if let Err(error) = written {
+                let _ = fs::remove_file(&temporary);
+                return Err(error.into());
+            }
             if let Err(error) = fs::rename(&temporary, &destination) {
                 let _ = fs::remove_file(&temporary);
                 return Err(error.into());

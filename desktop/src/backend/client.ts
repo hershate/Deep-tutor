@@ -565,8 +565,10 @@ export function reportBackendError(error: unknown, kind: 'read' | 'write' = 'rea
   console.error(error)
   // 03#6：database_busy 是瞬态争用（写锁超时/维护检查点未完），事件驱动的
   // 读刷新会随下一个事件自动重试，不打断用户。
+  // 152#8：store_busy（迁移 checkpoint 被长读挡住）同口径——同为「下一轮
+  // 自愈」的瞬态争用，读路径命中原先弹红色错误 toast。
   // B-17：写操作失败没有后续事件自愈——静默等于丢操作（勾选弹回、答案
   // 丢失），写路径必须提示用户重试
-  if (kind === 'read' && typeof error === 'object' && error !== null && 'code' in error && (error as Partial<BackendError>).code === 'database_busy') return
+  if (kind === 'read' && typeof error === 'object' && error !== null && 'code' in error && ['database_busy', 'store_busy'].includes(String((error as Partial<BackendError>).code))) return
   window.dispatchEvent(new CustomEvent('backend-error', { detail: message }))
 }

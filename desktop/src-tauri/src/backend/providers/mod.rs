@@ -1178,6 +1178,7 @@ fn begin_chat<R: Runtime>(
     ))
 }
 
+#[allow(dead_code)] // 151#2：生产走 routing::stream_chat；本体检索/协议测试直调保留
 pub fn stream_chat<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
@@ -1197,6 +1198,7 @@ pub fn stream_chat<R: Runtime>(
     )
 }
 
+#[allow(dead_code)] // 151#2：同上，测试面保留
 pub fn stream_chat_with_tools<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
@@ -1218,6 +1220,7 @@ pub fn stream_chat_with_tools<R: Runtime>(
     )
 }
 
+#[allow(dead_code)] // 151#2：同上，测试面保留
 pub fn stream_chat_with_model<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
