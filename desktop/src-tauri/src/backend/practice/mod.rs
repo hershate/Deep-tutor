@@ -1130,7 +1130,10 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
             }, row.get(7)?))
         },
     ).optional()?.ok_or_else(|| BackendError::new("not_found", "练习集合不存在"))?;
-    set.kinds = serde_json::from_str(&kinds)?;
+    // 150#2：坏行降级（对齐 detail() 的 options/citations/node_ids
+    // unwrap_or_default 口径）——外部改库/断电部分写入的单行损坏原先
+    // 直穿上抛，list_practice_history 整命令失败、其余健康行一并不可见
+    set.kinds = serde_json::from_str(&kinds).unwrap_or_default();
     set.answered_questions = conn.query_row(
         "SELECT COUNT(*) FROM practice_answers WHERE set_id = ?1 AND status = 'done'",
         params![id],

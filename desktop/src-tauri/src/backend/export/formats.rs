@@ -53,6 +53,16 @@ fn xml(value: &str) -> String {
     escape_html(value)
 }
 
+/// 155#5：剥离 XML 1.0 非法 C0 控制字符（保留制表符）——笔记正文/
+/// 资料解析文本可含垂直制表符等，原先原样进入 OPML 使严格解析器
+/// 拒收整个文件（PDF/Anki 路径各自滤过，OPML 漏配）
+fn xml_safe(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| *character == '\t' || !character.is_control())
+        .collect()
+}
+
 pub fn html(document: &ExportDocument) -> String {
     let mut content = String::new();
     for section in &document.sections {
@@ -196,11 +206,11 @@ pub fn ics(document: &ExportDocument) -> Result<String> {
 /// OPML text 属性专用转义（11#8）：属性规范化会折叠字面换行为空格，
 /// 多行内容改以字符引用 &#10; 保留行结构
 fn xml_attr(value: &str) -> String {
-    xml(value).replace('\n', "&#10;").replace('\r', "")
+    xml(&xml_safe(value)).replace('\n', "&#10;").replace('\r', "")
 }
 
 pub fn opml(document: &ExportDocument) -> String {
-    let mut output = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\"><head><title>{}</title></head><body><outline text=\"{}\">", xml(&document.title), xml_attr(&document.title));
+    let mut output = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\"><head><title>{}</title></head><body><outline text=\"{}\">", xml(&xml_safe(&document.title)), xml_attr(&document.title));
     for section in &document.sections {
         output.push_str(&format!(
             "<outline text=\"{}\">",

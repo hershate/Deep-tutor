@@ -349,6 +349,15 @@ fn commit_artifact<R: Runtime>(
             ));
         }
     }
+    // 156#6：更新已存在行时先备份旧内容——atomic_write 先落新文件、
+    // tx.commit() 后置，commit 失败（busy/落盘错）原先使文件为新哈希而
+    // DB 回滚到旧哈希，read_artifact 哈希校验从此恒
+    // artifact_modified_externally，该产物 read/edit/promote 全废
+    let previous_bytes = if existing.is_some() && target.is_file() {
+        std::fs::read(&target).ok()
+    } else {
+        None
+    };
     atomic_write(&target, &bytes)?;
     let id = if let Some((id, _)) = existing {
         tx.execute("UPDATE agent_artifacts SET plan_id = ?1, stage_id = ?2, unit_index = ?3, content_json = ?4, sha256 = ?5, status = 'committed', expires_at = ?6 WHERE id = ?7", params![session.plan_id, stage_id, unit_index as i64, serde_json::to_string(content)?, hash, expires, id])?;
@@ -362,7 +371,16 @@ fn commit_artifact<R: Runtime>(
         "agent.artifact_committed",
         json!({"sessionId": session.id, "artifactId": id, "path": path, "status": "committed"}),
     )?;
-    tx.commit()?;
+    if let Err(error) = tx.commit() {
+        // 156#6：commit 失败补偿——已存在行回写旧内容（或移除本次新建的
+        // 孤儿文件），文件与 DB 哈希重新一致，产物可用性保住
+        if let Some(previous) = previous_bytes {
+            let _ = atomic_write(&target, &previous);
+        } else if existing.is_none() {
+            let _ = std::fs::remove_file(&target);
+        }
+        return Err(error.into());
+    }
     emit(app, &event);
     Ok(
         json!({"status": "committed", "artifactId": id, "path": path, "sha256": hash, "expiresAt": expires}),
@@ -901,6 +919,35 @@ pub fn approve<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> 
     }
 }
 
+/// 156#1：promote 拒绝分支收口 pending 审批（101#2 只修了
+/// artifact_not_committed 分支）——拒绝时审批停留 pending 使审批卡
+/// 永驻且反复报错；统一 resolve 为 expired 并发事件
+fn reject_with_pending<R: Runtime>(
+    app: &AppHandle<R>,
+    store: &Store,
+    approval_id: i64,
+    artifact_id: i64,
+    code: &str,
+    message: &str,
+) -> BackendError {
+    let result = (|| -> Result<()> {
+        let tx = store.conn.unchecked_transaction()?;
+        resolve_pending(&tx, approval_id, "expired", &now()?)?;
+        let event = Store::event(
+            &tx,
+            "agent.approval_expired",
+            json!({"approvalId": approval_id, "artifactId": artifact_id}),
+        )?;
+        tx.commit()?;
+        emit(app, &event);
+        Ok(())
+    })();
+    if let Err(error) = result {
+        eprintln!("收口审批 {approval_id} 失败：{}", error.message);
+    }
+    BackendError::new(code, message)
+}
+
 fn promote<R: Runtime>(
     app: &AppHandle<R>,
     state: &AgentState,
@@ -973,14 +1020,32 @@ fn promote<R: Runtime>(
             "产物已超过 24 小时，不能提升",
         ));
     }
+    // 156#1：read_artifact 抛错（如 artifact_modified_externally）的传播
+    // 路径与三个拒绝分支统一收口 pending——原先直接 return 使审批卡永驻
     let (_, stage_id, unit_index, current, actual_sha256) =
-        read_artifact(state, session, artifact_id)?;
+        match read_artifact(state, session, artifact_id) {
+            Ok(value) => value,
+            Err(error) => {
+                return Err(reject_with_pending(
+                    app,
+                    &store,
+                    approval_id,
+                    artifact_id,
+                    &error.code,
+                    &error.message,
+                ))
+            }
+        };
     if artifact.3 != expected_sha256
         || actual_sha256 != expected_sha256
         || stage_id != artifact.0
         || unit_index as i64 != artifact.1
     {
-        return Err(BackendError::new(
+        return Err(reject_with_pending(
+            app,
+            &store,
+            approval_id,
+            artifact_id,
             "artifact_approval_stale",
             "产物已在请求批准后改变，请重新请求提升",
         ));
@@ -989,13 +1054,21 @@ fn promote<R: Runtime>(
     let content = content(serde_json::to_value(current)?, &sources)?;
     let lecture = learning::lecture::get(&state.learning, &session.plan_id, &artifact.0, None)?;
     if lecture.status != "done" {
-        return Err(BackendError::new(
+        return Err(reject_with_pending(
+            app,
+            &store,
+            approval_id,
+            artifact_id,
             "lecture_not_ready",
             "请先完成基础讲义，再批准产物提升",
         ));
     }
     if artifact.1 < 0 || artifact.1 as usize >= lecture.units.len() {
-        return Err(BackendError::new(
+        return Err(reject_with_pending(
+            app,
+            &store,
+            approval_id,
+            artifact_id,
             "invalid_artifact_scope",
             "产物单元索引超出讲义范围",
         ));

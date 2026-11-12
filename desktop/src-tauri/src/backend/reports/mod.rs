@@ -222,6 +222,19 @@ fn timestamp(value: OffsetDateTime) -> Result<String> {
     Ok(value.format(&Rfc3339)?)
 }
 
+/// 150#1：窗口边界专用格式化——显式补零纳秒小数位（对齐 review::day_start
+/// 135#8 口径）。RFC3339 在纳秒为 0 时省略小数位，而列内时间戳几乎总带
+/// `.` 小数：字符串（字典序）比较下 `'.'(0x2E) < 'Z'(0x5A)`，无补零的
+/// `>= 边界` 会把窗口首日第一秒内落库的行判为窗外（focus 组成/练习统计/
+/// 保持率/evidence/日历五处同源）
+fn boundary_text(value: OffsetDateTime) -> Result<String> {
+    let mut boundary = timestamp(value)?;
+    if let Some(position) = boundary.rfind('Z') {
+        boundary.insert_str(position, ".000000000");
+    }
+    Ok(boundary)
+}
+
 fn parse_time(value: &str) -> Result<OffsetDateTime> {
     OffsetDateTime::parse(value, &Rfc3339)
         .map_err(|_| BackendError::new("invalid_record", "持久化时间格式无效"))
@@ -800,8 +813,8 @@ fn learning_report(state: &ReportState, period: &str) -> Result<LearningReport> 
 /// 73#13a：dashboard 等扇出方传入已持有的连接，不再重开
 pub(crate) fn report_with(store: &super::store::Store, period: &str) -> Result<LearningReport> {
     let (since, _, previous) = period_bounds(period)?;
-    let since_text = timestamp(since.to_offset(time::UtcOffset::UTC))?;
-    let previous_text = timestamp(previous.to_offset(time::UtcOffset::UTC))?;
+    let since_text = boundary_text(since.to_offset(time::UtcOffset::UTC))?;
+    let previous_text = boundary_text(previous.to_offset(time::UtcOffset::UTC))?;
     let (focus_seconds, previous_focus_seconds) =
         focus_minutes(&store, &since_text, &previous_text)?;
     // B-11：hints 模式作答不进正确率聚合——「题目答错」可从聚合值反推，
@@ -1034,7 +1047,7 @@ pub(crate) fn calendar_with(store: &super::store::Store) -> Result<CalendarRepor
         )?;
         let rows = statement
             .query_map(
-                params![timestamp(window_start.to_offset(time::UtcOffset::UTC))?],
+                params![boundary_text(window_start.to_offset(time::UtcOffset::UTC))?],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;

@@ -81,7 +81,8 @@ pub fn import_archive<R: Runtime>(
         let mut entry = archive
             .by_index(index)
             .map_err(|_| BackendError::new("invalid_archive_entry", "无法读取资料包条目"))?;
-        let path = entry.enclosed_name().ok_or_else(|| {
+        // 路径穿越校验（154#4：显示名另走解码链，安全校验仍以 enclosed_name 为准）
+        entry.enclosed_name().ok_or_else(|| {
             BackendError::new("unsafe_archive_path", "资料包包含不安全的文件路径")
         })?;
         if entry.is_dir() {

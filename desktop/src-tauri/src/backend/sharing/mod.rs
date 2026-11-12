@@ -482,9 +482,19 @@ pub fn list(state: &SharingState, plan_id: Option<&str>) -> Result<Vec<ShareMeta
         .query_map(params![plan_id], |row| row.get::<_, i64>(0))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(statement);
-    ids.into_iter()
-        .map(|id| metadata(&store.conn, id).map(|row| row.0))
-        .collect()
+    // 150#3：坏行跳行降级（agent/knowledge 域口径）——单行 payload_json
+    // 损坏原先使整命令失败：列表报错且撤销入口不可达（更早的有效分享
+    // 无法撤销）；跳行并留 stderr 诊断，撤销通道保持可用
+    Ok(ids
+        .into_iter()
+        .filter_map(|id| match metadata(&store.conn, id) {
+            Ok(row) => Some(row.0),
+            Err(error) => {
+                eprintln!("shared_plans #{id} 快照损坏，列表已跳过：{}", error.message);
+                None
+            }
+        })
+        .collect())
 }
 
 pub fn revoke<R: Runtime>(

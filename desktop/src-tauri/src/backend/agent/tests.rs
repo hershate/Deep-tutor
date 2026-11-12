@@ -660,7 +660,18 @@ fn scratch_edits_preserve_lecture_versions_and_block_unsafe_paths() {
             .code,
         "artifact_modified_externally"
     );
-    tools::cancel_approval(app.handle(), &state, &pending_id).unwrap();
+    // 156#1：拒绝分支统一收口 pending——外部改动拒绝后审批行应已过期，
+    // 不再停留 pending（原先是此处再手动 cancel_approval，审批卡会永驻
+    // 反复报错）
+    let resolved = get(&state, &session.id.to_string())
+        .unwrap()
+        .approvals
+        .into_iter()
+        .find(|approval| approval.id.to_string() == pending_id);
+    assert!(
+        resolved.is_none() || !resolved.is_some_and(|approval| approval.status == "pending"),
+        "拒绝后审批必须已收口为非 pending"
+    );
     let expired = call(
         &app,
         &state,

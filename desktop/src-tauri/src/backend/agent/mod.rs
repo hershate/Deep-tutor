@@ -762,6 +762,11 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
         .filter(|id| declared.contains(id))
         .collect();
     let mut replay: Vec<ChatMessage> = Vec::new();
+    // 156#7：跨响应重复 tool_call id 的去重登记（122#7 只修了单响应内）——
+    // 部分本地/小模型在后续步重用早前 id：run 失败历史里两个 assistant 声明
+    // 同一 id、仅一条 tool 回复，重放序列非法使严格端点 400 且 resume 反复
+    // 计费；保留首个声明、跳过重复声明，序列恢复自洽
+    let mut declared_once: HashSet<String> = HashSet::new();
     for message in &session.messages {
         if message.role == "tool"
             && !message
@@ -774,7 +779,9 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
         let calls = message
             .tool_calls
             .iter()
-            .filter(|call| answered.contains(call.id.as_str()))
+            .filter(|call| {
+                answered.contains(call.id.as_str()) && declared_once.insert(call.id.clone())
+            })
             .map(|call| ToolCallRequest {
                 id: call.id.clone(),
                 kind: "function".into(),

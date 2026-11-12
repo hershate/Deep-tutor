@@ -938,6 +938,19 @@ impl Store {
             // 200 条上限被死数据侵蚀且 resume 撞「项目不存在」；同 notes
             // 替换 GC learning_annotations 的模式一并清理
             tx.execute("DELETE FROM project_versions WHERE project_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'projects')", [])?;
+            // 155#2：learning_plan_adoptions.project_id NOT NULL 无 FK——
+            // 项目删除后悬挂行使备份导入整单拒绝（invalid_backup_reference）；
+            // 删除采用记录（方案回到未采用态，语义自洽）
+            tx.execute("DELETE FROM learning_plan_adoptions WHERE project_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'projects')", [])?;
+        }
+        if namespace == "tasks" {
+            // 155#1/#3：任务删除的三处悬挂——focus_sessions.task_id 置 NULL
+            // （专注历史是学习证据，保留仅解除关联）；排期/节点任务行删除
+            // （原 planning 域懒清理提前到删除点，同 notes/projects GC 模式）。
+            // 三者原先都使携带它们的备份在任何目标机整单拒导入
+            tx.execute("UPDATE focus_sessions SET task_id = NULL WHERE task_id IS NOT NULL AND task_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'tasks')", [])?;
+            tx.execute("DELETE FROM learning_plan_schedule_tasks WHERE task_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'tasks')", [])?;
+            tx.execute("DELETE FROM learning_node_tasks WHERE task_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'tasks')", [])?;
         }
         let event = Self::event(
             &tx,

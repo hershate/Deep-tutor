@@ -384,6 +384,15 @@ pub fn save_config<R: Runtime>(
                 let _ = credentials(service, &config)?;
             }
         }
+        // 155#7：清掉非当前 kind 的旧凭据——原 webdav 用户切 s3 后勾
+        // 「清除凭据」只删 s3 键，sync-webdav 残留钥匙串无清理路径；
+        // 保存配置即视为放弃另一 kind 的凭据
+        if config.kind == "s3" {
+            backend.delete("sync-webdav")?;
+        } else {
+            backend.delete("sync-s3-access")?;
+            backend.delete("sync-s3-secret")?;
+        }
         let store = service.store()?;
         let tx = store.conn.unchecked_transaction()?;
         tx.execute("INSERT INTO sync_config (id, config_json, updated_at) VALUES (1, ?1, ?2) ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at", params![serde_json::to_string(&config)?, now()?])?;

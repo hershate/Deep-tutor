@@ -414,6 +414,9 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                     "study_checkins",
                     // 31#44：保留原键，import_rows 的「 · 导入 N」后缀分支才可达
                     "agent_memory",
+                    // 155#4：通知 id 形如 review-due-{date} 的确定性键——
+                    // 改写 imported-N 会复制重复通知，同 31#43 幂等跳过
+                    "notifications",
                 ]
                 .contains(table)
                 && (exists(target, table, &primary.name, &mapped)?
@@ -1086,7 +1089,7 @@ fn transform(
                 // 90d 窗口异构）时，异常库态的单侧悬挂按跳行降级；用户内容型
                 // 父表（方案/资料/笔记等）断链仍整单拒绝
                 Err(error)
-                    if lenient_backup_parent(parent)
+                    if lenient_backup_parent(table, parent)
                         && error.code == "invalid_backup_reference" =>
                 {
                     return Err(BackendError::new("pruned_backup_reference", &error.message));
@@ -1108,7 +1111,7 @@ fn transform(
             }
             // 99#6：审计型父表悬挂 lenient 跳行（同引用列分支）
             Err(error)
-                if lenient_backup_parent(parent) && error.code == "invalid_backup_reference" =>
+                if lenient_backup_parent(table, parent) && error.code == "invalid_backup_reference" =>
             {
                 return Err(BackendError::new("pruned_backup_reference", &error.message));
             }
@@ -1270,6 +1273,8 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
         "revisions" => "namespace",
         "sync_config" => "id",
         "study_checkins" => "date",
+        // 155#4：同 id 通知 = 同一业务通知（确定性日期键），跳过保幂等
+        "notifications" => "id",
         _ => return Ok(false),
     };
     let value = row.get(key).ok_or_else(invalid_record)?;
@@ -1277,11 +1282,19 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
 }
 
 /// 99#6：维护裁剪域的审计型父表——异常库态下单侧悬挂按 lenient 降级
-fn lenient_backup_parent(parent: &str) -> bool {
-    matches!(
-        parent,
-        "provider_requests" | "provider_route_runs" | "events"
-    )
+/// 155#1-#3：kv 父表（tasks/projects）悬挂按「表 × 父表」收窄降级——
+/// 旧版导出的备份在删除侧 GC 落地前已携带悬挂行（focus_sessions/
+/// adoptions/排期表），导入整单拒绝使历史备份不可恢复；跳行降级并计入
+/// backupImportWarnings。仅这四张表收窄，其余 kv 引用断链仍整单拒绝
+fn lenient_backup_parent(table: &str, parent: &str) -> bool {
+    matches!(parent, "provider_requests" | "provider_route_runs" | "events")
+        || (matches!(
+            table,
+            "focus_sessions"
+                | "learning_plan_adoptions"
+                | "learning_plan_schedule_tasks"
+                | "learning_node_tasks"
+        ) && (parent == "kv:tasks" || parent == "kv:projects"))
 }
 
 /// 102#1：携带请求列（request_id/grader_request_id/current_request_id）的
@@ -1444,12 +1457,30 @@ fn target_relative(entry: &FileEntry, maps: &IdMap) -> Result<String> {
     let parts = entry.path.split('/').collect::<Vec<_>>();
     match parts.as_slice() {
         ["materials", "originals", name] => {
-            if Path::new(name).file_stem().and_then(|value| value.to_str())
-                != Some(entry.sha256.as_str())
-            {
+            let path = Path::new(name);
+            if path.file_stem().and_then(|value| value.to_str()) != Some(entry.sha256.as_str()) {
                 return Err(BackendError::new(
                     "invalid_backup_path",
                     "资料文件名与内容哈希不一致",
+                ));
+            }
+            // 155#6：扩展名白名单（与 12 媒体格式 + 文档格式对齐）——
+            // 异常备份原先可落 {64hex}.{任意} 文件，磁盘名与行 kind 长期
+            // 不一致；白名单外的扩展名改按行 kind 落名（内容哈希已校验）
+            const KNOWN_EXTENSIONS: [&str; 14] = [
+                "pdf", "docx", "pptx", "epub", "txt", "md", "zip", "mp4", "m4v", "mov",
+                "webm", "mp3", "wav", "ogg",
+            ];
+            let declared = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+            if !KNOWN_EXTENSIONS.contains(&declared.as_str()) {
+                return Ok(format!(
+                    "materials/originals/{}.orphan-{}",
+                    entry.sha256,
+                    declared.chars().take(16).filter(|c| c.is_ascii_alphanumeric()).collect::<String>()
                 ));
             }
             Ok(entry.path.clone())
