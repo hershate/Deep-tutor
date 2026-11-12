@@ -335,7 +335,7 @@ export type AgentApproval = {
 export type AgentSession = {
   id: number
   title: string
-  planId: string
+  planId: string | null
   providerId: string
   budgetTokens: number
   outputTokensUsed: number
@@ -452,7 +452,7 @@ export const backend = {
   generateLecture: (id: string, stageId: string, force: boolean) => invoke<Lecture>('generate_lecture', { id, stageId, force }),
   cancelLecture: (id: string, stageId: string) => invoke<Lecture>('cancel_lecture', { id, stageId }),
   saveStudyNote: (id: string, stageId: string, content: string) => invoke<AppSnapshot>('save_study_note', { id, stageId, content }),
-  createAgentSession: (input: { title?: string; planId?: string; budgetTokens?: number }) => invoke<AgentSession>('create_agent_session', input),
+  createAgentSession: (input: { title?: string; planId?: string | null; budgetTokens?: number }) => invoke<AgentSession>('create_agent_session', input),
   listAgentSessions: () => invoke<AgentSession[]>('list_agent_sessions'),
   // 92#4：Agent 域 id 的 Rust 侧为 String（serde 期望 JSON string）而视图层
   // 为 number——封装层统一 String()，调用方免手工转换（漏写不再于运行时

@@ -194,11 +194,11 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     return () => { disposed = true; unlisten?.(); if (sessionTimerRef.current !== undefined) window.clearTimeout(sessionTimerRef.current) }
   }, [enabled, setLiveLogical, setLiveRequest, refreshSessionCoalesced])
 
-  const createSession = useCallback(async (title?: string, requestedPlanId?: string): Promise<AgentSession | null> => {
+  const createSession = useCallback(async (title?: string, requestedPlanId?: string | null): Promise<AgentSession | null> => {
     setBusy('create')
     setError('')
     try {
-      const selectedPlan = requestedPlanId ?? planId ?? plansRef.current[0]?.id
+      const selectedPlan = requestedPlanId !== undefined ? requestedPlanId : planId ?? null
       const created = await backend.createAgentSession({ title: title ?? sessionTitle, planId: selectedPlan })
       rememberRuns([created])
       setSessions(current => [created, ...current.filter(item => item.id !== created.id)])

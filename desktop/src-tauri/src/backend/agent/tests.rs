@@ -482,7 +482,7 @@ fn scratch_edits_preserve_lecture_versions_and_block_unsafe_paths() {
     learning::lecture::generate(
         app.handle(),
         &state.learning,
-        &session.plan_id,
+        session.plan_id.as_deref().unwrap(),
         "stage-1",
         false,
     )
@@ -490,7 +490,7 @@ fn scratch_edits_preserve_lecture_versions_and_block_unsafe_paths() {
     let deadline = Instant::now() + Duration::from_secs(10);
     let original = loop {
         let lecture =
-            learning::lecture::get(&state.learning, &session.plan_id, "stage-1", None).unwrap();
+            learning::lecture::get(&state.learning, session.plan_id.as_deref().unwrap(), "stage-1", None).unwrap();
         if !["running", "cancelling"].contains(&lecture.status.as_str()) {
             break lecture;
         }
@@ -576,14 +576,14 @@ fn scratch_edits_preserve_lecture_versions_and_block_unsafe_paths() {
     )
     .unwrap();
     let updated =
-        learning::lecture::get(&state.learning, &session.plan_id, "stage-1", None).unwrap();
+        learning::lecture::get(&state.learning, session.plan_id.as_deref().unwrap(), "stage-1", None).unwrap();
     assert_eq!(updated.version, 2);
     assert_eq!(
         updated.units[0].content.as_ref().unwrap().sections[0].content,
         "Agent 修改后的讲义正文"
     );
     let old =
-        learning::lecture::get(&state.learning, &session.plan_id, "stage-1", Some(1)).unwrap();
+        learning::lecture::get(&state.learning, session.plan_id.as_deref().unwrap(), "stage-1", Some(1)).unwrap();
     assert_eq!(
         old.units[0].content.as_ref().unwrap().sections[0].content,
         "依据资料生成的讲义正文"
@@ -713,7 +713,7 @@ fn scratch_edits_preserve_lecture_versions_and_block_unsafe_paths() {
         "approval_resolved"
     );
     assert_eq!(
-        learning::lecture::get(&state.learning, &session.plan_id, "stage-1", None)
+        learning::lecture::get(&state.learning, session.plan_id.as_deref().unwrap(), "stage-1", None)
             .unwrap()
             .version,
         2
@@ -849,7 +849,7 @@ fn completed_provider_output_is_reused_without_repeating_a_tool_or_request() {
             ..Default::default()
         }],
         4096,
-        Some(&tools::catalog()),
+        Some(&tools::catalog(&session)),
     )
     .unwrap();
     assert_eq!(result.status, "done");
@@ -895,7 +895,7 @@ fn token_budget_stops_a_completed_response_before_another_request() {
         app.handle(),
         &state,
         Some("预算测试".into()),
-        Some(session.plan_id),
+        session.plan_id,
         Some(1024),
     )
     .unwrap();
@@ -973,7 +973,7 @@ fn tool_loop_stops_at_twenty_five_real_model_steps() {
         app.handle(),
         &state,
         Some("步数测试".into()),
-        Some(session.plan_id),
+        session.plan_id,
         Some(16_000),
     )
     .unwrap();
@@ -1135,7 +1135,7 @@ fn tool_messages_replay_with_preceding_assistant_declaration() {
         app.handle(),
         &state,
         Some("配对测试".into()),
-        Some(base_session.plan_id),
+        base_session.plan_id,
         Some(16_000),
     )
     .unwrap();
@@ -1400,7 +1400,7 @@ fn resume_is_gated_by_session_budget_and_step_limit() {
         app.handle(),
         &state,
         Some("预算测试".into()),
-        Some(session.plan_id),
+        session.plan_id,
         Some(1024),
     )
     .unwrap();
@@ -1465,4 +1465,22 @@ fn resume_is_gated_by_session_budget_and_step_limit() {
         )
         .unwrap();
     assert_eq!(status, "failed");
+}
+
+#[test]
+fn general_chat_works_without_a_learning_plan_and_hides_workspace_tools() {
+    let (app, state) = setup();
+    let agent_server = server(|_request, stream| {
+        response(stream, "200 OK", "data: {\"choices\":[{\"delta\":{\"content\":\"通用问答可独立使用\"}}]}\n\ndata: {\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":4},\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+    });
+    configure_provider(&app, &state, &agent_server.url());
+    let session = new_session(app.handle(), &state, Some("通用问答".into()), None, None).unwrap();
+    assert_eq!(serde_json::to_value(&session).unwrap()["planId"], Value::Null);
+    let names = tools::catalog(&session).into_iter().map(|tool| tool.function.name).collect::<Vec<_>>();
+    assert!(!names.iter().any(|name| name.starts_with("workspace.") || name == "artifact.promote"));
+    assert!(names.contains(&"web.search".into()));
+    let run = send(app.handle(), &state, &session.id.to_string(), "什么是主动回忆？".into()).unwrap();
+    assert_eq!(wait_run(&state, &run.id.to_string()).status, "done");
+    let saved = get(&state, &session.id.to_string()).unwrap();
+    assert!(saved.messages.iter().any(|message| message.role == "assistant" && message.content == "通用问答可独立使用"));
 }

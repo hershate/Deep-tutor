@@ -197,7 +197,7 @@ pub struct AgentApproval {
 pub struct AgentSession {
     pub id: i64,
     pub title: String,
-    pub plan_id: String,
+    pub plan_id: Option<String>,
     pub provider_id: String,
     pub budget_tokens: u64,
     pub output_tokens_used: u64,
@@ -360,25 +360,19 @@ pub fn new_session<R: Runtime>(
         ));
     }
     let plan_id = match plan_id {
-        Some(id) => id,
-        None => learning::list(&state.learning)?
-            .into_iter()
-            .find(|plan| plan.adopted_project_id.is_some())
-            .map(|plan| plan.id)
-            .ok_or_else(|| {
-                BackendError::new(
+        Some(id) => {
+            let plan = learning::get(&state.learning, &id)?;
+            if plan.adopted_project_id.is_none() {
+                return Err(BackendError::new(
                     "workspace_unavailable",
-                    "请先采用一个学习方案，再创建 Agent 会话",
-                )
-            })?,
+                    "绑定工作区的方案必须已采用",
+                ));
+            }
+            Some(id)
+        }
+        None => None,
     };
-    let plan = learning::get(&state.learning, &plan_id)?;
-    if plan.adopted_project_id.is_none() {
-        return Err(BackendError::new(
-            "workspace_unavailable",
-            "Agent 工作区必须来自已采用的方案",
-        ));
-    }
+    let stored_plan_id = plan_id.clone().unwrap_or_default();
     let provider_id = providers::routing::provider_for_task(&state.providers, "agent")?;
     let store = state.store()?;
     let timestamp = now()?;
@@ -386,7 +380,7 @@ pub fn new_session<R: Runtime>(
     let tx = store.write_transaction()?;
     // 25#18：配额计数与插入同事务，关闭 check-then-insert 并发窗口
     store.ensure_quota_in_tx(&tx, "sessions", 1)?;
-    tx.execute("INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)", params![title, plan_id, provider_id, budget as i64, timestamp])?;
+    tx.execute("INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)", params![title, stored_plan_id, provider_id, budget as i64, timestamp])?;
     let id = tx.last_insert_rowid();
     let event = Store::event(
         &tx,
@@ -402,6 +396,7 @@ pub fn get(state: &AgentState, id: &str) -> Result<AgentSession> {
     let id = numeric_id(id)?;
     let store = state.store()?;
     let (title, plan_id, provider_id, budget_tokens, status, updated_at) = store.conn.query_row("SELECT title, plan_id, provider_id, budget_tokens, status, updated_at FROM agent_sessions WHERE id = ?1", params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?.max(0) as u64, row.get::<_, String>(4)?, row.get::<_, String>(5)?))).optional()?.ok_or_else(|| BackendError::new("not_found", "Agent 会话不存在"))?;
+    let plan_id = (!plan_id.is_empty()).then_some(plan_id);
     let mut statement = store.conn.prepare("SELECT id, role, content, reasoning, tool_calls_json, tool_call_id, name, step_index, partial, created_at FROM agent_messages WHERE session_id = ?1 ORDER BY id DESC LIMIT 100")?;
     let rows = statement.query_map(params![id], |row| {
         let calls: Option<String> = row.get(4)?;
@@ -736,10 +731,10 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
         },
         ChatMessage {
             role: "user".into(),
-            content: format!(
-                "当前工作区方案为 {}。只在需要时读取资料或编辑产物，不能凭空声称已修改。",
-                session.plan_id
-            ),
+            content: match &session.plan_id {
+                Some(plan_id) => format!("当前工作区方案为 {plan_id}。只在需要时读取资料或编辑产物，不能凭空声称已修改。"),
+                None => "当前是未绑定学习方案的通用问答。可直接回答学习问题；只有需要时才使用网络、记忆或历史工具，不得声称存在当前方案或已修改工作区。".into(),
+            },
             ..Default::default()
         },
     ];
@@ -1006,7 +1001,7 @@ fn run_loop<R: Runtime>(
 ) -> Result<()> {
     let session = get(state, &session_id.to_string())?;
     let mut messages = history(&session)?;
-    let catalog = tools::catalog();
+    let catalog = tools::catalog(&session);
     loop {
         let run = get_run(state, run_id)?;
         if cancel_requested(state, run_id)? {

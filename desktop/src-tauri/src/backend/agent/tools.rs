@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-pub fn catalog() -> Vec<super::super::providers::tools::ToolDefinition> {
+pub fn catalog(session: &AgentSession) -> Vec<super::super::providers::tools::ToolDefinition> {
     fn definition(
         name: &str,
         description: &str,
@@ -26,7 +26,7 @@ pub fn catalog() -> Vec<super::super::providers::tools::ToolDefinition> {
         }
     }
     let empty = || json!({"type": "object", "properties": {}});
-    vec![
+    let mut tools = vec![
         definition(
             "workspace.list",
             "列出当前方案的阅读与 scratch 产物",
@@ -87,7 +87,13 @@ pub fn catalog() -> Vec<super::super::providers::tools::ToolDefinition> {
             "请求用户批准将 scratch 讲义提升为新版本",
             json!({"type": "object", "properties": {"artifactId": {"type": "integer"}}, "required": ["artifactId"]}),
         ),
-    ]
+    ];
+    if session.plan_id.is_none() {
+        tools.retain(|tool| {
+            !matches!(tool.function.name.as_str(), "workspace.list" | "workspace.read" | "workspace.write" | "workspace.edit" | "artifact.promote")
+        });
+    }
+    tools
 }
 
 fn string<'a>(arguments: &'a Value, key: &str) -> Result<&'a str> {
@@ -134,8 +140,17 @@ fn index(arguments: &Value, key: &str) -> Result<usize> {
     })
 }
 
+fn required_plan_id(session: &AgentSession) -> Result<&str> {
+    session.plan_id.as_deref().ok_or_else(|| {
+        BackendError::new(
+            "workspace_unavailable",
+            "通用会话未绑定学习方案；需要方案工具时请新建绑定方案的会话",
+        )
+    })
+}
+
 fn sources(state: &AgentState, session: &AgentSession) -> Result<Vec<Source>> {
-    let plan = learning::get(&state.learning, &session.plan_id)?;
+    let plan = learning::get(&state.learning, required_plan_id(session)?)?;
     serde_json::from_value(
         plan.artifacts
             .get("step0")
@@ -292,7 +307,8 @@ fn commit_artifact<R: Runtime>(
     content: &LectureContent,
     overwrite: bool,
 ) -> Result<Value> {
-    let plan = learning::get(&state.learning, &session.plan_id)?;
+    let plan_id = required_plan_id(session)?;
+    let plan = learning::get(&state.learning, plan_id)?;
     if !plan.result.as_ref().is_some_and(|result| {
         result
             .stages
@@ -360,10 +376,10 @@ fn commit_artifact<R: Runtime>(
     };
     atomic_write(&target, &bytes)?;
     let id = if let Some((id, _)) = existing {
-        tx.execute("UPDATE agent_artifacts SET plan_id = ?1, stage_id = ?2, unit_index = ?3, content_json = ?4, sha256 = ?5, status = 'committed', expires_at = ?6 WHERE id = ?7", params![session.plan_id, stage_id, unit_index as i64, serde_json::to_string(content)?, hash, expires, id])?;
+        tx.execute("UPDATE agent_artifacts SET plan_id = ?1, stage_id = ?2, unit_index = ?3, content_json = ?4, sha256 = ?5, status = 'committed', expires_at = ?6 WHERE id = ?7", params![plan_id, stage_id, unit_index as i64, serde_json::to_string(content)?, hash, expires, id])?;
         id
     } else {
-        tx.execute("INSERT INTO agent_artifacts (session_id, path, plan_id, stage_id, unit_index, content_json, sha256, status, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'committed', ?8, ?9)", params![session.id, path, session.plan_id, stage_id, unit_index as i64, serde_json::to_string(content)?, hash, timestamp, expires])?;
+        tx.execute("INSERT INTO agent_artifacts (session_id, path, plan_id, stage_id, unit_index, content_json, sha256, status, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'committed', ?8, ?9)", params![session.id, path, plan_id, stage_id, unit_index as i64, serde_json::to_string(content)?, hash, timestamp, expires])?;
         tx.last_insert_rowid()
     };
     let event = Store::event(
@@ -594,19 +610,20 @@ pub fn execute<R: Runtime>(
     let result = (|| -> Result<Value> {
         match call.name.as_str() {
             "workspace.list" => {
-                let plan = learning::get(&state.learning, &session.plan_id)?;
+                let plan_id = required_plan_id(session)?;
+    let plan = learning::get(&state.learning, plan_id)?;
                 Ok(
                     json!({"status": "done", "planId": session.plan_id, "stages": plan.result.as_ref().map(|result| &result.stages), "artifacts": get(state, &session.id.to_string())?.artifacts}),
                 )
             }
             "workspace.read" => match string(&arguments, "reference")? {
                 "current" | "plan" => Ok(
-                    json!({"status": "done", "content": learning::get(&state.learning, &session.plan_id)?}),
+                    json!({"status": "done", "content": learning::get(&state.learning, required_plan_id(session)?)?}),
                 ),
                 reference if reference.starts_with("lecture:") => {
                     let stage = reference.trim_start_matches("lecture:");
                     Ok(
-                        json!({"status": "done", "content": learning::lecture::get(&state.learning, &session.plan_id, stage, None)?}),
+                        json!({"status": "done", "content": learning::lecture::get(&state.learning, required_plan_id(session)?, stage, None)?}),
                     )
                 }
                 reference if reference.starts_with("artifact:") => {
@@ -956,6 +973,7 @@ fn promote<R: Runtime>(
     artifact_id: i64,
     expected_sha256: &str,
 ) -> Result<()> {
+    let plan_id = required_plan_id(session)?;
     let store = state.store()?;
     // 97#8：产物行已被维护 purge 物理删除时，同步 resolve 审批为 expired，
     // 不留死 pending 条目（promote 自身的 24h 过期路径会 resolve，
@@ -1052,7 +1070,7 @@ fn promote<R: Runtime>(
     }
     let sources = sources(state, session)?;
     let content = content(serde_json::to_value(current)?, &sources)?;
-    let lecture = learning::lecture::get(&state.learning, &session.plan_id, &artifact.0, None)?;
+    let lecture = learning::lecture::get(&state.learning, plan_id, &artifact.0, None)?;
     if lecture.status != "done" {
         return Err(reject_with_pending(
             app,
@@ -1077,16 +1095,16 @@ fn promote<R: Runtime>(
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
     resolve_pending(&tx, approval_id, "approved", &timestamp)?;
-    tx.execute("INSERT INTO learning_lecture_units (plan_id, stage_id, version, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, updated_at) SELECT plan_id, stage_id, ?1, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, ?2 FROM learning_lecture_units WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5", params![version, timestamp, learning::plan_id(&session.plan_id)?, artifact.0, lecture.version])?;
-    tx.execute("UPDATE learning_lecture_units SET content_json = ?1, status = 'done', request_id = NULL, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5 AND unit_index = ?6", params![serde_json::to_string(&content)?, timestamp, learning::plan_id(&session.plan_id)?, artifact.0, version, artifact.1])?;
-    let promoted = tx.execute("UPDATE learning_lectures SET version = ?1, status = 'done', current_unit = ?2, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE plan_id = ?4 AND stage_id = ?5 AND version = ?6", params![version, lecture.units.len() as i64, timestamp, learning::plan_id(&session.plan_id)?, artifact.0, lecture.version])?;
+    tx.execute("INSERT INTO learning_lecture_units (plan_id, stage_id, version, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, updated_at) SELECT plan_id, stage_id, ?1, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, ?2 FROM learning_lecture_units WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5", params![version, timestamp, learning::plan_id(plan_id)?, artifact.0, lecture.version])?;
+    tx.execute("UPDATE learning_lecture_units SET content_json = ?1, status = 'done', request_id = NULL, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5 AND unit_index = ?6", params![serde_json::to_string(&content)?, timestamp, learning::plan_id(plan_id)?, artifact.0, version, artifact.1])?;
+    let promoted = tx.execute("UPDATE learning_lectures SET version = ?1, status = 'done', current_unit = ?2, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE plan_id = ?4 AND stage_id = ?5 AND version = ?6", params![version, lecture.units.len() as i64, timestamp, learning::plan_id(plan_id)?, artifact.0, lecture.version])?;
     if promoted != 1 {
         return Err(BackendError::new(
             "lecture_version_conflict",
             "基础讲义已更新，请基于新版本重新生成 scratch 产物",
         ));
     }
-    tx.execute("INSERT INTO learning_lecture_versions (plan_id, stage_id, version, created_at) VALUES (?1, ?2, ?3, ?4)", params![learning::plan_id(&session.plan_id)?, artifact.0, version, timestamp])?;
+    tx.execute("INSERT INTO learning_lecture_versions (plan_id, stage_id, version, created_at) VALUES (?1, ?2, ?3, ?4)", params![learning::plan_id(plan_id)?, artifact.0, version, timestamp])?;
     tx.execute(
         "UPDATE agent_artifacts SET status = 'promoted' WHERE id = ?1",
         params![artifact_id],
