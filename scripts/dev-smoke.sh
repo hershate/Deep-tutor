@@ -23,12 +23,20 @@ launcher=$!
 
 # 131#1/#9：只终止自己启动的 $launcher 进程树，不按端口找 PID 强杀
 # （占用者可能是无关程序）。Windows：taskkill //T 连 npm 包装进程带
-# vite 子进程整树终止；非 Windows（本仓库开发与 CI 均 Windows，此分支
-# 为尽力而为）：先 pkill 子进程再 kill 包装进程——顺序不能反，先杀父
-# 会让 vite 被 init 收养，pkill -P 随后按旧父 pid 查不到而留孤儿
+# vite 子进程整树终止；Git Bash 下 npm 包装链可能先于 cleanup 退出，
+# //T 树终止因根已死而漏杀 vite 孙进程（实测孤儿仍占 43198）——启动前
+# 预检已保证端口空闲，树杀后仍监听者必是本次启动的 vite，按端口兜底杀
+# 是安全的（116#3 的按端口盲杀之所以被 131#1 否定，正因缺这个预检前提）。
+# 非 Windows（本仓库开发与 CI 均 Windows，此分支为尽力而为）：先 pkill
+# 子进程再 kill 包装进程——顺序不能反，先杀父会让 vite 被 init 收养，
+# pkill -P 随后按旧父 pid 查不到而留孤儿
 cleanup() {
   if command -v taskkill >/dev/null 2>&1; then
     taskkill //F //T //PID "$launcher" >/dev/null 2>&1 || true
+    sleep 1
+    local stray
+    stray=$(netstat -ano 2>/dev/null | grep ":$PORT" | grep LISTEN | awk '{print $5}' | head -1)
+    if [ -n "$stray" ]; then taskkill //F //PID "$stray" >/dev/null 2>&1 || true; fi
   else
     pkill -P "$launcher" >/dev/null 2>&1 || true
     kill "$launcher" >/dev/null 2>&1 || true
