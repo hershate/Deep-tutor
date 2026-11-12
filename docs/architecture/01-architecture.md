@@ -52,7 +52,7 @@ graph TD
 | security | 6 / 3078 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:247`） |
 | providers | 15 / 10877 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:203`） |
 | web | 4 / 1203 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 3442 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
+| materials | 5 / 3511 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
 | notes | 4 / 1251 | 笔记归档导入、知识库体检 | 无 |
 | learning | 9 / 5278 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
 | planning | 3 / 1067 | 周视图、强度、目标、排期 | 复用 LearningState |
@@ -132,7 +132,7 @@ graph LR
     LU -. 首位用户一次性复制 .-> DOM2
 ```
 
-user-1 旧库一次性复制：`open` 中 `owner==Some(1) && root!=path && root.exists() && !path.exists()` 时对根库 `wal_checkpoint(FULL)` 后复制到 `{db}.migration-tmp` 再原子 rename（:140-156，防复制中断留下截断库），此后根库只存账户表。
+user-1 旧库一次性复制：`open` 中 `owner==Some(1) && root!=path && root.exists() && !path.exists()` 时对根库 `wal_checkpoint(FULL)` 后复制到 `{db}.migration-tmp` 再原子 rename（:140-156，防复制中断留下截断库），此后根库只存账户表。rename 顺序为 `-wal` 先落位、主文件后落位，迁移前清扫上次失败残留的 staged 临时件（store.rs:329-363，152#1——主文件先落位而 `-wal` 二次 rename 失败时，目标库以旧 WAL 前滚打开会静默丢掉复制进来的提交）。
 
 ### 4.3 命令守卫与用户隔离（`security/`）
 
@@ -201,7 +201,7 @@ sequenceDiagram
 - 类型：`PracticeSetDetail/AnswerResult/Mistake`（practice/mod.rs:128-161）、`ReviewCard/GradeResult`（review/mod.rs:53/101）、`ProjectFeedback{concept,implementation,verification:u8,summary,suggestions}`（projects/mod.rs:60）。
 
 ### 5.4 materials / notes / export
-- 表：`materials`（sha256 UNIQUE、status、progress、parse_mode）、`material_text`（PK=material_id CASCADE）、`material_jobs`（UNIQUE(material_id,kind,attempt)、cancel_requested）。
+- 表：`materials`（sha256 UNIQUE、status、progress、parse_mode、warning 与 warning_source——警示正文与来源分列，重解析成功时按来源决定清除或保留（网页截断类入库警示保留），materials/mod.rs:255/:285）、`material_text`（PK=material_id CASCADE）、`material_jobs`（UNIQUE(material_id,kind,attempt)、cancel_requested）。
 - 文件区：`{数据目录}/materials/originals/{sha256}.{kind}`（materials/mod.rs:369 起）；导出原子替换 `.download-{n}/.previous-{n}`（`atomic_export` :1286）。
 - 解析限制常量（parse.rs:11-15）：文件 50MB、文本 5MB、XML 32MB、ZIP 总量 64MB、PDF 2000 页；ZIP 资料包另有 archive.rs:8-9 的 64 条/200MB。
 - export：`ExportScope{Plan,Lecture,Knowledge,Review,Schedule}` 与 `ExportFormat` 8 值（mod.rs:24-58）；PDF 为手工 TrueType 解析（pdf.rs:126-340）+ CIDFontType2 自写（pdf.rs:377，msyh/simhei ≤64MB :218-220）；Anki 生成真实 collection.anki2（export/anki.rs:55 render 起，:220 入包）。
