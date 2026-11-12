@@ -33,6 +33,9 @@
   snapshot's `lastEventId`; no per-page incremental fetch). Persist a
   terminal result before emitting it. Reconnecting must not repeat execution or billing.
 - Cancellation and failure paths retain all tokens and costs already consumed.
+- Recovery updates only rows still in an active state; skip child updates and terminal events when the guarded main row did not change. Sync progress cannot revive a cancelled job.
+- Plan materials are optional (0–8). Empty-source plans, lectures and practice use empty citations and never invent sources; material-backed output keeps strict quote validation.
+- Agent sessions may be plan-independent. Workspace and artifact tools are registered only for sessions bound to an adopted plan. The first enabled provider becomes active; later additions do not replace an existing selection.
 - API keys enter the OS keyring through one-time forms. They never enter WebView storage,
   plaintext database columns, logs, exports, sync payloads or test fixtures.
 - External capabilities return their actual result or a typed error. Simulated success is

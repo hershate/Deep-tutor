@@ -31,11 +31,11 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test + dev-smoke]
 ```
 
-发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.10，check-versions.mjs 校验）。
+发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.12，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，246 个测试串行全绿。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。252 个后端测试串行执行。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:812/868 `mock_app/ipc` 辅助函数）。
@@ -51,9 +51,11 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A[导入材料/网页/ZIP] --> B[解析队列单线程]
-    B --> C[四源输入启动方案]
-    C --> D[八步流水线生成]
+    A[目标 当前基础 时间 日期] --> C{可选资料 0 到 8 份}
+    B[导入材料/网页/ZIP] --> Q[解析队列单线程]
+    Q --> C
+    C -->|无资料 使用通用框架| D[八步流水线生成]
+    C -->|有资料 校验原文引用| D
     D --> E[采纳 adopt 生成任务与项目]
     E --> F[讲义逐单元生成]
     F --> G[节点针对练习/模拟考]
@@ -84,7 +86,7 @@ flowchart TD
 ```
 
 ### 3.2 方案生成与采纳（Learning/Planning）
-- 启动前置：材料 1-8 份已解析、daily_minutes 10-600、路由存在（learning/mod.rs:281-346）。
+- 启动前置：目标与当前基础有效、资料为 0–8 份可选、已选资料已解析、daily_minutes 10–600、`provider_for_task("plan")` 能解析档案与模型（learning/mod.rs `validate_input`）。无资料时使用通用知识框架，图谱、讲义与练习引用为空；有资料时继续逐字校验原文引用。
 - 采纳 `adopt_learning_plan`（learning/actions.rs:19）：幂等（已有 adoptions 直接返回）；创建 project + 每 `learning_plan_schedule_tasks` 一条 tasks 集合任务 + `plan.adopted`。
 - 目标修改 `update_learning_goal`（planning/commands.rs:38）：事务内预检方案状态与 `regeneration_limit=2` 再进入再生成；**已采纳方案不原地重跑**——`regenerate`（actions.rs:121）scope 2..=6 局部重跑，旧版本存 `learning_plan_versions`，version+1。
 - 强度调整 `apply_plan_intensity`（planning/mod.rs:348）：factor 稳妥 0.8/标准 1.0/冲刺 1.2；条目/任务/阶段分钟按 `round(m×target/current)` 纯比例取整、不套 10..=600 钳制（52#1：排期装填合法产出 1–9 分钟尾条目，旧 clamp(10,600) 使 2 分钟尾条目切「冲刺」被抬到 10 再切回时单调卡死）；每日分钟是排期步硬校验 10..=600 的唯一对象，缩放后钳回界内（scaled_daily）；基准取首次采纳方案（`adopted_first_plan` planning/mod.rs:116），不随展示中的方案切换漂移；乐观锁 preferences/tasks revision；事务内复查方案状态，防与并发 regenerate 穿插（34#21）。缩放同步写五处：schedule entries、stages[].minutes（31#15）、覆盖前 `learning_plan_versions` 快照（31#16；34#3 起同版本重复切换用 OR REPLACE 以最近一次为准）、artifacts_json `$.step5` 与 `learning_plan_steps.output_json` 双写（34#4——run() 重建读 step 表，单写 artifacts 会静默回退缩放）。强度调整不再重算 within_deadline/within_milestone——逾期判定只由排期与截止日推导。
@@ -93,7 +95,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[start_learning_plan 四源输入] --> B[八步流水线]
+    A[start_learning_plan 基础输入加可选资料] --> B[八步流水线]
     B --> C{status done 或 degraded?}
     C -->|是| D[adopt_learning_plan 幂等]
     D --> E[建 project + 每排期一条任务 + adoptions]
@@ -102,7 +104,7 @@ flowchart TD
     G -->|是| H[regenerate 局部重跑 存旧版本 version 加 1 受上限 2 约束]
     G -->|否| I{强度调整?}
     H --> I
-    I -->|是| J[比例缩放 round m 乘 target 除 current 下限 10 分钟 存版本快照]
+    I -->|是| J[比例缩放 round m 乘 target 除 current 保留尾条目 存版本快照]
     I -->|否| K[保持既有排期]
     J --> L[同步 schedule entries stages 与 tasks duration 乐观锁 revision 双写 step5]
 ```
@@ -197,6 +199,12 @@ sequenceDiagram
     Note over RM: 取消预约或房间同步删除提醒
 ```
 
+### 3.8 通用 AI 与方案工具
+
+- 全局导师使用 `route_provider_chat` 直接发送消息，不要求学习方案。Agent 通过 `new_agent_session(planId: null)` 创建通用会话，不默认绑定首个方案。
+- 通用 Agent 仅注册网络、记忆、历史七项工具；绑定已采用方案的会话增加四项 workspace 工具与 artifact.promote。工具执行层独立校验方案范围，避免绕过目录直接调用。
+- Wiki 保留 1–8 份已解析资料的引用范围；它与通用问答是两条独立调用链。
+
 ## 4. 数据生命周期工作流
 
 ```mermaid
@@ -209,9 +217,9 @@ flowchart LR
     M[运维清理白名单孤儿]
 ```
 
-- 备份排除项：auth_sessions、access_tokens、share_index（EXCLUDED_AUTH_TABLES archive.rs:95；secure_delete 后 VACUUM :410-416）；系统凭据本就不在库中（keyring）。
-- 导入追加语义：冲突 ID 保留双方（materials 按 sha256 复用）；已有 preferences/routing 不覆盖（transfer.rs:866,:1013-1021）；agent_memory 重名加"· 导入 n"后缀（:1101-1112）。
-- 同步只含脱敏供应商档案与任务路由，不含学习备份（sync/mod.rs:525-554）；恢复必须选择真实历史对象（versions.rs:60 校验路径属本配置 versions/ 目录）。
+- 备份排除项：auth_sessions、access_tokens、share_index（EXCLUDED_AUTH_TABLES archive.rs:95；secure_delete 后 VACUUM）；系统凭据本就不在库中（keyring）。原件恢复扩展名复用 `materials::SUPPORTED`，仅对旧备份保留 zip 兼容。
+- 导入追加语义：冲突 ID 保留双方（materials 按 sha256 复用）；已有 preferences/routing 不覆盖（transfer.rs:866,:1013-1021）；agent_memory 重名加"· 导入 n"后缀。导入恢复仅更新仍处于活跃状态的任务主行；主行未变时不修改子行或发送终态事件。
+- 同步只含脱敏供应商档案与任务路由，不含学习备份（sync/mod.rs:525-554）；恢复必须选择真实历史对象（versions.rs:60 校验路径属本配置 versions/ 目录）。`stage` 仅从 running 追加进度；cancelling 的完成路径固定落 cancelled 并保留已取得结果。
 - 数据目录切换：不搬移不删除旧数据；目录配置不作为备份中的绝对路径恢复（startup.rs:194-243；plan/README.md 约定）。
 
 ## 5. 异常恢复矩阵

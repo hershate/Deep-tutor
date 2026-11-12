@@ -2,14 +2,14 @@
 
 **分析基准**：main 分支滚动演进（不钉单一 commit；`文件:行号` 引用以撰写时的 HEAD 为准，随开发可能移位）
 **分析范围**：`desktop/`（Tauri 2 应用全量；口径为 src/ 与 src-tauri/src/ 下全部源码文件。规模与命令数等量化口径随开发演进，权威口径以 `note/14-Tauri原生后端覆盖清单.md` 为准）
-**分析模式**：全量静态分析，未运行应用
+**分析模式**：全量静态分析；命令、SQLite、回环协议与无界面原生验证按 `plan/README.md` 执行
 
 ## 项目快照
 
 - **项目**：知舟 Deep Tutor —— 个人学习操作系统桌面应用
 - **技术栈**：Rust（Tauri 2 壳 + 原生后端 + rusqlite）、React 18 + TypeScript 5.6 + Vite 6
 - **持久化**：SQLite（WAL，根库=账户 + 每用户工作区库），文件区存原件/产物
-- **规模**：188 个 Tauri 命令、21 个后端域模块（backend/ 域目录）+ backend 根（commands/store/error/random/reveal/mod）、16 个页面、25 个前端客户端文件（src/backend/*.ts）、246 个后端测试（串行全绿）
+- **规模**：188 个 Tauri 命令、21 个后端域模块（backend/ 域目录）+ backend 根（commands/store/error/random/reveal/mod）、16 个页面、25 个前端客户端文件（src/backend/*.ts）、252 个后端测试（串行全绿）
 - **CI**：GitHub Actions windows-latest（tsc 类型检查 + dev server 冒烟 + 依赖审计 npm audit 双口径 + fmt + 原生测试串行 + 版本校验 + NSIS 安装包内含前端构建；许可证收集在 NSIS 步骤的 beforeBuildCommand 内执行；push:main / PR / 手动触发）
 - **分支**：main（单线演进，细粒度中文提交）
 

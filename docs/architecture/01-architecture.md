@@ -46,31 +46,31 @@ graph TD
 
 | 模块 | 文件/行数 | 职责 | 关键状态结构 |
 |---|---|---|---|
-| backend（根） | 6 / 3273 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:115`：store Mutex + 10 个域 State） |
-| startup | 1 / 975 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
-| store | 1 / 1794 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:177`） |
+| backend（根） | 6 / 3303 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:115`：store Mutex + 10 个域 State） |
+| startup | 1 / 1005 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
+| store | 1 / 1824 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:180`） |
 | security | 6 / 3078 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:247`） |
-| providers | 15 / 10877 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:203`） |
-| web | 4 / 1203 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 3511 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
-| notes | 4 / 1251 | 笔记归档导入、知识库体检 | 无 |
-| learning | 9 / 5278 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
+| providers | 15 / 10991 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:203`） |
+| web | 4 / 1212 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
+| materials | 5 / 3519 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
+| notes | 4 / 1257 | 笔记归档导入、知识库体检 | 无 |
+| learning | 9 / 5331 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
 | planning | 3 / 1067 | 周视图、强度、目标、排期 | 复用 LearningState |
 | knowledge | 3 / 1398 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:29`） |
-| practice | 9 / 5156 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:30`） |
+| practice | 9 / 5288 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:30`） |
 | review | 2 / 959 | SM-2 式间隔复习 | 复用 SQLite 事务 |
-| projects | 3 / 1145 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 4132 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:91`） |
-| engagement | 3 / 1372 | 全局搜索、通知、档案、首页 | 复用 |
-| reports | 3 / 1897 | 专注会话、学习报告、日历 | 复用 |
+| projects | 3 / 1151 | 项目成果版本与量规反馈 | 复用 |
+| agent | 4 / 4299 | 通用/方案会话、工具循环、审批/记忆/产物 | `AgentState`（`mod.rs:91`） |
+| engagement | 3 / 1389 | 全局搜索、通知、档案、首页 | 复用 |
+| reports | 3 / 1913 | 专注会话、学习报告、日历 | 复用 |
 | community | 3 / 1795 | 本机讨论/小组/预约/提醒 | 复用 |
 | plugins | 3 / 1285 | 声明式事件插件 | `PluginState`（`mod.rs:51`） |
-| backup | 5 / 3641 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:141`） |
-| sharing | 3 / 1062 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
-| sync | 7 / 2553 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:28-29`） |
-| maintenance | 3 / 1608 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:9`） |
-| export | 7 / 2291 | 8 格式导出（含自研 PDF/Anki） | 无 |
-| 前端 | 64 / 8738 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:18`） |
+| backup | 5 / 3716 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:152`） |
+| sharing | 3 / 1072 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
+| sync | 7 / 2621 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:27-28`） |
+| maintenance | 3 / 1613 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:10`） |
+| export | 7 / 2337 | 8 格式导出（含自研 PDF/Anki） | 无 |
+| 前端 | 64 / 8822 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:18`） |
 
 ## 4. 横切层
 
@@ -82,14 +82,14 @@ graph TD
 
 四张通用表（`store.rs:187-210`，events 附表达式索引 `events_kind_request ON events(kind, json_extract(payload, '$.requestId'))`）：
 - `kv(namespace,id,data,updated_at)` — tasks/notes/resources/projects/preferences/drafts 六个命名空间（`store.rs:15`）。
-- `meta(key,value)` — `seeded`、`schema_fingerprint`、`schema_version`（代码侧 SCHEMA_VERSION=3 的落库记录）。
+- `meta(key,value)` — `seeded`、`schema_fingerprint`、`schema_version`（代码侧 SCHEMA_VERSION=4 的落库记录）。
 - `revisions(namespace,value)` — 乐观锁版本号。
 - `events(id AUTOINCREMENT,kind,payload,created_at)` — 单调递增事件 outbox。
 
 核心函数：
 | 函数 | 位置 | 行为 |
 |---|---|---|
-| `Store::open(root, owner)` | store.rs:254 | 工作区路径解析、WAL/外键/busy_timeout=10s/synchronous=NORMAL、`max(user_version, meta.schema_version) > SCHEMA_VERSION(3)` 拒绝降级（store.rs 拒绝降级门，约 :470 起；user_version 惯例只写 1、版本实际记录在 meta 表，双取最大防任一通道漏记）、建通用表、指纹不一致 `或` meta.schema_version < SCHEMA_VERSION(3) 双条件决定是否跑全部 `migrate` |
+| `Store::open(root, owner)` | store.rs:254 | 工作区路径解析、WAL/外键/busy_timeout=10s/synchronous=NORMAL、`max(user_version, meta.schema_version) > SCHEMA_VERSION(4)` 拒绝降级（store.rs 拒绝降级门，约 :470 起；user_version 惯例只写 1、版本实际记录在 meta 表，双取最大防任一通道漏记）、建通用表、指纹不一致 `或` meta.schema_version < SCHEMA_VERSION(4) 双条件决定是否跑全部 `migrate` |
 | `schema_fingerprint(conn)` | store.rs:230 | sqlite_master 全量 SHA-256 |
 | `replace_collection(namespace, expected_revision, value)` | store.rs:854 | 校验→配额（`ensure_quota_in_tx` :608，写事务内复查）→事务内 DELETE+INSERT→revision 乐观锁→events 写 `state.changed` |
 | `event(conn, kind, payload)` | store.rs:768 | INSERT events 后同事务调 `plugins::dispatch` |
@@ -190,11 +190,11 @@ sequenceDiagram
 ### 5.1 providers（`providers/mod.rs:269` 起 migrate、`routing.rs:119` 起 migrate、`usage.rs:121` 起 migrate）
 - 表：`provider_profiles`（models_json、health、latency_ms）、`provider_meta`（active_provider）、`provider_requests`（request_id PK、status/output/usage_json/tool_calls_json、attempts）、`provider_route_runs` + `provider_route_attempts`（PK(request_id,attempt)，upstream_request_id UNIQUE）、`provider_circuits`（state/failures/opened_at）、`usage_rates`（UNIQUE(provider_id,model)）。
 - 类型：`ProviderProfile`（mod.rs:28）、`ChatMessage`（:62）、`TokenUsage/ChatResult/ChatError`（openai.rs:20/28/40）、`StreamPolicy{max_attempts=2,request_timeout=45s,chunk_timeout=120s}`（openai.rs:647-653）、`RoutingSettings{mode,routes,aggregate_*,failover,circuit}`（routing.rs:56）、`CircuitSettings{failures=3,cooldown=60s,timeout=45s,retries=2}`（:36-43）、`UsageSettings{session_usd=1.0,daily_usd=10.0,regeneration_limit=2}`（usage.rs:17-23）。
-- 凭据：trait `CredentialBackend{get,set,delete}`（mod.rs:84），生产 `SystemCredentials`（keyring，:90），测试 `MemoryCredentials`（:151）。API Key 永不入库——`has_key` 是唯一暴露（mod.rs:28）。
+- 凭据：trait `CredentialBackend{get,set,delete}`（mod.rs:84），生产 `SystemCredentials`（keyring，:90），测试 `MemoryCredentials`（:151）。API Key 永不入库——`has_key` 是唯一暴露（mod.rs:28）。首个启用档案在 `upsert` 的同一事务内补 active 并记录事件；已有 active 不被新增覆盖。路由编辑器只展示 agent/plan/lecture/practice/wiki 五条真实调用链，旧配置中的 resources/embedding 键仅为兼容读取。
 
 ### 5.2 learning（`learning/mod.rs:129-267`）/ planning / knowledge
 - 表：`learning_plans`（status、artifacts_json 分步产物、result_json、version）、`learning_plan_steps`（PK(plan_id,step_index)、attempt、request_id）、`learning_plan_materials`（FK RESTRICT）、`learning_plan_adoptions`、`learning_plan_schedule_tasks`、`learning_plan_versions`、`learning_node_evidence`（evidence_key 唯一索引）、`learning_reading_progress`、`learning_node_tasks`、`learning_lectures`、`learning_lecture_units`（PK(plan,stage,version,unit_index)）、`learning_lecture_versions`、`learning_annotations`；knowledge：`knowledge_sessions`、`knowledge_session_materials`。
-- 类型：`PlanInput/Source/Citation/KnowledgeNode/KnowledgeEdge/Graph/Stage/Schedule/ValidationReport/PlanResult/PlanStep/Plan`（`types.rs:19-211`，`STEP_NAMES[8]` :6-15）、`Lecture/LectureUnit/LectureContent`（`lecture.rs:48-79`）、`KnowledgeCitation{quote,char_start,char_end,line}`（knowledge/mod.rs:89-97）。
+- 类型：`PlanInput/Source/Citation/KnowledgeNode/KnowledgeEdge/Graph/Stage/Schedule/ValidationReport/PlanResult/PlanStep/Plan`（`types.rs:19-211`，`STEP_NAMES[8]` :6-15）、`Lecture/LectureUnit/LectureContent`（`lecture.rs:48-79`）、`KnowledgeCitation{quote,char_start,char_end,line}`（knowledge/mod.rs:89-97）。`material_ids` 接受 0–8 项；空资料时图谱与讲义引用为空，有资料时仍逐字校验。
 
 ### 5.3 practice / review / projects
 - 表：`practice_sets`（FK plan CASCADE、mode/status、exam 三列）、`practice_questions`（UNIQUE(set_id,position)、rubric_json）、`practice_answers`（question_id UNIQUE、grader_request_id、索引 practice_answers_set ON set_id）、`practice_mistakes`（variant_of/mastered 链）、`practice_bookmarks`；`review_cards`（due_at/interval_days/ease=2.5/repetitions/lapses、suspended、索引 review_due_cards ON (deleted,suspended,due_at)）、`review_history`（索引 review_history_card）；挂起卡片评分返回 `card_suspended`（`set_review_card_suspended` 命令）；`project_versions`（UNIQUE(project_id,version_number)、feedback_json、cancel_requested）。
@@ -207,13 +207,13 @@ sequenceDiagram
 - export：`ExportScope{Plan,Lecture,Knowledge,Review,Schedule}` 与 `ExportFormat` 8 值（mod.rs:24-58）；PDF 为手工 TrueType 解析（pdf.rs:126-340）+ CIDFontType2 自写（pdf.rs:377，msyh/simhei ≤64MB :218-220）；Anki 生成真实 collection.anki2（export/anki.rs:55 render 起，:220 入包）。
 
 ### 5.5 agent / community / engagement / reports
-- agent 表（mod.rs:187 起 migrate）：`agent_sessions`(budget_tokens 默认 16000)、`agent_runs`(status/steps/current_request_id)、`agent_messages`、`agent_tool_calls`(id PK 幂等)、`agent_artifacts`(sha256/expires_at)、`agent_approvals`、`agent_memory`；agent_messages/runs/artifacts/approvals 四表各带 session_id 索引（mod.rs:269-272，每个 agent.* 事件不再全表扫描）。
+- agent 表（mod.rs:187 起 migrate）：`agent_sessions`(budget_tokens 默认 16000)、`agent_runs`(status/steps/current_request_id)、`agent_messages`、`agent_tool_calls`(id PK 幂等)、`agent_artifacts`(sha256/expires_at)、`agent_approvals`、`agent_memory`；agent_messages/runs/artifacts/approvals 四表各带 session_id 索引（mod.rs:269-272，每个 agent.* 事件不再全表扫描）。通用会话以空字符串存 plan_id、IPC 映射为 null；`tools::catalog(session)` 对通用会话移除 workspace/artifact 工具，执行层仍校验方案范围。
 - community 表（mod.rs:179 起 migrate）：posts/replies/reactions(单用户 PK(post_id,kind))/groups/group_members/rooms/reservations/reminders。
 - engagement：`notifications`（mod.rs:135-143）。
 - reports：`focus_sessions`（paused_at 靠 PRAGMA 检测补列 :201-202）、`study_checkins`；`learning_node_evidence` 带 created_at 索引（reports/mod.rs:193，周报免全表排序）。
 
 ### 5.6 backup / sharing / sync
-- backup：`.dtbackup` = zip{manifest.json + state.db(VACUUM INTO 快照) + files/*}；`TABLES` 67 张白名单（archive.rs:25-93），排除 `auth_sessions/access_tokens/share_index`（:95）；上限包 2GB/库 512MB/单文件 50MB/清单 1MB（:19-22）。
+- backup：`.dtbackup` = zip{manifest.json + state.db(VACUUM INTO 快照) + files/*}；`TABLES` 67 张白名单（archive.rs:25-93），排除 `auth_sessions/access_tokens/share_index`（:95）；上限包 2GB/库 512MB/单文件 50MB/清单 1MB（:19-22）。原件扩展名复用 `materials::SUPPORTED`，zip 仅作旧档案兼容，避免恢复后文件名与 kind 分叉。
 - sharing：`shared_plans(token_hash UNIQUE,payload_json,expires_at,revoked_at)` + 根库 `share_index(token_hash,user_id)`；离线包 `SharePackage{format,version,token,plan,expires_at,checksum}`（mod.rs:90）。
 - sync：`sync_config`(id=1 单行，凭据在 keyring)、`sync_jobs`(id TEXT PK,status,remote_path)；远端布局 `{base}/versions/{timestamp}-{id}-{sha256}.json` + 当前对象（versions.rs:206），保留最近 10 个（:238-250）。
 
@@ -263,7 +263,7 @@ graph TD
 - 客户端层 25 个文件：`client.ts` 聚合 invoke 并维护 `isCancelRace` 竞态错误码表（client.ts:514）；领域客户端 practice/review/knowledge/community/… 一一对应命令组；`materialImport.ts` 收敛文件选择器与窗口拖放的共享导入通道（37#3）、`shell.ts` 收敛 opener 定位与外链（37#4/37#8）；事件统一走 `onBackendEvent`（client.ts:500）。
 - 状态：`useBackendState`（:16）持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标（:33-43）；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次不弹错（:96）；`security.session_started` 触发 generation+1 全量重载（:162）；`replaceCollection`（:217）提交更新函数语义并按命名空间排队串行提交（inflight 队列 :27），消除一帧窗口的丢写竞态。
 - 流式：`useAgent.ts:156-166` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId；快照合并带 deltaEpoch 世代号，旧周期快照不得覆盖已拼接增量。
-- 样式：单文件 styles.css 约 1940 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63，状态 Badge 深底亮字保留色调通道）；断点 640/700/1024/1080/1100/1180/1240/1280/1320（:281-:1023 各处）；Esc 经 UI.tsx `MODAL_STACK`（:87）栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 规则覆盖 smooth scroll，系统偏好经 matchMedia 跟随（App.tsx:251）。
+- 样式：单文件 styles.css 2048 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63）；断点 640/700/1024/1080/1100/1180/1240/1280/1320；Esc 经 UI.tsx `MODAL_STACK`（:158）栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 覆盖 smooth scroll，系统偏好经 matchMedia 跟随。动态文本统一 `overflow-wrap:anywhere`，flex/grid 文本列设 min-width:0，代码/公式/表格只在内容容器内滚动。
 
 ## 8. 命令注册总览（`main.rs:250-456`，共 188 个）
 
