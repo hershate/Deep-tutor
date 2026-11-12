@@ -8,7 +8,9 @@ const modes = ['讲解', '提示', '练习', '反馈']
 
 // hintsOnly 由 App 传入：本组件不得再实例化 useBackendState，
 // 否则抽屉打开期间会并行跑第二条 bootstrap 轮询与事件同步管道（09#1）
-export default function TutorPanel({ compact = false, onClose, planId, contextLabel, hintsOnly = false }: { compact?: boolean; onClose?: () => void; planId?: string; contextLabel?: string; hintsOnly?: boolean }) {
+// 146#10：删除 compact prop 与 is-compact 类名——无 CSS 规则、无脚本消费，
+// prop 的唯一效果是挂一个无任何视觉/行为影响的死类，误导维护者
+export default function TutorPanel({ onClose, planId, contextLabel, hintsOnly = false }: { onClose?: () => void; planId?: string; contextLabel?: string; hintsOnly?: boolean }) {
   const { plans, activeSession, activeRun, loading, error, busy, stream, createSession, send, cancel, resume, resolveApproval } = useAgent({ planId, sessionTitle: '知舟导师' })
   const [input, setInput] = useState('')
   const [mode, setMode] = useState('讲解')
@@ -44,7 +46,7 @@ export default function TutorPanel({ compact = false, onClose, planId, contextLa
   }
   const newSession = async () => { await createSession('知舟导师', planId) }
 
-  return <div className={`tutor-panel ${compact ? 'is-compact' : ''}`}>
+  return <div className="tutor-panel">
     <div className="tutor-head"><div><span className="agent-mark"><Sparkles size={18} /></span><div><strong>知舟导师</strong><span><i />{error ? '后端操作失败' : '本地后端会话'}</span></div></div>{onClose && <IconButton label="关闭导师" onClick={onClose}><X size={18} /></IconButton>}</div>
     <div className="tutor-context"><BookOpen size={14} /><span>{context}</span><button disabled={running || busy === 'create'} onClick={() => void newSession()}><RotateCcw size={13} />新会话</button></div>
     <div className="tutor-modes">{modes.map(item => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} disabled={running} onClick={() => setMode(item)}>{item}</button>)}</div>
