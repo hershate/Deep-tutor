@@ -63,15 +63,21 @@ React 语义（竞态/守卫/清理/弹层）。每条对照 51#x/108#x/136#x/14
 
 ### 156#4 catch 侧序号守卫遗漏家族——旧失败晚到重设错误横幅（5 处）
 
-- 以下刷新函数成功分支有守卫、失败分支无（或整函数无 ticket），旧
-  失败晚到会在新成功清错后重设错误横幅+重试按钮（数据不被污染）：
-  `KnowledgeMap.tsx:64`（refreshOverview catch，且整函数无 ticket）、
-  `:76`（refreshPlans catch）；`SecurityPanel.tsx:52`；`Community.tsx:63-67`
-  （effect 挂的 .catch）；`Review.tsx:57`（mount 挂的 .catch）。
-  对照已修同型：Reports.tsx:47、SyncPanel.tsx:45、UsagePanel.tsx:43、
+- 位置（成功分支有守卫、失败分支无，或整函数无 ticket）：
+  `KnowledgeMap.tsx:64`（refreshOverview catch——且整函数无 ticket，仅靠
+  planRef 成功侧守卫）、`:76`（refreshPlans catch：ticket 在 :69 生成但
+  catch 未比对）；`SecurityPanel.tsx:52`（成功守卫在 :49-50）；
+  `Community.tsx:63-67`（effect 挂的 .catch → setLoadError）；
+  `Review.tsx:57`（mount 挂的 .catch → setLoadError）。
+- 传递链条：①两个并发刷新 R1（先发慢回、失败）与 R2（后发快回、成功）；
+  ②R2 成功分支过 ticket 检查清错并写入新数据；③R1 的失败分支无 ticket
+  复查，晚到仍 setLoadError——界面在显示最新数据的同时挂出陈旧错误
+  横幅与重试按钮，直到下一次成功刷新才清除。数据本体不被污染。
+- 对照：已修同型 Reports.tsx:47、SyncPanel.tsx:45、UsagePanel.tsx:43、
   Integrations.tsx:29、WikiPanel.tsx:47、AgentTaskCenter.tsx:51 均两侧
-  守卫。144#4「成功与失败分支均须守卫」的批量收口漏了这 5 处。
-- 影响范围：受影响=五处的错误横幅准确性。损害性质=陈旧错误闪现。
+  守卫——144#4「成功与失败分支均须守卫」的批量收口漏了这 5 处。
+- 影响范围：受影响=五处页面的错误横幅准确性（并发刷新竞态窗口）；
+  不受影响=数据读写与页面其余功能。损害性质=陈旧错误闪现。
 - 修复方向：catch 内补同 ticket 复查（KnowledgeMap refreshOverview 并补
   整体 ticket）。
 
@@ -92,38 +98,64 @@ React 语义（竞态/守卫/清理/弹层）。每条对照 51#x/108#x/136#x/14
 
 ### 156#6 commit_artifact 的文件写与 DB commit 无补偿——commit 点失败使该 artifact 永久不可用
 
-- `tools.rs:352` atomic_write 在事务内、`tx.commit()`（:365）之前；
-  commit 失败（busy 超时/落盘错误）→ 文件已为新内容而 DB 回滚到旧哈希。
-  此后 read_artifact（:381）哈希比对永久 `artifact_modified_externally`，
-  read/edit/promote 全废（workspace.edit 需先 read 成功，无法自愈），只能
-  换新 path 重写。97#4/101#1 处理了顺序与冻结但未覆盖 commit 点失败；
-  概率低（atomic_write 已 sync_all，commit 点窗口窄）。建议核实是否需
-  commit 失败后回滚文件或重写旧哈希。
+- 位置：`desktop/src-tauri/src/backend/agent/tools.rs:352`
+  （atomic_write 在事务内执行）、`:365`（`tx.commit()` 在文件写之后）、
+  `:381`（read_artifact 哈希比对）。
+- 传递链条：①workspace.write 落新内容：文件已 temp+sync+rename 为新
+  哈希版本；②`tx.commit()` 失败（busy 超时/落盘错误）——DB 回滚到
+  旧哈希记录；③文件与 DB 哈希永久不一致：此后 read_artifact 比对恒报
+  `artifact_modified_externally`，该 artifactId 的 read/edit/promote 全部
+  拒绝（workspace.edit 需先 read 成功，无自愈路径），只能换新 path 重写。
+  97#4/101#1 处理了写序与冻结但未覆盖 commit 点失败。
+- 影响范围：受影响=commit 点失败窗口内的单个产物（会话其余功能正常）；
+  不受影响=正常提交路径。概率低（atomic_write 已 sync_all，commit 点
+  窗口窄）。损害性质=产物永久不可用（数据仍在文件区但不可达）。
+- 待核：commit 失败后回滚文件（备份旧内容）或以新哈希补写 DB。
 
 ### 156#7 跨响应重复 tool_call id 使 resume 重放序列非法——122#7 只修了单响应内
 
-- 122#7 注释明言「部分本地/小模型会重复 id」。此类模型在后续步重用
-  早前步的 id：run_loop 保存 assistant(tool_calls)（mod.rs:1125）后
-  tools::execute 撞 `tool_call_conflict`（tools.rs:540）→ run 失败；
-  历史出现两个 assistant 声明同一 id、仅一条 tool 回复。`history()`
-  （mod.rs:750-800）的 declared/answered 修剪只删「未答复的声明」不删
-  「重复声明的第二个」→ 重放序列非法，严格端点 400，resume 每次必败且
-  计费。需真实本地模型复现确认。
+- 位置：`agent/mod.rs:1125`（run_loop 保存 assistant(tool_calls) 先于
+  tools::execute）、`agent/tools.rs:540`（`tool_call_conflict`）、
+  `agent/mod.rs:750-800`（history() 的 declared/answered 修剪）。
+- 传递链条：①部分本地/小模型跨响应重用早前步的 tool_call id（122#7
+  注释明言单响应内重复存在）；②run_loop 保存 assistant(tool_calls) 后
+  execute 撞 `tool_call_conflict` → run 失败——历史中已有两个 assistant
+  声明同一 id、仅一条 tool 回复；③resume 重放时 history() 修剪只删
+  「未答复的声明」不删「重复声明的第二个」→ 重放序列含悬空声明，
+  严格端点 400——resume 每次必败且每次消耗 tokens。
+- 影响范围：受影响=跨响应重复 id 模型的失败 run 恢复路径；不受影响=
+  标准 OpenAI/Anthropic 系模型（id 全局唯一）。损害性质=恢复路径死锁
+  + 重复计费。需真实本地模型复现确认。
+- 待核：history() 补「同 id 保留首个声明」的去重修剪。
 
 ### 156#8 Library saveNote 未容忍已拒绝的草稿链——deleteNote 已修、saveNote 漏
 
-- `Library.tsx:336` `await draftWrite.current`（链尾可能 rejected）；
-  同文件 :361 deleteNote 用了 `.catch(() => {})`。冲突冻结态（draftBlocked
-  后链尾恒 rejected）点「保存笔记」：每次都抛错报「保存失败」，笔记本体
-  （setNotes 路径与草稿无关）无法保存；瞬时失败与下一次自动保存之间的
-  窗口同理。修法与 deleteNote 对齐即可。
+- 位置：`desktop/src/pages/Library.tsx:336`（`await draftWrite.current`
+  链尾可能 rejected）；对照同文件 `:361`（deleteNote 用
+  `.catch(() => {})`）。
+- 传递链条：①草稿链尾 rejected 的两种来源：冲突冻结态（draftBlocked
+  后链恒 rejected，不再有新 enqueue 治愈）或瞬时失败（database_busy）
+  与下一次 350ms 自动保存之间的窗口；②用户点「保存笔记」→
+  `await draftWrite.current` 直接抛出；③错误提示「保存失败」——但
+  笔记本体保存（setNotes/replaceCollection）与草稿链无关，被这次前置
+  await 连带阻断，用户编辑无法落库。
+- 影响范围：受影响=冻结态/瞬时失败窗口内的笔记保存操作；不受影响=
+  正常态保存与删除（deleteNote 已容错）。损害性质=保存路径被无关的
+  草稿失败阻断。
+- 修复方向：与 deleteNote 对齐（`.catch(() => {})` 后继续保存）。
 
 ### 156#9 DataDirectoryPanel restart() 无 finally——busy 永久停留
 
-- `DataDirectoryPanel.tsx:76-82`：成功分支不 `setBusy('')`。若后端
-  restart 命令在进程退出前 resolve（或重启被拦截），面板 busy 永久停留
-  'restart'，按钮全禁用直到重挂载。需核实 storageBackend.restart() 的
-  resolve 语义（通常进程即将退出，实际暴露面可能为零）。
+- 位置：`desktop/src/components/DataDirectoryPanel.tsx:76-82`（成功分支
+  不 `setBusy('')`，异常分支也未见 finally）。
+- 传递链条：①用户点「立即重启」→ busy='restart'，按钮禁用；②后端
+  restart 命令 resolve（进程即将退出的正常路径下 UI 生命周期结束，
+  无影响）或命令失败/重启被拦截；③面板 busy 永久停留 'restart'——
+  所有按钮禁用直到组件重挂载（切页/重开面板）。
+- 影响范围：受影响=restart 命令非退出路径的 resolve/失败（需核实
+  storageBackend.restart() 的实际语义——通常进程随后退出，实际暴露面
+  可能为零）；不受影响=正常退出路径。损害性质=潜在的面板卡死。
+- 待核：确认 resolve 语义后补 finally 复位或按需保留禁用。
 
 ## 信息
 
