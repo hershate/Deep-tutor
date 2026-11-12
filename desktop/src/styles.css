@@ -2045,4 +2045,4 @@ body { overflow-wrap: anywhere; }
 .badge { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .reading-article pre { max-width: 100%; overflow-x: auto; }
-.notification-button i { width: auto; min-width: 16px; height: 16px; padding: 0 3px; display: grid; place-items: center; font-size: 10px; font-style: normal; line-height: 1; }
+.notification-button i { width: auto; min-width: 16px; height: 16px; padding: 0 3px; display: grid; place-items: center; font-size: 12px; font-style: normal; line-height: 1; }
