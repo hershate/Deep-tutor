@@ -24,13 +24,14 @@ launcher=$!
 # 131#1/#9：只终止自己启动的 $launcher 进程树，不按端口找 PID 强杀
 # （占用者可能是无关程序）。Windows：taskkill //T 连 npm 包装进程带
 # vite 子进程整树终止；非 Windows（本仓库开发与 CI 均 Windows，此分支
-# 为尽力而为）：kill 掉 npm 包装进程后尽力 pkill 其子进程，vite 仍可能成孤儿
+# 为尽力而为）：先 pkill 子进程再 kill 包装进程——顺序不能反，先杀父
+# 会让 vite 被 init 收养，pkill -P 随后按旧父 pid 查不到而留孤儿
 cleanup() {
   if command -v taskkill >/dev/null 2>&1; then
     taskkill //F //T //PID "$launcher" >/dev/null 2>&1 || true
   else
-    kill "$launcher" >/dev/null 2>&1 || true
     pkill -P "$launcher" >/dev/null 2>&1 || true
+    kill "$launcher" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT

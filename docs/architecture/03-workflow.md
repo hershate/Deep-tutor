@@ -6,11 +6,11 @@
 
 | 入口 | 命令 | 实际动作 |
 |---|---|---|
-| Makefile:23 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 六处版本校验 + `npm run build`（tsc -b && vite build） |
-| Makefile:28 | `make test` | `cargo test --release --locked -- --test-threads=1`（desktop/src-tauri） |
-| Makefile:32 | `make check` | lint + test |
-| Makefile:18 | `make build` | `collect-licenses.mjs` 收集第三方许可 → `npm run tauri build -- -- --locked`（`--locked` 透传 cargo，Cargo.lock 不一致即失败）→ tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
-| Makefile:34 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
+| Makefile:31 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 六处版本校验 + `npm run build`（tsc -b && vite build） |
+| Makefile:39 | `make test` | `cargo test --release --locked -- --test-threads=1`（desktop/src-tauri） |
+| Makefile:43 | `make check` | lint + test + dev-smoke（dev server 冒烟，1.1.9 并入） |
+| Makefile:25 | `make build` | lint 前置（131#3）→ `collect-licenses.mjs` 收集第三方许可 → `npm run tauri build -- -- --locked`（`--locked` 透传 cargo，Cargo.lock 不一致即失败）→ tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
+| Makefile:52 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
 
 本地 Rust 工具链按 `rust-toolchain.toml` 钉 1.99.1（本机解析为 gnu 目标，经 winlibs 的 dlltool 链接，`RUSTUP_HOME=F:\DevCache
 ustup`）；CI 为同版本 msvc（windows-latest）；crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`（AGENTS.md 约定）。
@@ -30,18 +30,18 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test]
 ```
 
-发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.8，check-versions.mjs 校验）。
+发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.9，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，239 个测试串行全绿。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。全仓 .rs 文件约 1/3 为测试，246 个测试串行全绿。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
-  - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:630-692 `mock_app/ipc` 辅助函数）。
+  - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:812/868 `mock_app/ipc` 辅助函数）。
   - 本机回环 TestServer 线程模拟 LLM/WebDAV/S3 协议（providers/test_support.rs:35-70），断言真实 HTTP 行为而非 mock 返回值。
   - `MemoryCredentials`（providers/mod.rs:151）替代系统密钥库。
   - `defer` 布尔使流水线测试同步化，三域形态各异：learning 跳过 spawn（直接内联执行）、materials 自旋等待任务完成、sync 暂停调度线程。
-  - MIGRATION_RUNS 计数器验证迁移幂等与版本门禁补列（store.rs:22-26；测试 :1289 幂等 / :1315 版本门禁）。
+  - MIGRATION_RUNS 计数器验证迁移幂等与版本门禁补列（store.rs:77；store.rs:22-27 现为 107#5 的 STORE_OPEN_LOCK 打开锁——勿混淆；幂等/版本门禁测试见 store.rs 测试区）。
 - 事件契约（38 轮字段级全量复核结论）：前端按 kind/prefix 触发一次 IPC 全量重拉，payload 仅消费标识类字段（requestId/runId/sessionId/materialId/planId/stageId/namespace），其余为审计死字段；字段级零失配，除非事件发射点或前端消费点增改，后续无需再做字段级复核（决策文档第 29 条）。
 - 覆盖重点（抽样断言）：恢复不重复调上游（learning/tests.rs、subjective_tests.rs server 计数不变）；事件 outbox 分页与重启续接（store.rs:1252 测试）；备份 ID 映射、追加导入子表随父重写与重复导入按复合键跳过（backup/tests.rs）；同步回读校验与保留恰 10 个（sync/tests.rs、versions_tests.rs）；并发 grade 仅一次生效（review/mod.rs 测试）；两用户文件隔离（security/workspace_tests.rs）；异步命令从会话派生 principal——user2 登录后档案必须落在 user2 工作区（security/guard_tests.rs）。
 - 环境边界：真实供应商、真实媒体编解码播放、交互安装为独立验收项，协议夹具不替代（plan/README.md 约定；无界面安装验证走 `--verify-native` + `DEEPTUTOR_VERIFY_DATA_DIR`，main.rs:14-72）。
@@ -128,7 +128,7 @@ flowchart TD
 - 复习到期：`next_review_card` 取 `due_at<=now` 最旧（review/mod.rs:366）；grade 公式见 02 §10。
 
 ### 3.4 项目成果（Projects）
-提交 `submit_project_version`（projects/mod.rs:278）：content 1-100000B 无 NUL；可选材料须已解析；每项目单反馈任务（事务内复查 :313）；INSERT 'running' + **commit 后才 emit** `project.feedback_started`（:329-335）；量规由模型按概念应用/实现质量/验证与反思 0-100 评分（:443-448），`validate_feedback`（:351）限分≤100、summary≤6000、建议 1-5 条；不声称执行代码。恢复：completed_chat 为真直接重放 evaluate，否则 interrupted（:571-602）。迭代笔记写入真实 notes 集合（:607-648）。
+提交 `submit_project_version`（projects/mod.rs:303）：content 1-100000B 无 NUL；可选材料须已解析；每项目单反馈任务（事务内复查 :313）；INSERT 'running' + **commit 后才 emit** `project.feedback_started`（:329-335）；量规由模型按概念应用/实现质量/验证与反思 0-100 评分（:443-448），`validate_feedback`（:351）限分≤100、summary≤6000、建议 1-5 条；不声称执行代码。恢复：completed_chat 为真直接重放 evaluate，否则 interrupted（:571-602）。迭代笔记写入真实 notes 集合（:607-648）。
 
 ```mermaid
 flowchart TD
@@ -160,7 +160,7 @@ stateDiagram-v2
 ```
 
 ### 3.6 知识库与 Wiki（Knowledge/Notes）
-- 问答 `ask_knowledge`（knowledge/mod.rs:483）：1-8 份已解析资料为 scope；每份截 16000 字符（MAX_SOURCE_CHARS :24）标记 truncated；系统提示强约束只用提供资料；answer≤30000B；**引用剔除式校验（10#24）**：material_id 不在 scope 或 quote（1..=1000 字）无法经 `find_ignoring_case`（大小写不敏感字符窗口匹配，knowledge/mod.rs:319）在原文定位（locate knowledge/mod.rs:175）的引用被剔除并计入 dropped（重复引用去重），dropped>0 仅产生 warning；仅当 sufficient 且剔除后 citations 为空才报 `citation_mismatch`（:654-658）；`UPDATE ... WHERE status='running'` 防取消后写入。
+- 问答 `ask_knowledge`（knowledge/mod.rs:512）：1-8 份已解析资料为 scope；每份截 16000 字符（MAX_SOURCE_CHARS :24）标记 truncated；系统提示强约束只用提供资料；answer≤30000B；**引用剔除式校验（10#24）**：material_id 不在 scope 或 quote（1..=1000 字）无法经 `find_ignoring_case`（大小写不敏感字符窗口匹配，knowledge/mod.rs:319）在原文定位（locate knowledge/mod.rs:175）的引用被剔除并计入 dropped（重复引用去重），dropped>0 仅产生 warning；仅当 sufficient 且剔除后 citations 为空才报 `citation_mismatch`（:654-658）；`UPDATE ... WHERE status='running'` 防取消后写入。
 
 引用双重校验：
 
@@ -183,7 +183,7 @@ flowchart TD
 - 知识库体检 `get_library_overview`（notes/library.rs:67）：未关联自由笔记、完全相同正文、缺失原件、解析失败四类真实项；支持打开对应记录；不自动删除。
 
 ### 3.7 社区与提醒（Community）
-预约 `reserve`（community/mod.rs:843）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`、写事务内查重叠（31#35）；`claim_due_reminders`（:985，IPC `claim_community_reminders` commands.rs:112）提供到期提醒领取——仅领 remind_at≤now、未投递且房间尚未结束（结束时间上界 `start_at+duration > now`，1.1.7/114#7，与 95#4 active 口径同公式）的行，逐条置 delivered_at 并发 `community.reminder_due`；由 `App.tsx` 每 60 秒轮询领取（`community.ts:53` claimDueReminders，免打扰时段只落通知中心不弹 toast，1.1.7/115#4）；取消预约/房间同步删提醒（:921,:951）。
+预约 `reserve`（community/mod.rs:939）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`、写事务内查重叠（31#35）；`claim_due_reminders`（:1081，IPC `claim_community_reminders` commands.rs:124）提供到期提醒领取——仅领 remind_at≤now、未投递且房间尚未结束（结束时间上界 `start_at+duration > now`，1.1.7/114#7，与 95#4 active 口径同公式）的行，逐条置 delivered_at 并发 `community.reminder_due`；由 `App.tsx` 每 60 秒轮询领取（`community.ts:53` claimDueReminders，免打扰时段只落通知中心不弹 toast，1.1.7/115#4）；取消预约/房间同步删提醒（:921,:951）。
 
 ```mermaid
 sequenceDiagram
@@ -275,4 +275,4 @@ flowchart LR
 
 ## 8. 命令与事件契约一致性
 
-前端 25 个客户端文件调用的命令名与 main.rs:219-421 注册表（189 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 92#1 起已从生产注册表移除（前端零调用），仅测试 mock 注册面仍在使用。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:460）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。
+前端 25 个客户端文件调用的命令名与 main.rs:250-456 注册表（188 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 92#1、`stream_provider_chat`/`get_agent_run` 自 138#1 起已从生产注册表移除（前端零调用），仅测试 mock 注册面仍在使用。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:514）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。
