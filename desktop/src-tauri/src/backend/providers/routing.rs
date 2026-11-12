@@ -264,7 +264,10 @@ pub(crate) fn settings_conn(conn: &rusqlite::Connection) -> Result<RoutingSettin
 }
 
 fn references_profile(settings: &RoutingSettings, id: &str) -> bool {
-    settings.aggregate_provider_ids.iter().any(|item| item == id)
+    settings
+        .aggregate_provider_ids
+        .iter()
+        .any(|item| item == id)
         || settings.aggregate_default.as_deref() == Some(id)
         || settings.failover.iter().any(|item| item == id)
         || settings

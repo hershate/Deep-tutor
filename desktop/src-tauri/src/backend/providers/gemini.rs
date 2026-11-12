@@ -247,10 +247,9 @@ where
                                 // 膨胀且永不触发终止条件；与 openai/anthropic/
                                 // responses 同口径按条目数封顶
                                 if tool_index >= openai::MAX_TOOL_CALL_ENTRIES {
-                                    return Err(output.error(
-                                        "invalid_tool_call",
-                                        "工具调用数量超出上限",
-                                    ));
+                                    return Err(
+                                        output.error("invalid_tool_call", "工具调用数量超出上限")
+                                    );
                                 }
                                 output.tool_calls.insert(
                                     tool_index,
