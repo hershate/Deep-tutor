@@ -638,10 +638,6 @@ pub fn send<R: Runtime>(
             "已达到本会话 Token 预算，未创建新的运行",
         ));
     }
-    let mut active = state
-        .active
-        .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?;
     let mut store = state.store()?;
     let timestamp = now()?;
     let tx = store
@@ -676,12 +672,26 @@ pub fn send<R: Runtime>(
         "agent.run_started",
         json!({"sessionId": session_id, "runId": run_id}),
     )?;
-    active.insert(run_id, Arc::new(AtomicBool::new(false)));
+    // 141#1：active 登记收窄为锁内瞬时插入（learning::start 的 register
+    // 模式）——原先 active.lock() 覆盖整个 IMMEDIATE 事务，BEGIN 在
+    // busy_timeout 上等待长写事务（备份导入/vacuum）期间锁不释放，
+    // cancel 与 stop_all 在同一把锁上排队，取消入口在最需要取消的
+    // 窗口被堵死；commit 失败补偿移除登记
+    {
+        let mut active = state
+            .active
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?;
+        active.insert(run_id, Arc::new(AtomicBool::new(false)));
+    }
     if let Err(error) = tx.commit() {
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(&run_id);
         return Err(error.into());
     }
-    drop(active);
     emit(app, &event);
     launch(app.clone(), state, run_id, session_id)?;
     get_run(state, run_id)
@@ -1295,10 +1305,6 @@ pub fn resume<R: Runtime>(
     if !["failed", "cancelled", "interrupted"].contains(&run.status.as_str()) {
         return Ok(run);
     }
-    let mut active = state
-        .active
-        .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?;
     let mut store = state.store()?;
     let tx = store
         .conn
@@ -1313,7 +1319,7 @@ pub fn resume<R: Runtime>(
         params![session_id],
         |row| row.get(0),
     )?;
-    if running || active.contains_key(&run_id) {
+    if running {
         return Err(BackendError::new(
             "run_active",
             "该 Agent 会话已有正在执行的任务",
@@ -1354,14 +1360,31 @@ pub fn resume<R: Runtime>(
             "Agent 已达到 25 步工具循环上限，不能恢复该运行",
         ));
     }
-    active.insert(run_id, Arc::new(AtomicBool::new(false)));
     tx.execute("UPDATE agent_runs SET status = 'running', error_code = NULL, error_message = NULL, updated_at = ?1 WHERE id = ?2", params![now()?, run_id])?;
     let event = Store::event(&tx, "agent.run_resumed", json!({"runId": run_id}))?;
+    // 141#1：与 send 同款——锁内只做 contains_key 复查与登记（原子），
+    // IMMEDIATE 事务移出锁窗口，commit 失败补偿移除登记
+    {
+        let mut active = state
+            .active
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "Agent 任务状态不可用"))?;
+        if active.contains_key(&run_id) {
+            return Err(BackendError::new(
+                "run_active",
+                "该 Agent 会话已有正在执行的任务",
+            ));
+        }
+        active.insert(run_id, Arc::new(AtomicBool::new(false)));
+    }
     if let Err(error) = tx.commit() {
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(&run_id);
         return Err(error.into());
     }
-    drop(active);
     emit(app, &event);
     launch(app.clone(), state, run_id, session_id)?;
     get_run(state, run_id)

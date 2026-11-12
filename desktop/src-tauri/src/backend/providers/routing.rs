@@ -244,9 +244,13 @@ fn valid_model(model: &str) -> bool {
 }
 
 pub fn settings(state: &ProviderState) -> Result<RoutingSettings> {
-    let store = state.store()?;
-    let saved = store
-        .conn
+    settings_conn(&state.store()?.conn)
+}
+
+/// 141#5：读逻辑单一来源——供 settings() 与 upsert/delete 的写事务内复查
+/// （Transaction Deref 到 Connection）共用
+pub(crate) fn settings_conn(conn: &rusqlite::Connection) -> Result<RoutingSettings> {
+    let saved = conn
         .query_row(
             "SELECT value FROM provider_meta WHERE key = ?1",
             params![SETTINGS_KEY],
@@ -259,18 +263,25 @@ pub fn settings(state: &ProviderState) -> Result<RoutingSettings> {
     }
 }
 
-pub fn provider_in_use(state: &ProviderState, id: &str) -> Result<bool> {
-    let settings = settings(state)?;
-    Ok(settings
-        .aggregate_provider_ids
-        .iter()
-        .any(|item| item == id)
+fn references_profile(settings: &RoutingSettings, id: &str) -> bool {
+    settings.aggregate_provider_ids.iter().any(|item| item == id)
         || settings.aggregate_default.as_deref() == Some(id)
         || settings.failover.iter().any(|item| item == id)
         || settings
             .routes
             .values()
-            .any(|route| route.provider_id.as_deref() == Some(id)))
+            .any(|route| route.provider_id.as_deref() == Some(id))
+}
+
+/// 141#5：upsert/delete 在写事务内复查路由引用——原先事务外预检有毫秒级
+/// TOCTOU 窗口（并发 save_settings 可恰在预检通过后加入引用，31#35
+/// community 同型）；调用点须在事务首写语句之后（已持写锁）再复查
+pub(crate) fn provider_in_use_conn(conn: &rusqlite::Connection, id: &str) -> Result<bool> {
+    Ok(references_profile(&settings_conn(conn)?, id))
+}
+
+pub fn provider_in_use(state: &ProviderState, id: &str) -> Result<bool> {
+    Ok(references_profile(&settings(state)?, id))
 }
 
 pub fn save_settings<R: Runtime>(

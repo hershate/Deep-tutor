@@ -662,7 +662,15 @@ pub fn reload<R: Runtime>(
     };
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE plugins SET name = ?1, version = ?2, description = ?3, kind = ?4, manifest_json = ?5, generation = generation + 1, updated_at = ?6 WHERE id = ?7", params![manifest.name, manifest.version, manifest.description, manifest.kind, serde_json::to_string(&manifest)?, now()?, id])?;
+    // 141#3：磁盘清单在而 DB 无行（install 失败清理残留/外部清库/卸载反向
+    // 残留）时 UPDATE 影响 0 行——原先不检查继续走，末尾 SELECT generation
+    // 以 QueryReturnedNoRows 泛化成 storage_failed，把「记录不存在」误导成
+    // 「检查磁盘/数据目录」；与 set_enabled/uninstall 同口径报 not_found。
+    // 该场景无宿主行可挂审计（record_reload 也查不到 generation），不记录
+    let changed = tx.execute("UPDATE plugins SET name = ?1, version = ?2, description = ?3, kind = ?4, manifest_json = ?5, generation = generation + 1, updated_at = ?6 WHERE id = ?7", params![manifest.name, manifest.version, manifest.description, manifest.kind, serde_json::to_string(&manifest)?, now()?, id])?;
+    if changed == 0 {
+        return Err(BackendError::new("not_found", "插件记录不存在，请先安装"));
+    }
     tx.execute(
         "DELETE FROM plugin_subscriptions WHERE plugin_id = ?1",
         params![id],

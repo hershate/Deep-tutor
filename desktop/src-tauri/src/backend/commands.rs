@@ -163,37 +163,81 @@ pub async fn replace_collection<R: Runtime + 'static>(
     .map_err(|_| super::error::BackendError::new("internal_error", "状态写入任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn save_draft<R: Runtime>(
+// 141#2：save_draft/get_draft/delete_draft 与 127#2 的 replace_collection 同
+// 症状——同步命令在主线程取全局 store 互斥锁，备份导入/重置（spawn_blocking
+// 持锁可达数十秒）期间打字自动保存把主线程堵死（>5s 被 Windows 标「未响应」）；
+// 移后台对齐 127#2（principal 传播同口径）
+#[tauri::command(async)]
+pub async fn save_draft<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
     id: String,
     value: Value,
     expected_revision: Option<i64>,
 ) -> Result<Value> {
-    let mutation = store(&state)?.put_draft(&id, &value, expected_revision)?;
-    if let Some(event) = &mutation.event {
-        emit(&app, event);
-    }
-    light_receipt(mutation)
+    let principal = super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::security::with_principal(principal, || {
+            // 锁作用域收敛：emit 必须在 MutexGuard 释放后执行（127#2 同款）
+            let mutation = {
+                use tauri::Manager;
+                let state = app.state::<BackendState>();
+                let guard = state
+                    .store
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard.put_draft(&id, &value, expected_revision)?
+            };
+            if let Some(event) = &mutation.event {
+                emit(&app, event);
+            }
+            light_receipt(mutation)
+        })
+    })
+    .await
+    .map_err(|_| super::error::BackendError::new("internal_error", "草稿保存任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn get_draft(state: State<'_, BackendState>, id: String) -> Result<Collection> {
-    store(&state)?.draft(&id)
+#[tauri::command(async)]
+pub async fn get_draft<R: Runtime + 'static>(app: AppHandle<R>, id: String) -> Result<Collection> {
+    let principal = super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::security::with_principal(principal, || {
+            use tauri::Manager;
+            let state = app.state::<BackendState>();
+            let guard = state
+                .store
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.draft(&id)
+        })
+    })
+    .await
+    .map_err(|_| super::error::BackendError::new("internal_error", "草稿读取任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn delete_draft<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, BackendState>,
-    id: String,
-) -> Result<Value> {
-    let mutation = store(&state)?.delete_draft(&id)?;
-    if let Some(event) = &mutation.event {
-        emit(&app, event);
-    }
-    light_receipt(mutation)
+#[tauri::command(async)]
+pub async fn delete_draft<R: Runtime + 'static>(app: AppHandle<R>, id: String) -> Result<Value> {
+    let principal = super::security::session_principal_existing(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::security::with_principal(principal, || {
+            // 锁作用域收敛：emit 必须在 MutexGuard 释放后执行（127#2 同款）
+            let mutation = {
+                use tauri::Manager;
+                let state = app.state::<BackendState>();
+                let guard = state
+                    .store
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard.delete_draft(&id)?
+            };
+            if let Some(event) = &mutation.event {
+                emit(&app, event);
+            }
+            light_receipt(mutation)
+        })
+    })
+    .await
+    .map_err(|_| super::error::BackendError::new("internal_error", "草稿删除任务执行异常终止"))?
 }
 
 // 73#10/73#14：停机集合改用 guard::stop_all（原先六个串行 `?` 首败即弃、

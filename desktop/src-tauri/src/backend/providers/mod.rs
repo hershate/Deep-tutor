@@ -587,6 +587,25 @@ pub fn upsert<R: Runtime>(
         tx.last_insert_rowid()
     };
     let id_string = format!("p{id}");
+    // 141#5：停用约束在写事务内复查（UPDATE/INSERT 已持写锁，并发
+    // set_active/save_settings 无法再插入复查与 commit 之间的窗口）——
+    // 原先事务外预检存在毫秒级 TOCTOU（31#35 community 同型）；事务外
+    // 预检保留供批量导入方整批快速失败。新建档案（INSERT 分支）不可能
+    // 已被激活或引用，复查恒通过
+    if input.enabled == Some(false) {
+        if active_conn(&tx)?.as_deref() == Some(id_string.as_str()) {
+            return Err(BackendError::new(
+                "provider_in_use",
+                "当前供应商须先切换才能停用",
+            ));
+        }
+        if routing::provider_in_use_conn(&tx, &id_string)? {
+            return Err(BackendError::new(
+                "provider_in_use",
+                "请先移除任务路由或聚合中的供应商引用，再停用档案",
+            ));
+        }
+    }
     if let Some(key) = input.api_key.as_deref() {
         let result = if key.is_empty() {
             state.credentials.delete(&id_string)
@@ -643,16 +662,19 @@ fn restore_credential(
 }
 
 pub fn active(state: &ProviderState) -> Result<Option<String>> {
-    let store = state.store()?;
-    store
-        .conn
-        .query_row(
-            "SELECT value FROM provider_meta WHERE key = 'active_provider'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(Into::into)
+    active_conn(&state.store()?.conn)
+}
+
+/// 141#5：与 routing::provider_in_use_conn 配套——upsert/delete 在写事务内
+/// 复查活动档案（调用点须在事务首写语句之后，已持写锁）
+fn active_conn(conn: &rusqlite::Connection) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM provider_meta WHERE key = 'active_provider'",
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
 }
 
 pub fn set_active<R: Runtime>(app: &AppHandle<R>, state: &ProviderState, id: &str) -> Result<()> {
@@ -699,6 +721,22 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &ProviderState, id: &str) -
     )?;
     if changed == 0 {
         return Err(BackendError::new("not_found", "供应商档案不存在"));
+    }
+    // 141#5：在用约束在写事务内复查（DELETE 已持写锁，并发 set_active/
+    // save_settings 无法再插入复查与 commit 之间的窗口；违例时 tx Drop
+    // 回滚删除）——原先事务外预检存在毫秒级 TOCTOU（31#35 community
+    // 同型）；事务外预检保留作快速失败
+    if active_conn(&tx)?.as_deref() == Some(id.as_str()) {
+        return Err(BackendError::new(
+            "provider_in_use",
+            "当前供应商正在使用，请先切换到其他档案",
+        ));
+    }
+    if routing::provider_in_use_conn(&tx, &id)? {
+        return Err(BackendError::new(
+            "provider_in_use",
+            "请先移除任务路由或聚合中的供应商引用，再删除档案",
+        ));
     }
     state.credentials.delete(&id)?;
     let result = (|| -> Result<_> {

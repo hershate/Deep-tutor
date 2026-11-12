@@ -689,10 +689,6 @@ pub fn generate<R: Runtime>(
         }
     }
     let provider_id = providers::routing::provider_for_task(&state.providers, "practice")?;
-    let mut active = state
-        .active
-        .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "练习任务状态不可用"))?;
     let mut store = state.store()?;
     let timestamp = now()?;
     let tx = store
@@ -723,12 +719,25 @@ pub fn generate<R: Runtime>(
         "practice.generation_started",
         json!({"setId": id, "mode": mode, "variantOf": input.variant_of}),
     )?;
-    active.insert(id, Arc::new(AtomicBool::new(false)));
+    // 145#2：登记收窄为锁内瞬时插入（agent send 同款）——原先
+    // active.lock() 覆盖整个 IMMEDIATE 事务，BEGIN 在 busy_timeout 上
+    // 等待长写事务期间锁不释放，cancel 与 stop 在同一把锁上排队，取消
+    // 入口在最需要取消的窗口被堵死；commit 失败补偿移除登记
+    {
+        let mut active = state
+            .active
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "练习任务状态不可用"))?;
+        active.insert(id, Arc::new(AtomicBool::new(false)));
+    }
     if let Err(error) = tx.commit() {
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(&id);
         return Err(error.into());
     }
-    drop(active);
     emit(app, &event);
     launch(app.clone(), state, id)?;
     detail(state, id)
@@ -1749,10 +1758,6 @@ pub fn resume<R: Runtime>(
     if !["failed", "cancelled", "interrupted"].contains(&set.status.as_str()) {
         return detail(state, id);
     }
-    let mut active = state
-        .active
-        .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "练习任务状态不可用"))?;
     let mut store = state.store()?;
     let tx = store
         .conn
@@ -1762,12 +1767,6 @@ pub fn resume<R: Runtime>(
         params![id],
         |row| row.get(0),
     ).optional()?.ok_or_else(|| BackendError::new("generation_active", "练习状态已改变，不能重复恢复"))?;
-    if active.contains_key(&id) {
-        return Err(BackendError::new(
-            "generation_active",
-            "该练习已在恢复，请勿重复启动",
-        ));
-    }
     let completed = set.status == "interrupted"
         && providers::completed_chat(&state.providers, previous_request.as_deref())?;
     let attempt = if completed {
@@ -1783,7 +1782,6 @@ pub fn resume<R: Runtime>(
     } else {
         format!("practice-{id}-{attempt}")
     };
-    active.insert(id, Arc::new(AtomicBool::new(false)));
     let outcome = (|| -> Result<_> {
         tx.execute("UPDATE practice_sets SET status = 'generating', attempt = ?1, request_id = ?2, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE id = ?4 AND status IN ('failed', 'cancelled', 'interrupted')", params![attempt, request_id, now()?, id])?;
         Store::event(
@@ -1792,18 +1790,30 @@ pub fn resume<R: Runtime>(
             json!({"setId": id, "attempt": attempt}),
         )
     })();
-    let event = match outcome {
-        Ok(event) => event,
-        Err(error) => {
-            active.remove(&id);
-            return Err(error);
+    let event = outcome?;
+    // 145#2：与 generate 同款——锁内只做 contains_key 复查与登记（原子），
+    // IMMEDIATE 事务移出锁窗口，commit 失败补偿移除登记
+    {
+        let mut active = state
+            .active
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "练习任务状态不可用"))?;
+        if active.contains_key(&id) {
+            return Err(BackendError::new(
+                "generation_active",
+                "该练习已在恢复，请勿重复启动",
+            ));
         }
-    };
+        active.insert(id, Arc::new(AtomicBool::new(false)));
+    }
     if let Err(error) = tx.commit() {
+        let mut active = state
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(&id);
         return Err(error.into());
     }
-    drop(active);
     emit(app, &event);
     launch(app.clone(), state, id)?;
     detail(state, id)

@@ -264,6 +264,10 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
                 // 137#5：回滚 rename 也失败时不再无声——原内容留存 .previous
                 // 可手动恢复，并入错误消息告知（materials 侧同型口径）
                 if let Err(rollback) = fs::rename(backup, path) {
+                    // 139#3：双失败分支提前返回也要回收 temporary——原先
+                    // return 先于下方清理执行，agent scratch 目录残留 .tmp
+                    // 孤儿（maintenance 孤儿扫描可覆盖，仍按同口径即时回收）
+                    let _ = fs::remove_file(&temporary);
                     return Err(BackendError::new(
                         "storage_failed",
                         &format!(

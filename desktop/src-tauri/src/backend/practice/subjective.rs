@@ -139,10 +139,6 @@ pub fn submit<R: Runtime>(
             "主观题答案不能超过 30000 字节",
         ));
     }
-    let mut active = state
-        .grading_active
-        .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "主观评分状态不可用"))?;
     let mut store = state.store()?;
     let tx = store
         .conn
@@ -198,12 +194,25 @@ pub fn submit<R: Runtime>(
         "practice.answer_submitted",
         json!({"setId": set_id, "questionId": question_id, "answerId": answer_id, "status": "grading"}),
     )?;
-    active.insert(answer_id, Arc::new(AtomicBool::new(false)));
+    // 141#1：登记收窄为锁内瞬时插入（agent send 同款）——原先
+    // grading_active.lock() 覆盖整个 IMMEDIATE 事务，BEGIN 在 busy_timeout
+    // 上等待长写事务期间锁不释放，cancel/stop 在同一把锁上排队，取消入口
+    // 在最需要取消的窗口被堵死；commit 失败补偿移除登记
+    {
+        let mut active = state
+            .grading_active
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "主观评分状态不可用"))?;
+        active.insert(answer_id, Arc::new(AtomicBool::new(false)));
+    }
     if let Err(error) = tx.commit() {
+        let mut active = state
+            .grading_active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(&answer_id);
         return Err(error.into());
     }
-    drop(active);
     emit(app, &event);
     launch(app.clone(), state, answer_id)?;
     Ok(AnswerResult {
@@ -868,10 +877,6 @@ pub fn resume<R: Runtime>(
             "当前作答状态不能恢复评分",
         ));
     }
-    let mut active = state
-        .grading_active
-        .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "主观评分状态不可用"))?;
     let mut store = state.store()?;
     let tx = store
         .conn
@@ -881,9 +886,7 @@ pub fn resume<R: Runtime>(
         params![answer_id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
-    if !["failed", "cancelled", "interrupted"].contains(&status.as_str())
-        || active.contains_key(&answer_id)
-    {
+    if !["failed", "cancelled", "interrupted"].contains(&status.as_str()) {
         return Err(BackendError::new(
             "grading_active",
             "评分状态已改变，不能重复恢复",
@@ -915,12 +918,29 @@ pub fn resume<R: Runtime>(
             "setId": initial.set_id, "questionId": initial.question_id, "answerId": answer_id, "attempt": attempt,
         }),
     )?;
-    active.insert(answer_id, Arc::new(AtomicBool::new(false)));
+    // 141#1：与 submit 同款——锁内只做 contains_key 复查与登记（原子），
+    // IMMEDIATE 事务移出锁窗口，commit 失败补偿移除登记
+    {
+        let mut active = state
+            .grading_active
+            .lock()
+            .map_err(|_| BackendError::new("store_unavailable", "主观评分状态不可用"))?;
+        if active.contains_key(&answer_id) {
+            return Err(BackendError::new(
+                "grading_active",
+                "评分状态已改变，不能重复恢复",
+            ));
+        }
+        active.insert(answer_id, Arc::new(AtomicBool::new(false)));
+    }
     if let Err(error) = tx.commit() {
+        let mut active = state
+            .grading_active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(&answer_id);
         return Err(error.into());
     }
-    drop(active);
     emit(app, &event);
     launch(app.clone(), state, answer_id)?;
     super::detail(state, initial.set_id)

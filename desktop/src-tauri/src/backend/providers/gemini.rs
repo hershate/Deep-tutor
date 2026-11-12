@@ -241,6 +241,17 @@ where
                                     .filter(|id| !id.is_empty())
                                     .map(str::to_string)
                                     .unwrap_or_else(|| format!("gemini-{request_id}-{tool_index}"));
+                                // 145#1：55#1 三协议同根防线在此缺口——id 缺省本地
+                                // 生成、args 取 {}，条目计入 produced_bytes 使空闲
+                                // 预算恒归零，持续发送的畸形流可让 BTreeMap 无界
+                                // 膨胀且永不触发终止条件；与 openai/anthropic/
+                                // responses 同口径按条目数封顶
+                                if tool_index >= openai::MAX_TOOL_CALL_ENTRIES {
+                                    return Err(output.error(
+                                        "invalid_tool_call",
+                                        "工具调用数量超出上限",
+                                    ));
+                                }
                                 output.tool_calls.insert(
                                     tool_index,
                                     ToolCall {
