@@ -67,7 +67,9 @@ export default function MaintenancePanel() {
     setBusy('vacuum')
     try {
       setVacuum(await maintenanceBackend.vacuum())
-      setReport(await maintenanceBackend.report())
+      // 156#3：复查统一经 pullReport 序号通道——原先直连 set，整理中
+      // 迟到的旧事件刷新会以自己的 ticket 通过检查覆盖 VACUUM 后新报告
+      await pullReport()
     } catch (error) { reportBackendError(error, 'write') }
     finally { setBusy('') }
   }

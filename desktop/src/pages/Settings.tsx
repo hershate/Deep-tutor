@@ -66,7 +66,8 @@ export default function Settings({ preferences, setPreferences, onImport, counts
         // 「正在读取学习档案…」
         setProfileError('')
         setDraft(next)
-        document.documentElement.lang = next.language
+        // 148#9：界面文本仅中文——语言偏好为 en-US 时写 lang="en" 会让读屏以
+        // 英文发音规则朗读中文（失真）；偏好只存档案，不改文档语言
       }
     }
     const failLoad = (error: unknown) => {
@@ -107,7 +108,6 @@ export default function Settings({ preferences, setPreferences, onImport, counts
       const saved = await engagementBackend.saveProfile(input)
       setProfile(saved)
       setDraft(saved)
-      document.documentElement.lang = saved.language
       if (close) setProfileOpen(false)
       notify('个人学习档案与导师偏好已保存')
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }

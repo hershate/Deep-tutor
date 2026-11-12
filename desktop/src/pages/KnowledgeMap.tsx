@@ -53,15 +53,19 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
   const planRef = useRef<LearningPlan | null>(null)
   useEffect(() => { planRef.current = plan }, [plan])
 
+  // 156#4：补整体序号守卫（144#4 两侧口径）——原先 catch 无守卫，A 的
+  // 失败晚到会在 B 成功清错后重设错误横幅
+  const overviewSeq = useRef(0)
   const refreshOverview = useCallback(async () => {
     if (!plan) { setOverview(null); return }
     // 32#7：方案 A→B 快速切换时，A 的响应后到不得覆盖 B 的掌握度概览
     const requestedPlanId = plan.id
+    const ticket = ++overviewSeq.current
     try {
       const next = await backend.getKnowledgeOverview(plan.id)
-      if (planRef.current?.id !== requestedPlanId) return
+      if (planRef.current?.id !== requestedPlanId || ticket !== overviewSeq.current) return
       setOverview(next)
-    } catch (cause) { setError(backendErrorMessage(cause)); setErrorSource('overview') }
+    } catch (cause) { if (ticket === overviewSeq.current) { setError(backendErrorMessage(cause)); setErrorSource('overview') } }
   }, [plan])
   // 76#8：序号守卫——他处采用方案触发 plan.adopted 与本页刷新并发时旧列表后到不回写
   const plansSeq = useRef(0)
@@ -73,7 +77,7 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
       setPlans(items)
       const preferred = initialPlanId
       setPlan(current => preferred ? items.find(item => item.id === preferred) || items[0] || null : current ? items.find(item => item.id === current.id) || items[0] || null : items[0] || null)
-    } catch (cause) { setError(backendErrorMessage(cause)); setErrorSource('plans') }
+    } catch (cause) { if (ticket === plansSeq.current) { setError(backendErrorMessage(cause)); setErrorSource('plans') } } /* 156#4：catch 补同 ticket 复查 */
   }, [initialPlanId])
   useEffect(() => { void refreshPlans() }, [refreshPlans])
   useEffect(() => { void refreshOverview() }, [refreshOverview])

@@ -495,6 +495,7 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .article-check .btn { font-size: 12px; }
 .article-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 36px; padding-top: 22px; border-top: 1px solid var(--border); }
 .study-tutor { min-width: 0; border-top: 1px solid var(--border); background: var(--surface); }
+.study-tutor > .surface { padding: 18px; } /* 147#6：右栏卡片内容贴边 */
 .tutor-panel { height: 100%; min-height: 620px; display: flex; flex-direction: column; background: var(--surface); }
 .tutor-head { display: flex; align-items: center; justify-content: space-between; min-height: 64px; padding: 10px 16px; }
 .tutor-head > div { display: flex; align-items: center; gap: 10px; }
@@ -512,7 +513,7 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .tutor-messages { flex: 1; min-height: 240px; max-height: 480px; overflow-y: auto; padding: 10px 14px; }
 .message { display: grid; justify-items: start; margin-bottom: 14px; }
 .message-user { justify-items: end; }
-.message-bubble { max-width: 94%; padding: 11px 13px; border-radius: 4px 13px 13px 13px; background: var(--surface-soft); color: var(--text-secondary); font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+.message-bubble { max-width: 94%; min-width: 0; padding: 11px 13px; border-radius: 4px 13px 13px 13px; background: var(--surface-soft); color: var(--text-secondary); font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; } /* 147#1：长无空格串（URL/哈希/base64）折行，不再画出气泡 */
 .message-user .message-bubble { border-radius: 13px 4px 13px 13px; background: var(--accent-strong); color: var(--paper-50); }
 .tutor-suggestions { display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 8px; }
 .tutor-suggestions button { flex: 0 0 auto; min-height: 32px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text-secondary); font-size: 12px; }
@@ -584,8 +585,13 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .node-relations strong { font-size: 13px; }
 .node-actions { display: flex; gap: 8px; margin: 20px 0; }
 .node-actions .btn { flex: 1; }
-.node-agent { display: flex; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
-.node-agent p { margin: 0; font-size: 12px; }
+/* 147#5：改纵向布局并补按钮样式——原先 h3 与 N 个引用按钮塞同一不换行
+   flex 行，按钮回落浏览器默认样式并溢出侧栏 */
+.node-agent { display: grid; gap: 8px; padding: 12px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
+.node-agent h3 { margin: 0; font-size: 13px; }
+.node-agent button { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; }
+.node-agent button p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.node-agent button small { color: var(--muted); font-size: 11px; }
 .knowledge-list { display: grid; }
 .knowledge-list > button { display: flex; align-items: center; gap: 16px; min-height: 80px; padding: 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; text-align: left; }
 .knowledge-list > button.active { background: var(--accent-soft); }
@@ -708,12 +714,12 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 与 :hover 同特异度且靠后，原先翻面后悬停反馈整体失效 */
 .flashcard:not(.is-flipped):hover { transform: translateY(-3px); }
 .flashcard.is-flipped { transform: rotateY(180deg); }
-.flashcard-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; border: 1px solid var(--border); border-radius: 18px; backface-visibility: hidden; text-align: center; overflow-y: auto; }
+.flashcard-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 48px 32px 44px; border: 1px solid var(--border); border-radius: 18px; backface-visibility: hidden; text-align: center; overflow-y: auto; } /* 147#12：center 的不安全居中使长文顶部被裁且滚不到——改顶对齐（绝对定位角标留出上下 padding） */
 .flashcard-front { background: var(--pine-950); color: white; }
 .flashcard-back { background: var(--accent-soft); transform: rotateY(180deg); }
 .flashcard-face > span { position: absolute; top: 22px; left: 24px; color: var(--muted); font-size: 12px; letter-spacing: .12em; }
 .flashcard-front > span { color: var(--lime-400); }
-.flashcard-face h2 { max-width: 650px; font-size: clamp(19px, 3vw, 28px); line-height: 1.6; font-weight: 580; }
+.flashcard-face h2 { max-width: 650px; font-size: clamp(19px, 3vw, 28px); line-height: 1.6; font-weight: 580; overflow-wrap: anywhere; }
 .flashcard-face small { position: absolute; bottom: 20px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 .flashcard-front small { color: oklch(0.72 0.02 130); }
 .review-workspace > .btn { min-width: 180px; }
@@ -1208,8 +1214,8 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .agent-message { display: flex; gap: 9px; max-width: 850px; margin: 0 auto 20px; }
 .agent-message.agent-user { justify-content: flex-end; }
 .agent-avatar { width: 30px; height: 30px; display: grid; place-items: center; flex-shrink: 0; border-radius: 9px; background: var(--pine-950); color: var(--lime-400); }
-.agent-message-content { max-width: 90%; }
-.agent-bubble { padding: 13px 15px; border-radius: 4px 13px 13px 13px; background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); font-size: 13px; line-height: 1.75; }
+.agent-message-content { max-width: 90%; min-width: 0; }
+.agent-bubble { min-width: 0; padding: 13px 15px; border-radius: 4px 13px 13px 13px; background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; } /* 147#2 */
 .agent-user .agent-bubble { border: 0; border-radius: 13px 4px 13px 13px; background: var(--accent-strong); color: var(--paper-50); }
 /* 63#2：深色漏网——accent-strong 翻转成亮绿而 paper-50 仍近白，用户气泡
    呈亮绿底白字（对比约 1.3:1）；对齐 message-user 的深色反色方案 */
@@ -1958,3 +1964,70 @@ h1, h2, h3 { text-wrap: balance; }
 .startup-recovery > h1 { margin: 0; color: var(--text); font-size: 24px; }
 .startup-recovery > p { max-width: 760px; margin: 0; overflow-wrap: anywhere; }
 .startup-recovery .storage-location-panel { width: min(760px, 100%); text-align: left; }
+
+/* ===== 147 号第四十七轮布局与溢出收口（追加段，同名 Specificity 按源序生效）===== */
+
+/* 147#3：讲义 KaTeX 展示公式滚动容器（对齐 .note-preview 1499 的修法） */
+.reading-article .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+
+/* 147#13：讲义 GFM 表格滚动容器（全局 table min-width 620px 的兜底） */
+.reading-article { overflow-x: clip; }
+.reading-article table { display: block; max-width: 100%; overflow-x: auto; }
+
+/* 147#4：知识地图节点文本列折行（节点固定 112px 宽） */
+.map-node > div { min-width: 0; }
+.map-node strong { overflow-wrap: anywhere; }
+
+/* 147#7：首屏目标徽章限宽（配合 Dashboard 的回退文案与 title 提示） */
+.today-hero .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* 147#9 家族：flex/grid 文本列 min-width:0 + 关键文本折行 */
+.week-calendar .calendar-event strong { overflow-wrap: anywhere; }
+.task-copy strong { overflow-wrap: anywhere; }
+.goal-switch div { min-width: 0; }
+.goal-switch strong { overflow-wrap: anywhere; }
+.session-list > button > div { min-width: 0; }
+.session-list strong { overflow-wrap: anywhere; }
+.lesson-list button > div { min-width: 0; }
+.lesson-list strong { overflow-wrap: anywhere; }
+.knowledge-list > button > div:first-child { min-width: 0; }
+.knowledge-list strong { overflow-wrap: anywhere; }
+.command-results > button > div { min-width: 0; }
+.command-results strong, .command-results p { overflow-wrap: anywhere; }
+.notification-list button > div { min-width: 0; }
+.notification-list strong, .notification-list p { overflow-wrap: anywhere; }
+.tutor-context > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* 147#10 家族：练习/测评内容容器折行 */
+.option-list > button { min-width: 0; }
+.option-list strong { min-width: 0; overflow-wrap: anywhere; }
+.question-body > h2, .subjective-body > h2 { overflow-wrap: anywhere; }
+.practice-citations p { overflow-wrap: anywhere; }
+.answer-feedback p, .hint-box p, .subjective-rubric p { overflow-wrap: anywhere; }
+.wiki-answer > p { overflow-wrap: anywhere; }
+.wiki-citations button > div { min-width: 0; }
+.wiki-citations strong, .wiki-citations p { overflow-wrap: anywhere; }
+.thought-details p { overflow-wrap: anywhere; } /* 147#15 同源的推理内容 */
+
+/* 147#11 家族：各页面长内容容器 */
+.resource-copy h3 { overflow-wrap: anywhere; }
+.note-card h2 { overflow-wrap: anywhere; }
+.post-card h2, .post-card > p { overflow-wrap: anywhere; }
+.community-replies p { overflow-wrap: anywhere; }
+.review-card-row h3 { overflow-wrap: anywhere; }
+.project-cover h2 { overflow-wrap: anywhere; }
+.import-provider-preview > div > div { min-width: 0; }
+.import-provider-preview code, .import-provider-preview strong { overflow-wrap: anywhere; }
+.lecture-citations > button { min-width: 0; }
+.lecture-citations span { min-width: 0; overflow-wrap: anywhere; }
+.result-resources span { overflow-wrap: anywhere; }
+.plugin-card h2 { overflow-wrap: anywhere; }
+.agent-chat > header h1 { overflow-wrap: anywhere; }
+.group-card h2 { overflow-wrap: anywhere; }
+.shared-hero h1 { overflow-wrap: anywhere; }
+.milestone-row > div { min-width: 0; }
+.milestone-row strong { overflow-wrap: anywhere; }
+
+/* 147#16：评分结果行内对齐（float 基线错位改 flex 两端） */
+.rubric-result { display: flex; align-items: first baseline; justify-content: space-between; gap: 8px; }
+.rubric-result strong { float: none; flex-shrink: 0; }

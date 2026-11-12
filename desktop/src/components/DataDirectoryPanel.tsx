@@ -78,7 +78,8 @@ export default function DataDirectoryPanel() {
     setBusy('restart')
     setError('')
     try { await storageBackend.restart() }
-    catch (cause) { setError(backendErrorMessage(cause)); setBusy('') }
+    catch (cause) { setError(backendErrorMessage(cause)) }
+    finally { setBusy('') } /* 156#9：restart resolve/失败路径统一复位——原先仅失败分支清 busy */
   }
   // 37#4：数据目录只读展示的配套能力——一键在资源管理器中定位。
   // 134#5：reveal 走后端 reveal_path 命令，失败已是语义准确的中文类型化

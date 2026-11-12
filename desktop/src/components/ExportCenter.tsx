@@ -57,12 +57,16 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
     setLoadFailed(false)
     backend.listLearningPlans().then(items => {
       if (!active) return
-      const ready = items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status))
+      // 148#3：讲义导出范围额外要求已采用——后端 lecture::get 对未采用方案
+      // 恒报 plan_not_ready，原先未采用方案也能选中「当前单元讲义」形成
+      // 必然失败的死路（完整方案/日程范围不要求采用，保持原过滤）
+      const lectureOnly = scope === 'lecture'
+      const ready = items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status) && (!lectureOnly || plan.adoptedProjectId !== null))
       setPlans(ready)
       setPlanId(current => ready.some(plan => plan.id === current) ? current : ready.find(plan => plan.id === initialPlanId)?.id || ready[0]?.id || '')
     }).catch(cause => { if (active) { setError(backendErrorMessage(cause)); setErrorSource('load'); setLoadFailed(true) } }).finally(() => { if (active) setBusy('') })
     return () => { active = false }
-  }, [open, initialPlanId, reloadToken])
+  }, [open, initialPlanId, reloadToken, scope])
   useEffect(() => {
     // 信息项：弹窗开着期间新完成的方案实时进入列表（plan. 前缀事件触发重拉）
     // 121#5：重拉成功同步清读取失败态与「读取失败」横幅（列表已可用）。

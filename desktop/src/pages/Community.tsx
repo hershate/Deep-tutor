@@ -43,14 +43,23 @@ export default function Community({ notify }: { notify: (message: string) => voi
   const refreshSequence = useRef(0)
   const refresh = useCallback(async () => {
     const ticket = ++refreshSequence.current
-    const [next, projectCollection] = await Promise.all([
-      communityBackend.overview(tab === 'peer_review' ? 'peer_review' : undefined, debouncedQuery),
-      backend.getCollection<Project[]>('projects'),
-    ])
-    if (ticket !== refreshSequence.current) return
-    setData(next)
-    setProjects(projectCollection.value)
-    setLoadError('')
+    try {
+      const [next, projectCollection] = await Promise.all([
+        communityBackend.overview(tab === 'peer_review' ? 'peer_review' : undefined, debouncedQuery),
+        backend.getCollection<Project[]>('projects'),
+      ])
+      if (ticket !== refreshSequence.current) return
+      setData(next)
+      setProjects(projectCollection.value)
+      setLoadError('')
+    } catch (error) {
+      // 156#4：错误路径同样过 ticket 守卫——旧 tab 的失败晚到不再在新 tab
+      // 成功清错后重设错误横幅
+      if (ticket === refreshSequence.current) {
+        setLoadError(backendErrorMessage(error))
+        reportBackendError(error)
+      }
+    }
   }, [tab, debouncedQuery])
   // 51#9：事件监听只挂载一次——原先依赖 refresh（随 tab/搜索变化），每次切换
   // 都先注销再异步重挂，间隙到达的 community.* 事件被丢弃；回调经 ref 取最新

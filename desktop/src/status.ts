@@ -11,7 +11,7 @@ export const taskStatusNames: Record<string, string> = {
   cancelling: '正在取消',
   done: '已完成',
   completed: '已完成',
-  degraded: '部分完成',
+  degraded: '降级交付', // 148#7：与 PlanGenerator 的 planStatusNames 统一（原先此处为「部分完成」，同状态两页两个名字）
   failed: '失败',
   cancelled: '已取消',
   interrupted: '已中断',

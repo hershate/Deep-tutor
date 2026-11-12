@@ -49,7 +49,7 @@ export default function SecurityPanel({ notify }: { notify: (message: string) =>
       if (ticket !== refreshSeq.current) return
       apply(next)
       setError('')
-    } catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
+    } catch (cause) { if (ticket === refreshSeq.current) { setError(backendErrorMessage(cause)); reportBackendError(cause) } } /* 156#4：catch 补同 ticket 复查 */
   }, [apply])
   useEffect(() => {
     let active = true

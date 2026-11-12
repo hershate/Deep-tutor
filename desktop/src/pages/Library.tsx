@@ -295,8 +295,10 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     const key = `deep-tutor-draft-${note?.id || 'new'}`
     setOpeningNoteId(note?.id ?? 'new')
     backend.getDraft<{ title: string; content: string; tag: string }>(key).then(({ value: draft, revision }) => {
-      draftRevisionRef.current = revision
+      // 156#2：ref 写入在序号守卫之后——旧响应后到不再污染 B 编辑器的
+      // 版本基线（原先以 A 的 revision 提交触发假冲突冻结）
       if (ticket !== openingNoteSeq.current) return
+      draftRevisionRef.current = revision
       setActiveNote(note || null); setDraftRestored(Boolean(draft))
       if (draft) { setNoteTitle(draft.title); setNoteContent(draft.content); setNoteTag(draft.tag); setDirty(true) }
       else { setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || '概率论'); setDirty(false) }
@@ -304,6 +306,9 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     }).catch(error => {
       if (ticket !== openingNoteSeq.current) return
       reportBackendError(error)
+      // 156#2：兜底路径重置版本基线——草稿读失败时不携带上一次打开的
+      // revision（保存前忽略期望版本，由后端按真实版本判定）
+      draftRevisionRef.current = null
       setActiveNote(note || null); setDraftRestored(false); setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || '概率论'); setDirty(false); setNoteOpen(true); setOpeningNoteId(null)
     })
   }
@@ -333,7 +338,9 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     draftBlocked.current = true
     setSaving(true)
     try {
-      await draftWrite.current
+      // 156#8：容忍已拒绝的草稿链（对齐 deleteNote）——冻结态/瞬时失败
+      // 窗口下链尾 rejected 原先阻断笔记本体保存
+      await draftWrite.current.catch(() => {})
       // 19#3：updated 持久化 ISO 时间戳，卡片渲染时格式化为相对时间；
       // 24#5：更新函数以最新集合为基准
       const stamp = new Date().toISOString()

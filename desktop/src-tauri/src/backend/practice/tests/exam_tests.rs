@@ -121,7 +121,12 @@ fn exam_config_deferred_feedback_unanswered_scores_and_idempotent_finish_are_rea
         detail(&state, generated.set.id).unwrap().set.max_score,
         None
     );
-    assert!(detail(&state, generated.set.id).unwrap().answers.is_empty());
+    // 148#2：考试进行中回显本人作答原文，判分信息保持遮蔽
+    let in_progress = detail(&state, generated.set.id).unwrap();
+    assert!(!in_progress.answers.is_empty(), "本人已提交作答应回显");
+    assert!(in_progress.answers.iter().all(|answer| answer.score.is_none()
+        && answer.correct.is_none()
+        && answer.feedback.is_null()), "交卷前不得泄露判分信息");
     assert_eq!(
         detail(&state, generated.set.id)
             .unwrap()
@@ -264,7 +269,12 @@ fn exam_waits_for_subjective_grading_before_finishing() {
         detail(&state, generated.set.id).unwrap().set.status,
         "ready"
     );
-    assert!(detail(&state, generated.set.id).unwrap().answers.is_empty());
+    // 148#2：考试进行中回显本人作答原文，判分信息保持遮蔽
+    let in_progress = detail(&state, generated.set.id).unwrap();
+    assert!(!in_progress.answers.is_empty(), "本人已提交作答应回显");
+    assert!(in_progress.answers.iter().all(|answer| answer.score.is_none()
+        && answer.correct.is_none()
+        && answer.feedback.is_null()), "交卷前不得泄露判分信息");
     let finished = exams::finalize(app.handle(), &state, generated.set.id).unwrap();
     assert_eq!(finished.set.status, "completed");
     assert_eq!(finished.set.score, Some(0.8));

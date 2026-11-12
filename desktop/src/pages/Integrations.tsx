@@ -26,6 +26,12 @@ export default function Integrations({ notify }: { notify: (message: string) => 
       if (ticket !== refreshSeq.current) return
       setData(overview)
       setLoadError('')
+      // 156#5：插件集变化（卸载/重装）时清空 earlier 分页缓存——服务端
+      // plugin_deliveries 已随卸载 CASCADE 清空，内存旧行原先在「卸载后
+      // 重装同 id」时复活为幽灵投递记录；B-19 的过滤只对「当前未安装」
+      // 生效，重装同 id 后不可辨
+      setEarlier(current => current.length ? [] : current)
+      setEarlierDone(false)
     } catch (cause) { if (ticket === refreshSeq.current) setLoadError(backendErrorMessage(cause)) }
   }, [])
   // 14#18：事件记录游标分页——overview 只带最新 100 条，更早历史按需加载

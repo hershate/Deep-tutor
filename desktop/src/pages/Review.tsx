@@ -42,19 +42,25 @@ export default function Review({ notify }: { notify: (message: string) => void }
   const refresh = useCallback(async () => {
     const ticket = ++refreshSeq.current
     setLoadError('')
-    const [next, allCards, nextStats, allPlans] = await Promise.all([
-      reviewBackend.next(), reviewBackend.list(), reviewBackend.stats(), backend.listLearningPlans(),
-    ])
-    if (ticket !== refreshSeq.current) return
-    setCard(next)
-    setCards(allCards)
-    setStats(nextStats)
-    setPlans(allPlans.filter(plan => plan.adoptedProjectId !== null && plan.result))
+    try {
+      const [next, allCards, nextStats, allPlans] = await Promise.all([
+        reviewBackend.next(), reviewBackend.list(), reviewBackend.stats(), backend.listLearningPlans(),
+      ])
+      if (ticket !== refreshSeq.current) return
+      setCard(next)
+      setCards(allCards)
+      setStats(nextStats)
+      setPlans(allPlans.filter(plan => plan.adoptedProjectId !== null && plan.result))
+    } catch (error) {
+      // 156#4：错误路径过 ticket 守卫——旧刷新的失败晚到不再在成功清错后重设横幅
+      if (ticket === refreshSeq.current) { setLoadError(backendErrorMessage(error)); reportBackendError(error) }
+    }
   }, [])
 
   useEffect(() => {
     // 加载失败保留错误横幅（含重试），与"现在没有到期卡片"空态区分
-    void refresh().catch(error => { setLoadError(backendErrorMessage(error)); reportBackendError(error) })
+    // 156#4：错误处理已随 ticket 守卫移入 refresh 本体
+    void refresh()
     let unlisten: (() => void) | undefined
     // 32#2：晚解析守卫——卸载早于 listen() resolve 时立即注销，不再泄漏
     // 一份绑定已卸载组件的回调（StrictMode 双挂载必现）

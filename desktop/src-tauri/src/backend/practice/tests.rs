@@ -474,7 +474,12 @@ fn deferred_and_hint_feedback_do_not_reveal_answers_early() {
     assert_eq!(pending.answer.correct, None);
     assert_eq!(pending.answer.score, None);
     assert_eq!(pending.answer.feedback, json!({"status": "submitted"}));
-    assert!(detail(&state, deferred.set.id).unwrap().answers.is_empty());
+    // 148#2：deferred 进行中返回考生本人作答原文（不含分数/对错/解析）
+    let deferred_view = detail(&state, deferred.set.id).unwrap();
+    assert!(!deferred_view.answers.is_empty(), "本人已提交作答应回显");
+    assert!(deferred_view.answers.iter().all(|answer| answer.score.is_none()
+        && answer.correct.is_none()
+        && answer.feedback.is_null()), "遮蔽期内不得泄露判分信息");
     assert_eq!(
         detail(&state, deferred.set.id)
             .unwrap()

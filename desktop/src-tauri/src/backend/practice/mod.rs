@@ -1269,7 +1269,27 @@ pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     } else {
-        Vec::new()
+        // 148#2：deferred 进行中返回考生本人的作答原文（不含分数/对错/
+        // 解析——遮蔽是设计意图，本人原文消失不是）；原先返回空集，提交
+        // 客观题后回看显示空的禁用输入框，无法确认已保存（主观题经
+        // pending_answers 一直有本人原文，两口径原先不一致）
+        let mut statement = store.conn.prepare("SELECT id, question_id, response_json, grader_request_id FROM practice_answers WHERE set_id = ?1 AND status = 'done' ORDER BY id")?;
+        let rows = statement.query_map(params![id], |row| {
+            let response: String = row.get(2)?;
+            Ok(AnswerView {
+                id: row.get(0)?,
+                question_id: row.get(1)?,
+                score: None,
+                max_score: None,
+                correct: None,
+                feedback: Value::Null,
+                status: "done".into(),
+                error: None,
+                request_id: row.get(3)?,
+                response: serde_json::from_str(&response).unwrap_or(Value::Null),
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
     answers.extend(subjective::pending_answers(&store.conn, id)?);
     answers.sort_by_key(|answer| answer.question_id);
