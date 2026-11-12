@@ -223,8 +223,8 @@ flowchart LR
 | 数据库降级 | max(user_version, meta.schema_version)>SCHEMA_VERSION 拒绝（unsupported_schema） | 升级应用 | store.rs:216-231 |
 | 写锁竞争 | busy_timeout 10s → database_busy（前端瞬态自动重试至多 5 次） | 前端提示重试 | store.rs:172；error.rs |
 | 模型步骤中断 | 步骤 interrupted + request_id 持久化 | resume 复用 completed_chat，不重调上游 | learning/mod.rs:655-668 |
-| 提供商连续失败 | 熔断 open 60s | half_open 试探恢复 | routing.rs:673-843 |
-| 全部候选失败 | all_providers_unavailable | 换供应商/调路由 | routing.rs:1287 |
+| 提供商连续失败 | 熔断 open 60s | half_open 试探恢复 | routing.rs:676-846 |
+| 全部候选失败 | all_providers_unavailable | 换供应商/调路由 | routing.rs:1290 |
 | 预算超限 | ensure_budget 拒绝（session/daily USD，`budget_spend` SQL 聚合 usage.rs:443） | 用户调预算设置 | usage.rs:480 |
 | 解析线程崩溃 | catch_unwind → failed + internal_error | 重新 enqueue | materials/mod.rs:862,897 |
 | 同步回读不一致 | sync_verify_failed，任务失败 | 重试上传 | versions.rs:226-231 |

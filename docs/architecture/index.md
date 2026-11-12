@@ -27,6 +27,6 @@
 2. **统一任务生命周期**：13 类长任务实体共用同一模式——SQLite status 列 + AtomicBool 取消注册表 + `providers::completed_chat` 请求复用 + 重启 `recover`（running→interrupted、cancelling→cancelled、不自动重跑；1.1.7 起主行 UPDATE 带活跃态守卫，SELECT 与 UPDATE 之间已被存活线程写入终态的行 changed==0 跳过翻行与事件；1.1.8 起完成落库统一取消优先口径 98#5——讲义/项目反馈的终态 UPDATE 限 status='running'，cancelling 行映射 cancelled，讲义不落版本行、项目评价结果照存）。
 3. **终态先落盘再发送**：所有事件经 `Store::event` 在写事务内进 outbox 表，commit 后才 emit；断线续接靠 `get_app_state` 全量快照校准（游标取快照 `lastEventId`，38#2 后不再逐页翻 `events_since`）+ 任务层请求复用，不重复执行或计费。
 4. **安全以结构 enforcement**：SSRF/DNS pin/重定向逐跳校验、密钥仅入 keyring、备份 secure_delete 排除凭据、分享令牌只存哈希、配额提交前强制——均可在具体函数定位。
-5. **算法可定位**：八步流水线（learning/pipeline.rs execute_index:527）、SM-2 简化调度（review/mod.rs grade:405 起，again=10 分钟/ease clamp 1.3–3.0/间隔封顶 36500 天）、贪心排期（learning/validate.rs schedule:208）、BFS 补学路径（learning/knowledge.rs shortest_path:122）、熔断状态机（providers/routing.rs circuit_permit:673 / record_circuit:746）。
+5. **算法可定位**：八步流水线（learning/pipeline.rs execute_index:527）、SM-2 简化调度（review/mod.rs grade:405 起，again=10 分钟/ease clamp 1.3–3.0/间隔封顶 36500 天）、贪心排期（learning/validate.rs schedule:208）、BFS 补学路径（learning/knowledge.rs shortest_path:122）、熔断状态机（providers/routing.rs circuit_permit:676 / record_circuit:749）。
 
 本次按约定未生成 AI 替代方案与 Skill 蓝图。

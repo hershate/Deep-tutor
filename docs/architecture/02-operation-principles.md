@@ -168,7 +168,7 @@ flowchart TD
 6. delta 双写：增量先入缓冲，按 4KB/150ms 窗口合并为 `provider.chat_delta` 事件落库 + emit（首个 delta 前沿触发立即可见，流结束含错误路径冲刷余量，P/mod.rs:1305 起 `flush` 闭包）；每次冲刷同时把至今累积全文物化到 `provider_requests.output/reasoning`（UPDATE 限 running 行，终态 UPDATE 覆盖为最终值）——运行中请求的 `getProviderChat` 读列短路，不再每次轮询全量重放 events 拼接（重放仅作崩溃续读兜底，`completed_chat` :1087）。
 7. 结束 UPDATE status=done/cancelled/failed + 终态事件（P/mod.rs:1416）。
 
-取消：`cancel_provider_chat`（P/commands.rs:122）→ 路由层 `cancel_inner`（routing.rs:1308）置 `Arc<AtomicBool>`（Acquire/Release）→ 级联直连层 flag → SSE 泵检测后以 `cancelled` 错误收尾。
+取消：`cancel_provider_chat`（P/commands.rs:122）→ 路由层 `cancel_inner`（routing.rs:1311）置 `Arc<AtomicBool>`（Acquire/Release）→ 级联直连层 flag → SSE 泵检测后以 `cancelled` 错误收尾。
 
 直连流式时序：
 
