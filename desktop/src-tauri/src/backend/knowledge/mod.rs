@@ -821,7 +821,11 @@ pub fn resume<R: Runtime>(
     let attempt = if reusable {
         initial.attempt
     } else {
-        initial.attempt + 1
+        // 137#3：对齐 learning 域 25#6 防线——裸 +1 在 release 下回绕
+        initial
+            .attempt
+            .checked_add(1)
+            .ok_or_else(|| BackendError::new("too_many_attempts", "问答重试次数已用尽"))?
     };
     let request_id = if reusable {
         previous.unwrap()

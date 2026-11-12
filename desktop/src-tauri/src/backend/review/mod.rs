@@ -122,12 +122,19 @@ fn timestamp(value: OffsetDateTime) -> Result<String> {
 }
 
 fn day_start(date: time::Date, offset: time::UtcOffset) -> Result<String> {
-    // 统一转 UTC 后再格式化：due_at 以 UTC 存储，字符串（字典序）比较要求两侧时区后缀一致
-    timestamp(
+    // 统一转 UTC 后再格式化：due_at 以 UTC 存储，字符串（字典序）比较要求两侧时区后缀一致。
+    // 135#8：显式补零纳秒小数位——due_at 带亚秒小数时，无小数边界的 'Z'(0x5A)
+    // 大于 '.'(0x2E)，午夜后亚秒到期的卡会被字符串比较计入前一日桶；补
+    // ".000000000" 后任意带/不带小数的 due_at 与边界的字典序都与时间序一致
+    let mut boundary = timestamp(
         date.with_time(time::Time::MIDNIGHT)
             .assume_offset(offset)
             .to_offset(time::UtcOffset::UTC),
-    )
+    )?;
+    if let Some(position) = boundary.rfind('Z') {
+        boundary.insert_str(position, ".000000000");
+    }
+    Ok(boundary)
 }
 
 fn parse_time(value: &str) -> Result<OffsetDateTime> {

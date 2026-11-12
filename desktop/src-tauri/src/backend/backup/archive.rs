@@ -410,7 +410,10 @@ pub fn export<R: Runtime>(
     {
         let snapshot_connection = Connection::open(&snapshot)?;
         if let Some(user_id) = super::super::security::principal_id() {
+            // 137#6：只读用途连接补 busy_timeout 对齐主连接口径（导出期间
+            // 主库可能有并发写锁窗）
             let accounts = Connection::open(state.database_path())?;
+            let _ = accounts.busy_timeout(std::time::Duration::from_secs(10));
             let (name, role, active, created_at, updated_at, last_login_at): (String, String, bool, String, String, Option<String>) = accounts.query_row(
                 "SELECT display_name, role, active, created_at, updated_at, last_login_at FROM local_users WHERE id = ?1 AND deleted_at IS NULL",
                 params![user_id],

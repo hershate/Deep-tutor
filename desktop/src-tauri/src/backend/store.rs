@@ -140,6 +140,10 @@ pub(crate) fn append_diagnostic(account_path: &Path, line: &str) {
 fn with_accounts<T>(account_path: &Path, read: impl Fn(&Connection) -> Result<T>) -> Result<T> {
     use std::collections::HashMap;
     use std::sync::OnceLock;
+    // 130#15：缓存无主动逐出，正确性依赖三条外部不变式——①换数据目录下次
+    // 启动才生效（缓存随进程消亡）；②重置走 SQL 不动账户库文件；③备份导入
+    // 走行插入不替换文件。未来出现「同路径文件替换」类操作时，下方读失败
+    // 弃连重建是唯一防线
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, Connection>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache
@@ -160,6 +164,9 @@ fn with_accounts<T>(account_path: &Path, read: impl Fn(&Connection) -> Result<T>
                     &format!("账户库不可读，无法校验配额（{error}）"),
                 )
             })?;
+    // 137#6：只读连接补 busy_timeout 对齐主连接口径——瞬时写锁窗不再立即
+    // SQLITE_BUSY（命中时上方读失败弃连重建仍兜底）
+    let _ = connection.busy_timeout(std::time::Duration::from_secs(10));
     let result = read(&connection);
     if result.is_ok() {
         guard.insert(account_path.to_path_buf(), connection);
@@ -554,7 +561,12 @@ impl Store {
         if seeded.is_none() {
             let tx = self.conn.unchecked_transaction()?;
             Self::insert_json(&tx, "preferences", "current", &Self::defaults())?;
-            tx.execute("INSERT INTO meta (key, value) VALUES ('seeded', '1')", [])?;
+            // 135#7：OR IGNORE——检查与插入非原子，并发 bootstrap 双见 none 时
+            // 后者撞主键（当前调用点互斥串行不可达，防御口径）
+            tx.execute(
+                "INSERT OR IGNORE INTO meta (key, value) VALUES ('seeded', '1')",
+                [],
+            )?;
             tx.commit()?;
         }
         self.app_state()

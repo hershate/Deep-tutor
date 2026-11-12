@@ -319,6 +319,9 @@ fn plan_document(plan: &Plan) -> Result<ExportDocument> {
             .sections
             .push(section("关联资料".into(), vec![], resources));
     }
+    // 135#5：校验明细与关联资料两段补接构建期熔断（124#5 主面之外的缺口，
+    // 外部改库塞大内容时不再等渲染后 64MB 检查才拒绝）
+    guard_document_size(&document)?;
     for node in &result.graph.nodes {
         document.cards.push(ExportCard::new(
             format!("请解释：{}", node.title),
@@ -401,6 +404,8 @@ fn lecture_document(state: &LearningState, input: &ExportInput) -> Result<Export
             content.title.clone(),
         ));
     }
+    // 135#5：示例/检查理解/原文引用/检查点卡片四段补接构建期熔断（同上）
+    guard_document_size(&document)?;
     Ok(document)
 }
 

@@ -593,8 +593,10 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
     {
         let local = super::store::now_local();
         let today = local.date().to_string();
-        // 边界转 UTC 后格式化：due_at 以 UTC 存储，字典序比较要求两侧时区后缀一致
-        let tomorrow = timestamp(
+        // 边界转 UTC 后格式化：due_at 以 UTC 存储，字典序比较要求两侧时区后缀一致。
+        // 135#8：显式补零纳秒小数位（review::day_start 同口径）——due_at 带
+        // 亚秒时无小数边界的字典序与时间序错位
+        let mut tomorrow = timestamp(
             (local
                 .date()
                 .with_time(time::Time::MIDNIGHT)
@@ -602,6 +604,9 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 + Duration::days(1))
             .to_offset(time::UtcOffset::UTC),
         )?;
+        if let Some(position) = tomorrow.rfind('Z') {
+            tomorrow.insert_str(position, ".000000000");
+        }
         let due: i64 = store.conn.query_row(
             "SELECT COUNT(*) FROM review_cards WHERE deleted = 0 AND suspended = 0 AND due_at < ?1",
             params![tomorrow],

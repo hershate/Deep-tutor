@@ -77,8 +77,11 @@ fn truncate_replay_for_model(content: &str) -> String {
     while !content.is_char_boundary(cut) {
         cut -= 1;
     }
+    // 130#10：旧版「前缀+中文说明」行无法还原原始状态——status 标 unknown
+    // 而非硬编码 done（原始调用若 failed，包装声明 done 是语义失真；新行由
+    // truncate_for_model 保留真实 status）
     format!(
-        "{{\"status\":\"done\",\"truncated\":true,\"notice\":\"工具输出已截断至 {MODEL_TOOL_CONTENT_LIMIT} 字节\",\"preview\":{}}}",
+        "{{\"status\":\"unknown\",\"truncated\":true,\"notice\":\"工具输出已截断至 {MODEL_TOOL_CONTENT_LIMIT} 字节\",\"preview\":{}}}",
         serde_json::to_string(&content[..cut]).expect("字符串序列化不会失败")
     )
 }
@@ -879,7 +882,10 @@ fn begin_step<R: Runtime>(
     let retry = !completed && current.is_some();
     let reusable = retry && providers::completed_chat(&state.providers, current.as_deref())?;
     let attempt = if retry && !reusable {
-        previous_attempt + 1
+        // 137#3：对齐 learning 域 25#6 防线——裸 +1 在 release 下回绕
+        previous_attempt
+            .checked_add(1)
+            .ok_or_else(|| BackendError::new("too_many_attempts", "Agent 步骤重试次数已用尽"))?
     } else {
         previous_attempt
     };

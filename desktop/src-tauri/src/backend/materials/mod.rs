@@ -211,25 +211,31 @@ pub fn migrate(conn: &Connection, legacy_import: bool) -> Result<()> {
         )?;
         return Ok(());
     }
-    let mut statement = conn.prepare("SELECT data FROM kv WHERE namespace = 'resources'")?;
+    // 137#2：逐行导入与标记写入包进单个事务——原先逐行自动提交，迁移中途
+    // 崩溃留下部分行且 has_materials 自锁（重入即补标记返回），剩余 kv 资源
+    // 永不导入；事务化后崩溃整体回滚、重跑从零收敛（行数有限，事务可控）
+    let tx = conn.unchecked_transaction()?;
+    let mut statement = tx.prepare("SELECT data FROM kv WHERE namespace = 'resources'")?;
     let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
     let mut migrated = false;
     for row in rows {
         let value: Value = serde_json::from_str(&row?)?;
         let id = value.get("id").and_then(Value::as_i64).unwrap_or(0);
         if id > 0 {
-            import_metadata(conn, &value, id)?;
+            import_metadata(&tx, &value, id)?;
             migrated = true;
         }
     }
+    drop(statement);
     if migrated {
-        sync_resources(conn)?;
-        conn.execute(
+        sync_resources(&tx)?;
+        tx.execute(
             "INSERT INTO meta (key, value) VALUES ('materials_kv_imported', '1')
              ON CONFLICT(key) DO UPDATE SET value = '1'",
             [],
         )?;
     }
+    tx.commit()?;
     Ok(())
 }
 
@@ -373,6 +379,24 @@ pub(crate) fn sync_resources(conn: &Connection) -> Result<()> {
 
 fn original_path(root: &Path, sha256: &str, kind: &str) -> PathBuf {
     root.join("originals").join(format!("{sha256}.{kind}"))
+}
+
+/// 137#1：原件路径成分校验（镜像 maintenance 域口径）——materials.sha256/kind
+/// 列经敌意备份或外部改库可植入任意串，无校验拼接可越出 originals/ 删除或
+/// 读取任意文件；正常写入路径（进程内计算哈希 + SUPPORTED 白名单）恒通过
+fn validate_original_parts(sha256: &str, kind: &str) -> Result<()> {
+    if sha256.len() != 64
+        || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || kind.is_empty()
+        || kind.len() > 12
+        || !kind.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    {
+        return Err(BackendError::new(
+            "invalid_material_path",
+            "资料原件路径不符合应用约定，请删除该资料后重新导入",
+        ));
+    }
+    Ok(())
 }
 
 fn material(row: &Row<'_>, root: &Path) -> rusqlite::Result<Material> {
@@ -947,35 +971,54 @@ pub(crate) fn finish_parse<R: Runtime>(
         "UPDATE materials SET status = ?2, progress = 100, text_length = ?3, parse_mode = ?4, warning = COALESCE(?5, warning), error_code = NULL, error_message = NULL, updated_at = ?6 WHERE id = ?1 AND status IN ('queued', 'parsing')",
         params![id, final_status, parsed.text.chars().count() as i64, parsed.mode, parsed.warning, now()?],
     )?;
+    let cancelled_warning;
     let effective_status = if changed == 0 {
-        let row_status: Option<String> = tx
+        let row: Option<(String, Option<String>)> = tx
             .query_row(
-                "SELECT status FROM materials WHERE id = ?1",
+                "SELECT status, warning FROM materials WHERE id = ?1",
                 params![id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        if row_status.as_deref() != Some("cancelling") {
+        let Some((row_status, row_warning)) = row else {
+            return Err(BackendError::new(
+                "material_deleted",
+                "资料已删除或已写入终态，未提交解析结果",
+            ));
+        };
+        if row_status != "cancelling" {
             return Err(BackendError::new(
                 "material_deleted",
                 "资料已删除或已写入终态，未提交解析结果",
             ));
         }
         // 取消交叠：终态 cancelled，结果照存
-        tx.execute(
+        let cancel_changed = tx.execute(
             "UPDATE materials SET status = 'cancelled', progress = 100, text_length = ?2, parse_mode = ?3, warning = COALESCE(?4, warning), error_code = 'cancelled', error_message = '解析完成前已请求取消，结果已保留', updated_at = ?5 WHERE id = ?1 AND status = 'cancelling'",
             params![id, parsed.text.chars().count() as i64, parsed.mode, parsed.warning, now()?],
         )?;
+        // 130#11：第二次 UPDATE 也带回守卫——行在读与写之间被并发改走/删除时
+        // 不再无条件发事件（当前路径不可达，防御对齐首 UPDATE 口径）
+        if cancel_changed == 0 {
+            return Err(BackendError::new(
+                "material_deleted",
+                "资料已删除或已写入终态，未提交解析结果",
+            ));
+        }
         tx.execute(
             "UPDATE material_jobs SET status = 'cancelled', error_code = 'cancelled', error_message = '解析完成前已请求取消，结果已保留', updated_at = ?1 WHERE id = ?2",
             params![now()?, job_id],
         )?;
+        // 130#12：事件 warning 与库内同口径（COALESCE 后值）——重解析清警告
+        // 时事件不再报 null 而库留旧值
+        cancelled_warning = parsed.warning.clone().or(row_warning);
         "cancelled"
     } else {
         tx.execute(
             "UPDATE material_jobs SET status = 'done', updated_at = ?1 WHERE id = ?2",
             params![now()?, job_id],
         )?;
+        cancelled_warning = parsed.warning.clone();
         final_status
     };
     tx.execute(
@@ -989,7 +1032,7 @@ pub(crate) fn finish_parse<R: Runtime>(
     let event = Store::event(
         &tx,
         &format!("material.{effective_status}"),
-        json!({"materialId": id, "jobId": job_id, "status": effective_status, "progress": 100, "warning": parsed.warning}),
+        json!({"materialId": id, "jobId": job_id, "status": effective_status, "progress": 100, "warning": cancelled_warning}),
     )?;
     tx.commit()?;
     emit(&app, &event);
@@ -1399,11 +1442,10 @@ pub fn delete<R: Runtime>(app: &AppHandle<R>, state: &MaterialState, id: i64) ->
     tx.commit()?;
     emit(app, &event);
     if material.original_available {
-        fs::remove_file(original_path(
-            &state.root(),
-            &material.sha256,
-            &material.kind.to_ascii_lowercase(),
-        ))
+        let kind = material.kind.to_ascii_lowercase();
+        // 137#1：删除/导出前校验库值成分——毒数据返回类型化错误而非越界删除
+        validate_original_parts(&material.sha256, &kind)?;
+        fs::remove_file(original_path(&state.root(), &material.sha256, &kind))
         .map_err(|_| {
             BackendError::new(
                 "cleanup_failed",
@@ -1423,11 +1465,10 @@ pub fn export_original(state: &MaterialState, id: i64, destination: &Path) -> Re
             "原件不存在，无法导出",
         ));
     }
-    let source = original_path(
-        &state.root(),
-        &material.sha256,
-        &material.kind.to_ascii_lowercase(),
-    );
+    let kind = material.kind.to_ascii_lowercase();
+    // 137#1：同删除路径——导出读取前校验成分，防止任意文件读取
+    validate_original_parts(&material.sha256, &kind)?;
+    let source = original_path(&state.root(), &material.sha256, &kind);
     let bytes = fs::read(source)?;
     if format!("{:x}", Sha256::digest(&bytes)) != material.sha256 {
         return Err(BackendError::new(

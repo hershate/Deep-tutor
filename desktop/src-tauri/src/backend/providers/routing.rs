@@ -1033,7 +1033,7 @@ pub fn stream_chat<R: Runtime>(
     // 31#38：INSERT route_runs 与首次 save_attempt 之间存在窗口——其间失败后
     // 同 id 重试时 attempts 无 attempt=1 行，预检放行而 INSERT 撞主键报未分类
     // constraint 错误。OR IGNORE 后按既有行校验一致性并走幂等续读
-    let mut changed = tx.execute(
+    let changed = tx.execute(
         "INSERT OR IGNORE INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?6)",
         params![request_id, task, mode, profile_id(&profile.id)?, model, timestamp],
     )?;
@@ -1083,7 +1083,8 @@ pub fn stream_chat<R: Runtime>(
             "DELETE FROM provider_route_runs WHERE request_id = ?1",
             params![request_id],
         )?;
-        changed = tx.execute(
+        // DELETE 后重插必命中（同事务内无并发写者）；行数不读、失败仍上抛
+        tx.execute(
             "INSERT INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?6)",
             params![request_id, task, mode, profile_id(&profile.id)?, model, timestamp],
         )?;

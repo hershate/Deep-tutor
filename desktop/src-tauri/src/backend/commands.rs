@@ -982,6 +982,50 @@ mod tests {
         let after = ipc(&app, "get_app_state", json!({})).unwrap();
         assert_eq!(after["resources"], before["resources"]);
         assert_eq!(after["lastEventId"], before["lastEventId"]);
+        // 130#4：合法条目在前、非法条目在后——整包 Err 且先前的合法条目零落盘
+        //（两阶段流式：阶段一只校验不暂存，任一条目非法时未发生任何写入）
+        let trailing_invalid = directory.path().join("trailing-invalid.zip");
+        write_zip(
+            &trailing_invalid,
+            vec![
+                ("valid-first.txt", "合法正文".as_bytes()),
+                ("../escape.txt", b"invalid after valid"),
+            ],
+            false,
+        );
+        assert_eq!(
+            ipc(
+                &app,
+                "import_material_archive",
+                json!({"path":trailing_invalid.to_string_lossy()})
+            )
+            .unwrap_err()["code"],
+            "unsafe_archive_path"
+        );
+        let after_trailing = ipc(&app, "get_app_state", json!({})).unwrap();
+        assert_eq!(after_trailing["resources"], after["resources"]);
+        // 130#4：65 个合法文件——超限整包 Err 且前 64 个不被暂存（重试语义：
+        // 修掉多余文件后再导入从零开始，不再永远卡在第 65 条）
+        let sixty_five_owned: Vec<(String, Vec<u8>)> = (0..65)
+            .map(|index| (format!("file-{index}.txt"), format!("内容 {index}").into_bytes()))
+            .collect();
+        let sixty_five: Vec<(&str, &[u8])> = sixty_five_owned
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect();
+        let oversized = directory.path().join("sixty-five.zip");
+        write_zip(&oversized, sixty_five, false);
+        assert_eq!(
+            ipc(
+                &app,
+                "import_material_archive",
+                json!({"path":oversized.to_string_lossy()})
+            )
+            .unwrap_err()["code"],
+            "archive_too_many_entries"
+        );
+        let after_65 = ipc(&app, "get_app_state", json!({})).unwrap();
+        assert_eq!(after_65["resources"], after["resources"]);
     }
 
     #[test]

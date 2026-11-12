@@ -698,6 +698,21 @@ pub fn generate<R: Runtime>(
     let tx = store
         .conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    // 130#8：变式活跃守卫在 IMMEDIATE 事务内复查——预检在事务外，当前同步
+    // 命令主线程串行使窗口不可达，未来移后台时预检与写入之间也不再有窗口
+    if let Some(source_id) = input.variant_of {
+        let generating: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM practice_sets WHERE variant_of = ?1 AND status = 'generating')",
+            params![source_id],
+            |row| row.get(0),
+        )?;
+        if generating {
+            return Err(BackendError::new(
+                "variant_generation_active",
+                "这道错题的变式正在生成，请等待完成后再试",
+            ));
+        }
+    }
     tx.execute(
         "INSERT INTO practice_sets (mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, variant_of, exam_time_limit_minutes, pass_score_percent, total_questions, node_id, created_at, updated_at) VALUES (?1, 'generating', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
         params![mode, learning::plan_id(&input.plan_id)?, stage_id, provider_id, input.difficulty.as_deref().unwrap_or("adaptive"), feedback_mode, serde_json::to_string(&kinds)?, input.variant_of, exam_config.map(|config| config.0), exam_config.map(|config| config.1), count, input.node_id, timestamp],
@@ -1758,7 +1773,10 @@ pub fn resume<R: Runtime>(
     let attempt = if completed {
         set.attempt
     } else {
-        set.attempt + 1
+        // 137#3：对齐 learning 域 25#6 防线——裸 +1 在 release 下回绕
+        set.attempt
+            .checked_add(1)
+            .ok_or_else(|| BackendError::new("too_many_attempts", "练习重试次数已用尽"))?
     };
     let request_id = if completed {
         previous_request.unwrap()

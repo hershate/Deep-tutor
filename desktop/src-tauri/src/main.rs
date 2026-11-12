@@ -52,10 +52,12 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
             .manage(security::SecurityState::for_verification(
                 &data_root.join("deep-tutor.db"),
             ));
-        // 127#9：verify 分支对 assemble panic 兜底——原先 unwind 穿到
-        // builder.run().expect 以 101 退出，CI 把「verify 契约失败」误读成
-        // 「应用崩溃」；对齐 50#1 契约（校验不过 → exit 2）
-        if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // 127#9+133#4：verify 分支对 assemble 全程 panic 兜底——原先只包
+        // initialize，其后的 ensure_ready/bootstrap/快照断言段 panic 仍以 101
+        // 退出，CI 把「verify 契约失败」误读成「应用崩溃」；全程包住对齐
+        // 50#1 契约（校验不过 → exit 2）。Result 路径仍上抛交调用方按 50#1
+        // 转 exit(2)
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             startup::initialize(
                 app.handle(),
                 &data_root,
@@ -63,14 +65,45 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
                 &pointer,
                 configuration_error,
             );
-        })) {
-            let detail = panic
-                .downcast_ref::<&str>()
-                .map(|value| (*value).to_string())
-                .or_else(|| panic.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "未知 panic".into());
-            eprintln!("verify-native: assemble 崩溃——{detail}");
-            std::process::exit(2);
+            startup::ensure_ready(app.handle())
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            let snapshot = app
+                .state::<BackendState>()
+                .store
+                .lock()
+                .map_err(|_| -> Box<dyn std::error::Error> {
+                    "verification database lock failed".into()
+                })?
+                .bootstrap()
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            // 106#6：断言失败原先以 panic（退出码 101）交付，违背 50#1 声明的
+            // 「verify 校验不过 → exit(2)」契约，CI 按退出码会把内部断言崩坏
+            // 误读为运行崩溃；打印也改忽略错误（stdout 管道关闭不再 panic）
+            if !snapshot["tasks"].is_array() || !snapshot["preferences"].is_object() {
+                eprintln!("native verification failed: unexpected bootstrap snapshot shape");
+                app.handle().exit(2);
+            }
+            let _ = writeln!(
+                std::io::stdout(),
+                "native verification passed: workspace={}, lastEventId={}",
+                snapshot["workspaceId"],
+                snapshot["lastEventId"]
+            );
+            app.handle().exit(0);
+            Ok(())
+        }));
+        match outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return Err(error),
+            Err(panic) => {
+                let detail = panic
+                    .downcast_ref::<&str>()
+                    .map(|value| (*value).to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "未知 panic".into());
+                eprintln!("verify-native: assemble 崩溃——{detail}");
+                std::process::exit(2);
+            }
         }
     } else {
         startup::initialize_background(
@@ -80,33 +113,6 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
             &pointer,
             configuration_error,
         );
-    }
-    if verify_native {
-        startup::ensure_ready(app.handle())
-            .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-        let snapshot = app
-            .state::<BackendState>()
-            .store
-            .lock()
-            .map_err(|_| -> Box<dyn std::error::Error> {
-                "verification database lock failed".into()
-            })?
-            .bootstrap()
-            .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-        // 106#6：断言失败原先以 panic（退出码 101）交付，违背 50#1 声明的
-        // 「verify 校验不过 → exit(2)」契约，CI 按退出码会把内部断言崩坏
-        // 误读为运行崩溃；打印也改忽略错误（stdout 管道关闭不再 panic）
-        if !snapshot["tasks"].is_array() || !snapshot["preferences"].is_object() {
-            eprintln!("native verification failed: unexpected bootstrap snapshot shape");
-            app.handle().exit(2);
-        }
-        let _ = writeln!(
-            std::io::stdout(),
-            "native verification passed: workspace={}, lastEventId={}",
-            snapshot["workspaceId"],
-            snapshot["lastEventId"]
-        );
-        app.handle().exit(0);
     }
     Ok(())
 }
@@ -133,6 +139,7 @@ mod single_instance {
             name: *const u16,
         ) -> *mut core::ffi::c_void;
         fn GetLastError() -> u32;
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
     }
 
     #[link(name = "user32")]
@@ -167,9 +174,11 @@ mod single_instance {
                 if error != ERROR_ALREADY_EXISTS && error != ERROR_ACCESS_DENIED {
                     return true;
                 }
-                // 每轮 CreateMutexW 的句柄随第二实例退出由 OS 回收；
-                // 仅重启子进程在 2s 退避窗口内等待垂死的旧实例释放
+                // 133#3：重试轮的句柄先关再等——原先每轮泄漏 1 个（≤20，靠第二
+                // 实例退出由 OS 兜底回收）；仅重启子进程在 2s 退避窗口内等待
+                // 垂死的旧实例释放
                 if restarting && attempt < 20 {
+                    let _ = CloseHandle(handle);
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     continue;
                 }
@@ -211,6 +220,11 @@ fn main() {
             }
         }
     }
+    // 133#5：事件循环失败的诊断落盘点——run 失败时拿不到 app 句柄，setup
+    // 期间把数据根路径存到这里供事后写 diagnostics.log
+    let diagnostic_root: std::sync::Arc<std::sync::OnceLock<std::path::PathBuf>> =
+        std::sync::Arc::new(std::sync::OnceLock::new());
+    let root_slot = std::sync::Arc::clone(&diagnostic_root);
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         // 37#4/37#8：官方 opener——「在资源管理器中显示」与 https 外链显式
@@ -218,6 +232,10 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let outcome = assemble(app, verify_native);
+            // 133#5：记录数据根供事件循环失败的诊断落盘
+            if let Some(state) = app.try_state::<BackendState>() {
+                let _ = root_slot.set(state.learning.database_path().to_path_buf());
+            }
             if verify_native {
                 // 50#1：verify 通道错误以 eprintln + exit(2) 交付而非上抛
                 // panic（exit 101）——脚本按退出码即可区分成功/失败，不必解析
@@ -436,7 +454,14 @@ fn main() {
     if verify_native {
         context.config_mut().app.windows.clear();
     }
-    builder
-        .run(context)
-        .expect("error while running the Deep Tutor application");
+    if let Err(error) = builder.run(context) {
+        // 133#5：原先 .expect panic 只进 stderr——windows_subsystem 下无控制台，
+        // 用户双击后窗口不出现且零反馈；写 diagnostics.log（数据根已建立时）
+        // 并以退出码 1 结束（verify 通道 stderr 被 CI 捕获）
+        eprintln!("error while running the Deep Tutor application: {error}");
+        if let Some(account_path) = diagnostic_root.get() {
+            backend::store::append_diagnostic(account_path, &format!("事件循环失败：{error}"));
+        }
+        std::process::exit(1);
+    }
 }

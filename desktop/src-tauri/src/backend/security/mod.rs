@@ -1394,10 +1394,19 @@ pub fn set_quota<R: Runtime>(
         ));
     }
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
+    // 135#4：changed 守卫——目标行缺失（异常库态）时 UPDATE 0 行、事件照发、
+    // overview 返旧值，管理员误以为设置成功；显式报错（常规路径由 guard 的
+    // ensure_accounts 幂等补行保证行存在）
+    let changed = tx.execute(
         "UPDATE security_quotas SET item_limit = ?1 WHERE user_id = ?2 AND resource = ?3",
         params![limit as i64, user_id, resource],
     )?;
+    if changed == 0 {
+        return Err(BackendError::new(
+            "invalid_quota",
+            "配额目标行不存在，请重试或检查账户数据",
+        ));
+    }
     let event = Store::event(
         &tx,
         "security.quota_updated",

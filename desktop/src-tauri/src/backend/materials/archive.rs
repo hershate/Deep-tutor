@@ -16,11 +16,12 @@ pub struct ArchiveImportResult {
     pub total_bytes: u64,
 }
 
-/// 126#4/#5：逐条流式导入——原先 read_archive 先整读 ZIP 本体、把全部条目
-/// 解压进单个 Vec（峰值 ≈ 50MB 本体 + 200MB 解压同时驻留）之后才开始逐条
-/// 落盘；改为 ZipArchive 直接持有文件句柄，每条「读取→校验→stage→释放」，
-/// 峰值收敛到单条目。条目计数只数文件（目录条目不占 64 个名额，与
-/// 「最多包含 64 个文件」文案一致；上限口径为 50MB 本体 / 200MB 解压总量）。
+/// 126#4/#5 + 130#4：两阶段流式导入。ZipArchive 直接持有文件句柄，峰值收敛
+/// 到单条目（126#4/#5 语义）——阶段一逐条「读取→校验→释放」，全部条目通过
+/// 校验之前不落盘（130#4 恢复 126#4 改造前的「先全量校验后暂存」原子性：
+/// 中途任一条目非法时整包 Err、零落盘，重试语义与决策文档一致），只保留
+/// 条目序号与元数据；阶段二按序号 seek 回读暂存。条目计数只数文件（目录
+/// 条目不占 64 个名额；上限口径为 50MB 本体 / 200MB 解压总量）。
 pub fn import_archive<R: Runtime>(
     app: &AppHandle<R>,
     state: &MaterialState,
@@ -48,11 +49,12 @@ pub fn import_archive<R: Runtime>(
     let file = std::fs::File::open(&source)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|_| BackendError::new("invalid_archive", "ZIP 资料包结构无效"))?;
-    let mut outcomes = Vec::new();
     let mut skipped = Vec::new();
     let mut total = 0_u64;
     let mut files = 0_usize;
-    let mut staged = 0_usize;
+    let mut has_supported = false;
+    // 阶段一产物：通过全部校验的条目（序号、标题、类型）——字节读完即释放
+    let mut plan: Vec<(usize, String, String)> = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive
             .by_index(index)
@@ -123,6 +125,45 @@ pub fn import_archive<R: Runtime>(
             ));
         }
         super::validate_content(&kind, &bytes)?;
+        has_supported = true;
+        plan.push((index, title, kind));
+    }
+    // 130#4：与「全部落库失败」分流——empty_archive 只在包内根本没有可导入
+    // 条目时出现，不再掩盖落库侧的真实失败原因
+    if !has_supported {
+        return Err(BackendError::new(
+            "empty_archive",
+            "资料包没有可导入的文档、音视频或图片",
+        ));
+    }
+    // 阶段二：全部条目已过校验，按序号回读暂存（峰值仍单条目）；落库失败
+    // （配额/IO）是逐条 outcome，不牵连整包与其余条目
+    let mut outcomes = Vec::new();
+    let mut staged = 0_usize;
+    for (index, title, kind) in plan {
+        let entry_error = |message: &'static str| ImportOutcome {
+            file_name: title.clone(),
+            material: None,
+            deduplicated: false,
+            error: Some(BackendError::new("invalid_archive_entry", message)),
+        };
+        let mut entry = match archive.by_index(index) {
+            Ok(entry) => entry,
+            Err(_) => {
+                outcomes.push(entry_error("无法读取资料包条目"));
+                continue;
+            }
+        };
+        let mut bytes = Vec::new();
+        let read_failed = entry
+            .by_ref()
+            .take(MAX_FILE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .is_err();
+        if read_failed || bytes.len() as u64 != entry.size() {
+            outcomes.push(entry_error("资料包条目实际大小与目录不符"));
+            continue;
+        }
         match super::stage_bytes(app, state, title.clone(), kind, bytes) {
             Ok(result) => {
                 staged += 1;
@@ -142,9 +183,15 @@ pub fn import_archive<R: Runtime>(
         }
     }
     if staged == 0 {
+        // 全部条目过校验但落库全败——携带首个真实原因，与 empty_archive 分流
+        let first = outcomes
+            .iter()
+            .find_map(|outcome| outcome.error.as_ref())
+            .map(|error| error.message.clone())
+            .unwrap_or_else(|| "未知原因".into());
         return Err(BackendError::new(
-            "empty_archive",
-            "资料包没有可导入的文档、音视频或图片",
+            "archive_import_failed",
+            &format!("资料包条目均未能导入：{first}"),
         ));
     }
     Ok(ArchiveImportResult {

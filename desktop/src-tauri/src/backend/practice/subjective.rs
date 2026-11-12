@@ -255,19 +255,21 @@ fn launch<R: Runtime>(app: AppHandle<R>, state: &PracticeState, answer_id: i64) 
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     grade(&worker_app, &worker_state, answer_id)
                 }));
-                match result {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => {
-                        let _ = fail(&worker_app, &worker_state, answer_id, error);
-                    }
-                    Err(_) => {
-                        let _ = fail(
-                            &worker_app,
-                            &worker_state,
-                            answer_id,
-                            BackendError::new("task_panicked", "主观评分任务异常终止"),
-                        );
-                    }
+                // 130#9：fail() 自身 panic（DB 层 bug 级事件）不得跳过其后的许可
+                // 递减与 active 清理——否则 4 个许可占满后评分域瘫痪需重启；
+                // 双 panic 在此处退化为「评分行停在 grading、可 abandon 重试」
+                let failure = match result {
+                    Ok(Ok(())) => None,
+                    Ok(Err(error)) => Some(error),
+                    Err(_) => Some(BackendError::new(
+                        "task_panicked",
+                        "主观评分任务异常终止",
+                    )),
+                };
+                if let Some(error) = failure {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        fail(&worker_app, &worker_state, answer_id, error)
+                    }));
                 }
                 let mut running = worker_state
                     .grading_permits
@@ -892,7 +894,14 @@ pub fn resume<R: Runtime>(
     }
     let reusable = status == "interrupted"
         && providers::completed_chat(&state.providers, previous_request.as_deref())?;
-    let attempt = if reusable { attempt } else { attempt + 1 };
+    let attempt = if reusable {
+        attempt
+    } else {
+        // 137#3：对齐 learning 域 25#6 防线——裸 +1 在 release 下回绕
+        attempt
+            .checked_add(1)
+            .ok_or_else(|| BackendError::new("too_many_attempts", "评分重试次数已用尽"))?
+    };
     let request_id = if reusable {
         previous_request.unwrap()
     } else {

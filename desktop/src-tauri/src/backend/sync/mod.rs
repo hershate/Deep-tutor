@@ -155,8 +155,6 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             remote_path TEXT NOT NULL, result_json TEXT, local_path TEXT, error_code TEXT, error_message TEXT,
             created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT
         );
-        -- 27 信息性#1：原 (id, created_at) 以唯一 PK 前导、排序用不上——
-        -- 换成 created_at 单列索引支撑列表 ORDER BY created_at DESC
         -- 129#4：列表已按 rowid DESC（73#13b），created_at 索引无消费方
         DROP INDEX IF EXISTS sync_jobs_created;",
     )?;
@@ -539,7 +537,7 @@ fn run<R: Runtime>(
                     result: json!({"reachable": true, "objectPresent": true, "note": ""}),
                     local_path: None,
                 }),
-                Err(error) if error.code == "sync_http_error" && error.message.contains("404") => {
+                Err(error) if error.code == "sync_object_not_found" => {
                     Ok(Outcome {
                         result: json!({
                             "reachable": true,

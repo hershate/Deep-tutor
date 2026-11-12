@@ -128,8 +128,10 @@ pub fn clear_all(conn: &Connection) -> Result<()> {
 
 fn register_index(state: &SharingState, hash: &str, user_id: i64) -> Result<()> {
     let root = Store::root(state.learning.database_path().to_path_buf())?;
+    // 135#3：并发双读同 token 首次登记时裸 INSERT 撞 UNIQUE 报错——对齐
+    // reindex 的 REPLACE 语义（同键后写覆盖，均指向同一分享）
     root.conn.execute(
-        "INSERT INTO share_index (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)",
+        "INSERT OR REPLACE INTO share_index (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)",
         params![hash, user_id, now()?],
     )?;
     Ok(())
@@ -328,10 +330,14 @@ pub fn create<R: Runtime>(
             // 25#12：INSERT/事件/提交任一步失败都清理先写的索引行——原实现
             // 只包住 commit，中途失败会在根库留下指向不存在分享的孤儿哈希行
             let root = Store::root(state.learning.database_path().to_path_buf())?;
-            let _ = root.conn.execute(
+            // 135#3：清理失败不再完全无声——孤儿行由读路径 indexed_owner 命中
+            // 后 share_unavailable 兜底，此处至少留诊断线索
+            if let Err(cleanup) = root.conn.execute(
                 "DELETE FROM share_index WHERE token_hash = ?1",
                 params![hash],
-            );
+            ) {
+                eprintln!("sharing: 创建失败后清理索引未完成 {cleanup}");
+            }
             return Err(error);
         }
     };
@@ -443,7 +449,11 @@ pub fn read_token(state: &SharingState, token: &str) -> Result<SharedPlanView> {
         if user_id <= 0 || !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
             continue;
         }
-        let candidate = Store::at_user(state.learning.database_path().to_path_buf(), user_id)?;
+        // 135#3：某用户工作区库损坏不再上抛堵死全部用户的未登录分享读取
+        let Ok(candidate) = Store::at_user(state.learning.database_path().to_path_buf(), user_id)
+        else {
+            continue;
+        };
         let found: bool = candidate.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM shared_plans WHERE token_hash = ?1)",
             params![token_hash(token)],

@@ -550,7 +550,15 @@ pub fn cancel<R: Runtime>(
     }
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE project_versions SET status = 'cancelling', cancel_requested = 1, updated_at = ?1 WHERE id = ?2 AND status IN ('running', 'cancelling')", params![now()?, id])?;
+    // 135#2：changed 守卫——预检与提交之间版本已终态（done/failed）时不再发
+    // 悬空 cancel_requested 事件（对齐 knowledge/mod.rs 与 sync/mod.rs 口径）
+    let changed = tx.execute("UPDATE project_versions SET status = 'cancelling', cancel_requested = 1, updated_at = ?1 WHERE id = ?2 AND status IN ('running', 'cancelling')", params![now()?, id])?;
+    if changed == 0 {
+        return Err(BackendError::new(
+            "project_feedback_not_active",
+            "该版本没有正在执行的评价任务",
+        ));
+    }
     let event = Store::event(
         &tx,
         "project.feedback_cancel_requested",

@@ -158,9 +158,11 @@ fn sync_http_error(status: reqwest::StatusCode) -> BackendError {
                 if status.as_u16() == 401 { "认证失败" } else { "无权限" },
             ),
         ),
+        // 135#10：404 独立错误码——check 分支据码判定「对象不存在」，原先靠
+        // message.contains("404") 的脆弱字符串匹配
         404 => BackendError::new(
-            "sync_http_error",
-            &format!("远端同步服务返回 HTTP 404（路径不存在，请检查远端目录设置）"),
+            "sync_object_not_found",
+            "远端同步服务返回 HTTP 404（路径不存在，请检查远端目录设置）",
         ),
         429 => BackendError::new(
             "sync_http_error",

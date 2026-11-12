@@ -329,24 +329,51 @@ fn prepare_ids(transfer: &mut Transfer, target: &Connection) -> Result<()> {
                 // 124#2：同机重复导入/导出者自恢复原先按主键冲突 MAX+1
                 // 重映射插入——账号列表（deleted_at IS NULL ORDER BY id）长出
                 // 同名自己，每轮导入 +1 行；按 display_name+role 复用已有行
-                //（镜像 23#5 quotas 的按原键跳过语义），行内容保留目标侧
+                //（镜像 23#5 quotas 的按原键跳过语义），行内容保留目标侧。
+                // 130#5：目标侧同名同角色多于一行的旧版 MAX+1 产物——并入
+                // 最低 id 不再静默（引用其 id 的数据会不可见合并），记录
+                // warning 供导入报告呈现，交人工核对账号边界
                 let display = row.get("display_name").and_then(Value::as_str);
                 let role = row.get("role").and_then(Value::as_str);
                 if let (Some(display), Some(role)) = (display, role) {
-                    if let Some(id) = target
-                        .query_row(
-                            "SELECT id FROM local_users WHERE display_name = ?1 AND role = ?2 ORDER BY id LIMIT 1",
-                            params![display, role],
-                            |row| row.get::<_, i64>(0),
-                        )
-                        .optional()?
-                    {
-                        mapped = Value::from(id);
+                    let matches: Vec<i64> = {
+                        let mut statement = target.prepare(
+                            "SELECT id FROM local_users WHERE display_name = ?1 AND role = ?2 ORDER BY id",
+                        )?;
+                        let rows =
+                            statement.query_map(params![display, role], |row| row.get::<_, i64>(0))?;
+                        rows.collect::<std::result::Result<Vec<_>, _>>()?
+                    };
+                    if let Some(id) = matches.first() {
+                        if matches.len() > 1 {
+                            transfer.warnings.push(format!(
+                                "目标库存在 {} 个同名同角色账号（{}·{}），已并入 id={}，请导入后人工核对账号边界",
+                                matches.len(),
+                                display,
+                                role,
+                                id
+                            ));
+                        }
+                        mapped = Value::from(*id);
                         transfer.reused.insert(reuse_key.clone());
                     }
                 }
             }
             if *table == "materials" {
+                // 137#1：列值层防线——敌意备份可携带越界路径成分的 sha256
+                //（manifest 层 valid_hash 只覆盖文件条目），导入侧逐行校验，
+                // 拒绝整包防止毒行落地后经删除/导出越出工作区
+                if let Some(hash) = row.get("sha256").and_then(Value::as_str) {
+                    if !hash.is_empty()
+                        && (hash.len() != 64
+                            || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                    {
+                        return Err(BackendError::new(
+                            "backup_constraint_failed",
+                            "备份包含无效的资料哈希（materials.sha256），已拒绝导入",
+                        ));
+                    }
+                }
                 if let Some(hash) = row.get("sha256").and_then(Value::as_str) {
                     if let Some(id) = target
                         .query_row(

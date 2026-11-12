@@ -94,8 +94,11 @@ pub async fn import_full_backup<R: Runtime>(
             let backend = app.state::<BackendState>();
             // 56#2：与登出/切换/清理共用逐域独立停并汇总错误的停机集合
             //（原先此处另串行停六域，agent 超时会短路且不停 focus）。
-            // 124#1：stop_all 失败早退原先跳过 start_scheduler——defer 型
-            // 出口统一先重启调度器再透传结果（同 export）
+            // 124#1+135#1：defer 型出口。失败（含 stop_all 自身失败早退）时
+            // stop_all 的八域停机必须复位——materials accepting 闸门否则停摆
+            // 到进程重启（107#1 同型漏网）；统一走 resume_background（recover
+            // 家族 + 调度器重启，与 switch/PAT/维护/重置同口径、幂等可重入）。
+            // 成功路径由 super::import 内的逐域恢复清单负责，仅重启调度器
             let outcome = (|| -> Result<Value> {
                 super::super::security::guard::stop_all(&backend)?;
                 let result = {
@@ -107,7 +110,11 @@ pub async fn import_full_backup<R: Runtime>(
                 };
                 result
             })();
-            super::super::sync::scheduler::start_scheduler(app.clone());
+            if outcome.is_err() {
+                super::super::security::guard::resume_background(&app);
+            } else {
+                super::super::sync::scheduler::start_scheduler(app.clone());
+            }
             outcome
         })
     })

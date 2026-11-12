@@ -261,7 +261,16 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         }
         Err(error) => {
             if existed {
-                let _ = fs::rename(backup, path);
+                // 137#5：回滚 rename 也失败时不再无声——原内容留存 .previous
+                // 可手动恢复，并入错误消息告知（materials 侧同型口径）
+                if let Err(rollback) = fs::rename(backup, path) {
+                    return Err(BackendError::new(
+                        "storage_failed",
+                        &format!(
+                            "写入失败且回滚未完成（{rollback}）；原内容保留在 .previous 文件中，可手动恢复"
+                        ),
+                    ));
+                }
             }
             let _ = fs::remove_file(temporary);
             Err(error.into())

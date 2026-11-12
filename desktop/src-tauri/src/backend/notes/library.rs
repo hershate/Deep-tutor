@@ -74,7 +74,7 @@ pub fn overview(state: &BackendState) -> Result<LibraryOverview> {
         .as_array()
         .ok_or_else(|| BackendError::new("invalid_record", "笔记集合格式无效"))?;
     let mut notes = BTreeMap::new();
-    let mut contents: BTreeMap<String, Vec<(i64, String)>> = BTreeMap::new();
+    let mut contents: BTreeMap<Vec<u8>, Vec<(i64, String)>> = BTreeMap::new();
     let mut issues = Vec::new();
     for note in note_values {
         let id = note
@@ -98,7 +98,18 @@ pub fn overview(state: &BackendState) -> Result<LibraryOverview> {
                 links: Vec::new(),
             },
         );
-        contents.entry(content).or_default().push((id, title));
+        // 135#9：查重键改内容 SHA-256——原先以正文全文为 BTreeMap 键，大正文
+        // 笔记库总览时正文在键与原数据双份驻留（只读路径 2× 峰值）
+        let digest = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(content.as_bytes());
+            hasher.finalize()
+        };
+        contents
+            .entry(digest.to_vec())
+            .or_default()
+            .push((id, title));
     }
     let mut statement = guard.conn.prepare("SELECT note_id, plan_id, stage_id FROM learning_annotations ORDER BY note_id, plan_id, stage_id")?;
     let annotations = statement

@@ -898,7 +898,10 @@ pub(crate) fn report_with(store: &super::store::Store, period: &str) -> Result<L
         .map(|(id, _)| *id)
         .collect::<std::collections::BTreeSet<_>>()
     {
-        titles.insert(plan_id, node_titles(store, plan_id)?);
+        // 135#6：孤儿 plan_id（外部改库；正常路径 FK CASCADE 保证不可达）不再
+        // 上抛使整张报表失败——降级为空标题表，展示侧回落 node_id 本身
+        //（与 library.rs 的 plan_unreadable 降级同口径）
+        titles.insert(plan_id, node_titles(store, plan_id).unwrap_or_default());
     }
     let masteries = node_groups
         .into_iter()
@@ -1135,7 +1138,8 @@ pub(crate) fn calendar_with(store: &super::store::Store) -> Result<CalendarRepor
         note_count: note_count as u64,
         // 13#8：分母 = 自首个活跃日以来的天数（1..=84），新工作区不再被
         // 固定 84 稀释；无任何记录时比率为 0
-        checkin_rate: (recorded * 100 / active_start.unwrap_or(0).max(1)) as u8,
+        // 137#4：整数除法先夹取 0..=100 再窄化——异常库态下大比值 as u8 截断
+        checkin_rate: (recorded * 100 / active_start.unwrap_or(0).max(1)).clamp(0, 100) as u8,
         days,
     })
 }
