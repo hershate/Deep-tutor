@@ -880,10 +880,15 @@ fn transition<R: Runtime>(
     };
     // 34#12：parsing 翻转以「任务仍处活跃态」为条件的原子更新——cancel 在
     // spawn 前后落 cancelled 终态后，迟到的解析线程不得覆盖取消结果。
-    // 其余状态（终态写入）保持无条件
+    // queued/cancelled 同样只在活跃任务上翻行，恢复不得覆盖已完成结果；其余状态沿用原路径
     let job_changed = if status == "parsing" {
         tx.execute(
             "UPDATE material_jobs SET status = ?2, error_code = ?3, error_message = ?4, updated_at = ?5 WHERE id = ?1 AND status IN ('queued', 'parsing')",
+            params![job_id, status, error.map(|error| &error.code), error.map(|error| &error.message), now()?],
+        )?
+    } else if matches!(status, "queued" | "cancelled") {
+        tx.execute(
+            "UPDATE material_jobs SET status = ?2, error_code = ?3, error_message = ?4, updated_at = ?5 WHERE id = ?1 AND status IN ('queued', 'parsing', 'cancelling')",
             params![job_id, status, error.map(|error| &error.code), error.map(|error| &error.message), now()?],
         )?
     } else {
@@ -892,6 +897,9 @@ fn transition<R: Runtime>(
             params![job_id, status, error.map(|error| &error.code), error.map(|error| &error.message), now()?],
         )?
     };
+    if matches!(status, "queued" | "cancelled") && job_changed == 0 {
+        return get(&store.conn, root, id);
+    }
     if status == "parsing" && job_changed == 0 {
         return Err(BackendError::new(
             "cancelled",

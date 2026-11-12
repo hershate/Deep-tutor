@@ -524,3 +524,40 @@ fn due_treats_future_anchor_as_due_to_self_heal_clock_rollback() {
     let done_anchor = OffsetDateTime::parse("2026-05-31T11:00:00Z", &Rfc3339).unwrap();
     assert!(scheduler::due(done_anchor, false, now));
 }
+
+#[test]
+fn progress_and_completion_preserve_a_cancellation_request() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let gate = Arc::new(AtomicBool::new(false));
+    let server = {
+        let gate = Arc::clone(&gate);
+        server(move |_, stream| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !gate.load(Ordering::Acquire) {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            response(stream, "404 Not Found", "missing");
+        })
+    };
+    let (app, learning) = setup();
+    save_config(
+        app.handle(),
+        &SyncService::new(&learning),
+        config("webdav", &server.url()),
+    )
+    .unwrap();
+    let service = SyncService::new(&learning);
+    let started = start(app.handle(), &service, "check".into(), None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while server.request_count() == 0 {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    cancel(app.handle(), &service, &started.id).unwrap();
+    stage(app.handle(), &service, &started.id, "running", "verify").unwrap();
+    let after_progress = job(&service, &started.id).unwrap().status;
+    gate.store(true, Ordering::Release);
+    assert_eq!(after_progress, "cancelling");
+    assert_eq!(wait_job(&service, &started.id).status, "cancelled");
+}

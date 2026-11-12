@@ -427,10 +427,13 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ReportState) -> Result<()
         let actual = session.actual_seconds.min(session.planned_seconds) as i64;
         let timestamp = timestamp(now()?)?;
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute(
+        let changed = tx.execute(
             "UPDATE focus_sessions SET status = 'interrupted', actual_seconds = ?2, ended_at = ?3, updated_at = ?3 WHERE id = ?1 AND status IN ('running', 'paused')",
             params![id, actual, timestamp],
         )?;
+        if changed == 0 {
+            continue;
+        }
         let event = Store::event(
             &tx,
             "focus.interrupted",

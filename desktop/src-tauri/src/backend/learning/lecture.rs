@@ -870,8 +870,13 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &LearningState) -> Result<
             )
         };
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute("UPDATE learning_lecture_units SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status = 'running'", params![status, error.code, error.message, now()?, id, stage_id])?;
-        tx.execute("UPDATE learning_lectures SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6", params![status, error.code, error.message, now()?, id, stage_id])?;
+        let changed = tx.execute("UPDATE learning_lectures SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id, stage_id])?;
+        if changed != 0 {
+            tx.execute("UPDATE learning_lecture_units SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status = 'running'", params![status, error.code, error.message, now()?, id, stage_id])?;
+        }
+        if changed == 0 {
+            continue;
+        }
         let event = Store::event(
             &tx,
             if cancelled {

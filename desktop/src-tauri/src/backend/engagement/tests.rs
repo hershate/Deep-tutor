@@ -135,10 +135,20 @@ fn profile_search_and_dashboard_use_actual_workspace_data() {
     assert_eq!(saved_profile["weeklyHours"], 8);
     let mut custom_hours = profile("真实学习者");
     custom_hours.weekly_hours = 10;
-    let mut custom_saved = ipc(&app, "save_learning_profile", json!({"input": custom_hours})).unwrap();
+    let mut custom_saved = ipc(
+        &app,
+        "save_learning_profile",
+        json!({"input": custom_hours}),
+    )
+    .unwrap();
     assert_eq!(custom_saved["weeklyHours"], 10);
     custom_saved["language"] = json!("en-US");
-    let language_saved = ipc(&app, "save_learning_profile", json!({"input": custom_saved})).unwrap();
+    let language_saved = ipc(
+        &app,
+        "save_learning_profile",
+        json!({"input": custom_saved}),
+    )
+    .unwrap();
     assert_eq!(language_saved["weeklyHours"], 10);
     let restarted = ipc(&app, "restart_learning_diagnostic", json!({})).unwrap();
     assert!(restarted["diagnosticStartedAt"].is_string());

@@ -324,36 +324,75 @@ fn wait_set(state: &PracticeState, id: i64) -> PracticeSetDetail {
 fn no_material_plan_generates_and_scores_objective_practice() {
     let (app, state) = setup();
     let server = model_server(0, None, false);
-    let profile = providers::upsert(app.handle(), &state.providers, ProfileInput {
-        id: None, name: "无资料练习".into(), preset: Some("custom".into()), kind: "本地模型".into(),
-        protocol: "OpenAI Chat".into(), base_url: server.url(), default_model: "test-model".into(),
-        models: vec!["test-model".into()], enabled: Some(true), note: None, api_key: None,
-    }).unwrap();
+    let profile = providers::upsert(
+        app.handle(),
+        &state.providers,
+        ProfileInput {
+            id: None,
+            name: "无资料练习".into(),
+            preset: Some("custom".into()),
+            kind: "本地模型".into(),
+            protocol: "OpenAI Chat".into(),
+            base_url: server.url(),
+            default_model: "test-model".into(),
+            models: vec!["test-model".into()],
+            enabled: Some(true),
+            note: None,
+            api_key: None,
+        },
+    )
+    .unwrap();
     providers::set_active(app.handle(), &state.providers, &profile.id).unwrap();
-    let plan = learning::start(app.handle(), &state.learning, PlanInput {
-        goal: "零基础了解概率".into(), level: "没有基础".into(), daily_minutes: 45,
-        deadline: "2099-01-01".into(), material_ids: vec![], provider_id: None,
-        milestone: None, milestone_date: None,
-    }).unwrap();
+    let plan = learning::start(
+        app.handle(),
+        &state.learning,
+        PlanInput {
+            goal: "零基础了解概率".into(),
+            level: "没有基础".into(),
+            daily_minutes: 45,
+            deadline: "2099-01-01".into(),
+            material_ids: vec![],
+            provider_id: None,
+            milestone: None,
+            milestone_date: None,
+        },
+    )
+    .unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let current = learning::get(&state.learning, &plan.id).unwrap();
         if !["running", "cancelling"].contains(&current.status.as_str()) {
-            assert!(["done", "degraded"].contains(&current.status.as_str()), "{:?}", current.error);
+            assert!(
+                ["done", "degraded"].contains(&current.status.as_str()),
+                "{:?}",
+                current.error
+            );
             break;
         }
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(5));
     }
     learning::actions::adopt(app.handle(), &state.learning, &plan.id).unwrap();
-    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
-    let started = ipc(&window, "generate_practice", json!({"input": input(&plan.id, 1, vec!["choice"], "immediate")})).unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let started = ipc(
+        &window,
+        "generate_practice",
+        json!({"input": input(&plan.id, 1, vec!["choice"], "immediate")}),
+    )
+    .unwrap();
     let id = started["set"]["id"].as_i64().unwrap();
     let generated = wait_set(&state, id);
     assert_eq!(generated.set.status, "ready", "{:?}", generated.set.error);
     assert!(generated.questions[0].citations.is_empty());
     let question = generated.questions[0].id;
-    let answered = ipc(&window, "submit_practice_answer", json!({"setId": id, "questionId": question, "answer": 0})).unwrap();
+    let answered = ipc(
+        &window,
+        "submit_practice_answer",
+        json!({"setId": id, "questionId": question, "answer": 0}),
+    )
+    .unwrap();
     assert_eq!(answered["answer"]["correct"], true);
 }
 

@@ -650,7 +650,10 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ProjectState) -> Result<(
                 let tx = store.conn.unchecked_transaction()?;
                 // 34#10：status 落状态机内的 'failed'——原先把原始错误码写进
                 // status，不属于 resume/cancel 的任何可恢复集合，版本永久卡死
-                tx.execute("UPDATE project_versions SET status = 'failed', error_code = ?1, error_message = ?2, updated_at = ?3, completed_at = ?3 WHERE id = ?4", params![replay_error.code, replay_error.message, now()?, id])?;
+                let changed = tx.execute("UPDATE project_versions SET status = 'failed', error_code = ?1, error_message = ?2, updated_at = ?3, completed_at = ?3 WHERE id = ?4 AND status IN ('running', 'cancelling')", params![replay_error.code, replay_error.message, now()?, id])?;
+                if changed == 0 {
+                    continue;
+                }
                 let event = Store::event(
                     &tx,
                     "project.feedback_interrupted",
@@ -668,7 +671,10 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ProjectState) -> Result<(
         };
         let tx = store.conn.unchecked_transaction()?;
         let status = error.code.clone();
-        tx.execute("UPDATE project_versions SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4, completed_at = ?4 WHERE id = ?5", params![status, error.code, error.message, now()?, id])?;
+        let changed = tx.execute("UPDATE project_versions SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4, completed_at = ?4 WHERE id = ?5 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id])?;
+        if changed == 0 {
+            continue;
+        }
         let event = Store::event(
             &tx,
             "project.feedback_interrupted",

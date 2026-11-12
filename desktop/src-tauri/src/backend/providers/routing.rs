@@ -1510,7 +1510,10 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, state: &ProviderState) -> Result<
             }
         };
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute("UPDATE provider_route_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE request_id = ?5", params![status, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), now()?, id])?;
+        let changed = tx.execute("UPDATE provider_route_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE request_id = ?5 AND status IN ('running', 'cancelling')", params![status, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), now()?, id])?;
+        if changed == 0 {
+            continue;
+        }
         tx.execute("UPDATE provider_route_attempts SET status = ?1, latency_ms = ?2, error_code = ?3, error_message = ?4 WHERE request_id = ?5 AND status = 'running'", params![status, latency, error.as_ref().map(|error| &error.code), error.as_ref().map(|error| &error.message), id])?;
         let event = Store::event(
             &tx,

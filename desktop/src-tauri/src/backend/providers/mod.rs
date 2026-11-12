@@ -634,7 +634,11 @@ pub fn upsert<R: Runtime>(
                 "INSERT INTO provider_meta (key, value) VALUES ('active_provider', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 params![id_string],
             )?;
-            Some(Store::event(&tx, "provider.active_changed", json!({"providerId": id_string}))?)
+            Some(Store::event(
+                &tx,
+                "provider.active_changed",
+                json!({"providerId": id_string}),
+            )?)
         } else {
             None
         };
@@ -1526,10 +1530,13 @@ pub fn recover_chats<R: Runtime>(app: &AppHandle<R>, state: &ProviderState) -> R
     drop(statement);
     for request_id in ids {
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute(
-            "UPDATE provider_requests SET status = 'interrupted', error_code = 'request_interrupted', error_message = '应用重启后未自动重试模型请求', updated_at = ?1 WHERE request_id = ?2",
+        let changed = tx.execute(
+            "UPDATE provider_requests SET status = 'interrupted', error_code = 'request_interrupted', error_message = '应用重启后未自动重试模型请求', updated_at = ?1 WHERE request_id = ?2 AND status = 'running'",
             params![now()?, request_id],
         )?;
+        if changed == 0 {
+            continue;
+        }
         let event = Store::event(
             &tx,
             "provider.chat_interrupted",

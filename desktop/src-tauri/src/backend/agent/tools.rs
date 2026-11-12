@@ -90,7 +90,14 @@ pub fn catalog(session: &AgentSession) -> Vec<super::super::providers::tools::To
     ];
     if session.plan_id.is_none() {
         tools.retain(|tool| {
-            !matches!(tool.function.name.as_str(), "workspace.list" | "workspace.read" | "workspace.write" | "workspace.edit" | "artifact.promote")
+            !matches!(
+                tool.function.name.as_str(),
+                "workspace.list"
+                    | "workspace.read"
+                    | "workspace.write"
+                    | "workspace.edit"
+                    | "artifact.promote"
+            )
         });
     }
     tools
@@ -611,7 +618,7 @@ pub fn execute<R: Runtime>(
         match call.name.as_str() {
             "workspace.list" => {
                 let plan_id = required_plan_id(session)?;
-    let plan = learning::get(&state.learning, plan_id)?;
+                let plan = learning::get(&state.learning, plan_id)?;
                 Ok(
                     json!({"status": "done", "planId": session.plan_id, "stages": plan.result.as_ref().map(|result| &result.stages), "artifacts": get(state, &session.id.to_string())?.artifacts}),
                 )

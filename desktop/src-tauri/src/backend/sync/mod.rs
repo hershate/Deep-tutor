@@ -464,10 +464,13 @@ fn stage<R: Runtime>(
 ) -> Result<()> {
     let store = service.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE sync_jobs SET status = ?1, updated_at = ?2 WHERE id = ?3",
+    let changed = tx.execute(
+        "UPDATE sync_jobs SET status = ?1, updated_at = ?2 WHERE id = ?3 AND status = 'running'",
         params![status, now()?, id],
     )?;
+    if changed == 0 {
+        return Ok(());
+    }
     let event = Store::event(
         &tx,
         "sync.progress",
@@ -646,7 +649,7 @@ fn finish<R: Runtime>(
     id: &str,
     result: Result<Outcome>,
 ) -> Result<()> {
-    let (status, code, message, result_json, local_path) = match result {
+    let (mut status, mut code, mut message, result_json, local_path) = match result {
         Ok(outcome) => ("done", None, None, Some(outcome.result), outcome.local_path),
         Err(error) => {
             let status = if error.code == "cancelled" {
@@ -659,7 +662,23 @@ fn finish<R: Runtime>(
     };
     let store = service.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE sync_jobs SET status = ?1, result_json = ?2, local_path = ?3, error_code = ?4, error_message = ?5, updated_at = ?6, finished_at = ?6 WHERE id = ?7", params![status, result_json.as_ref().map(serde_json::to_string).transpose()?, local_path, code, message, now()?, id])?;
+    let current: String = tx.query_row(
+        "SELECT status FROM sync_jobs WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    )?;
+    if !["running", "cancelling"].contains(&current.as_str()) {
+        return Ok(());
+    }
+    if current == "cancelling" {
+        status = "cancelled";
+        code = Some("cancelled".into());
+        message = Some("取消请求已保存；已取得的远端结果保留供审计".into());
+    }
+    let changed = tx.execute("UPDATE sync_jobs SET status = ?1, result_json = ?2, local_path = ?3, error_code = ?4, error_message = ?5, updated_at = ?6, finished_at = ?6 WHERE id = ?7 AND status IN ('running', 'cancelling')", params![status, result_json.as_ref().map(serde_json::to_string).transpose()?, local_path, code, message, now()?, id])?;
+    if changed == 0 {
+        return Ok(());
+    }
     let event = Store::event(
         &tx,
         if status == "done" {
@@ -908,7 +927,10 @@ pub fn recover<R: Runtime>(app: &AppHandle<R>, service: &SyncService) -> Result<
             )
         };
         let tx = store.conn.unchecked_transaction()?;
-        tx.execute("UPDATE sync_jobs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4, finished_at = ?4 WHERE id = ?5", params![next, code, message, now()?, id])?;
+        let changed = tx.execute("UPDATE sync_jobs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4, finished_at = ?4 WHERE id = ?5 AND status IN ('running', 'cancelling')", params![next, code, message, now()?, id])?;
+        if changed == 0 {
+            continue;
+        }
         let event = Store::event(&tx, kind, json!({"jobId": id}))?;
         tx.commit()?;
         emit(app, &event);

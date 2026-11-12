@@ -211,9 +211,22 @@ fn failed_database_writes_restore_the_previous_credential() {
     assert_eq!(get(&state, &saved.id).unwrap().name, "本地测试");
     store
         .conn
+        .execute_batch("DROP TRIGGER reject_profile_event")
+        .unwrap();
+    let other = upsert(
+        app.handle(),
+        &state,
+        ProfileInput {
+            name: "备用默认".into(),
+            ..input("http://127.0.0.1:8001/v1")
+        },
+    )
+    .unwrap();
+    set_active(app.handle(), &state, &other.id).unwrap();
+    store
+        .conn
         .execute_batch(
-            "DROP TRIGGER reject_profile_event;
-             CREATE TRIGGER reject_delete_event BEFORE INSERT ON events
+            "CREATE TRIGGER reject_delete_event BEFORE INSERT ON events
              WHEN NEW.kind = 'provider.deleted' BEGIN SELECT RAISE(ABORT, 'rejected'); END;",
         )
         .unwrap();
