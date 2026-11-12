@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, AlertTriangle, ArrowDownToLine, Blocks, Code2, FileCode2, Layers3, Plug, RefreshCw, ShieldCheck, Trash2, Upload, Zap } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, EmptyState, IconButton, RevealExport, SectionHeader, Toggle } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
@@ -16,11 +16,17 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   // 62#1：初载失败原先整块空白只弹 5 秒 toast——补错误横幅+重试，
   // 对齐 Practice/Review 等同类页三态
   const [loadError, setLoadError] = useState('')
+  // 144#4：补序号守卫（51#2 家族）——原先成功与失败分支均无守卫，旧请求
+  // 失败晚到会覆盖新请求成功后的清错，成功分支还可能以旧快照覆盖新快照
+  const refreshSeq = useRef(0)
   const refresh = useCallback(async () => {
+    const ticket = ++refreshSeq.current
     try {
-      setData(await pluginBackend.overview())
+      const overview = await pluginBackend.overview()
+      if (ticket !== refreshSeq.current) return
+      setData(overview)
       setLoadError('')
-    } catch (cause) { setLoadError(backendErrorMessage(cause)) }
+    } catch (cause) { if (ticket === refreshSeq.current) setLoadError(backendErrorMessage(cause)) }
   }, [])
   // 14#18：事件记录游标分页——overview 只带最新 100 条，更早历史按需加载
   const [earlier, setEarlier] = useState<PluginEvent[]>([])

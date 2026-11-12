@@ -343,6 +343,9 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     <Modal open={regenOpen} onClose={() => setRegenOpen(false)} title="局部重生成"><div className="form-stack"><p className="regen-description">保留已确认资料与目标，旧版本会保留。仅重跑所选步骤及其下游；已采用的方案不能直接改写。</p><label>重生成范围<select value={regenScope} onChange={event => setRegenScope(Number(event.target.value))}>{Object.entries(regenerationNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><div className="modal-callout"><Route size={17} />「{regenerationNames[regenScope]}」及其下游将使用新的真实模型请求与排期。</div><Button onClick={() => void regenerate()} disabled={busy === 'regenerate'}><RefreshCw size={16} />确认局部重生成</Button></div></Modal>
     <ExportCenter open={exportOpen} onClose={() => setExportOpen(false)} notify={notify} initialPlanId={plan?.id} />
     <SharePlanDialog open={shareOpen} onClose={() => setShareOpen(false)} notify={notify} initialPlanId={plan?.id} onPreview={token => { window.history.replaceState(null, '', localShareUrl(token)); setShareOpen(false); onNavigate('shared') }} />
-    <ConfirmDialog open={pendingDelete !== null} onClose={() => setPendingDelete(null)} onConfirm={() => { const id = pendingDelete; setPendingDelete(null); if (id !== null) void removeMaterial(id) }} title="删除这份资料？" description="将同时删除资料记录与可用原件文件，已生成的知识引用会失效；此操作不可恢复。" confirmLabel="确认删除" busy={false} />
+    {/* 144#2：确认文案与后端真实行为一致（126#3 的 Library 修正漏了本入口）——
+        两个入口调用同一 delete_material，被引用资料会被 material_in_use 拒绝，
+        原先承诺「引用会失效」与实际结果相反 */}
+    <ConfirmDialog open={pendingDelete !== null} onClose={() => setPendingDelete(null)} onConfirm={() => { const id = pendingDelete; setPendingDelete(null); if (id !== null) void removeMaterial(id) }} title="删除这份资料？" description="将同时删除资料记录与可用原件文件；若资料已被学习方案、Wiki 问答或项目版本引用，将无法删除（原文证据受保护）；未被引用时此操作不可恢复。" confirmLabel="确认删除" busy={false} />
   </div>
 }

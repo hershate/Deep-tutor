@@ -184,34 +184,37 @@ export default function App() {
       }, Math.min(10000, (toast.tone === 'error' ? 5200 : 3200) + extra))
     }
   }, [toasts])
+  // 51#6：序号守卫——事件密集期多轮 notifications() 并发时，后到的旧响应
+  // 不再把角标回跳。144#4：seq 与 load 从 effect 闭包提升为组件级——通知
+  // 弹层「重新读取」原先直调 backend.notifications() 绕过序号通道，慢失败
+  // 晚到仍会覆盖新请求成功后的清错
+  const notificationsSeq = useRef(0)
+  const notificationsLive = useRef(false)
+  const loadNotifications = useCallback(async () => {
+    const ticket = ++notificationsSeq.current
+    try {
+      const next = await engagementBackend.notifications()
+      if (notificationsLive.current && ticket === notificationsSeq.current) { setNotifications(next); setNotificationsError('') }
+    } catch (error) {
+      if (notificationsLive.current && ticket === notificationsSeq.current) { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }
+    }
+  }, [])
   useEffect(() => {
     if (!ready || loginRequired) return
-    let active = true
+    notificationsLive.current = true
     let stop: (() => void) | undefined
-    // 51#6：序号守卫——事件密集期多轮 notifications() 并发时，后到的旧响应不再把角标回跳
-    let seq = 0
-    const fail = (error: unknown) => {
-      if (active) { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }
-    }
-    const load = async () => {
-      const ticket = ++seq
-      try {
-        const next = await engagementBackend.notifications()
-        if (active && ticket === seq) { setNotifications(next); setNotificationsError('') }
-      } catch (error) { if (ticket === seq) fail(error) }
-    }
-    void load()
+    void loadNotifications()
     void onBackendEvent(event => {
-      if (active && ['notifications.', 'review.', 'community.', 'plan.', 'study.checkin'].some(prefix => event.kind.startsWith(prefix))) void load()
-    }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(fail)
+      if (['notifications.', 'review.', 'community.', 'plan.', 'study.checkin'].some(prefix => event.kind.startsWith(prefix))) void loadNotifications()
+    }).then(unlisten => { if (notificationsLive.current) stop = unlisten; else unlisten() }).catch(error => { if (notificationsLive.current) { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) } })
     // 80#7e：窗口隐藏暂停轮询（结果无人消费）；恢复可见立即补拉一轮
     const hidden = () => { if (document.hidden) window.clearInterval(timer) }
-    const visible = () => { if (!document.hidden) { window.clearInterval(timer); timer = window.setInterval(() => { void load() }, 30000); void load() } }
-    let timer = window.setInterval(() => { void load() }, 30000)
+    const visible = () => { if (!document.hidden) { window.clearInterval(timer); timer = window.setInterval(() => { void loadNotifications() }, 30000); void loadNotifications() } }
+    let timer = window.setInterval(() => { void loadNotifications() }, 30000)
     document.addEventListener('visibilitychange', onVisibility)
     function onVisibility() { document.hidden ? hidden() : visible() }
-    return () => { active = false; stop?.(); document.removeEventListener('visibilitychange', onVisibility); window.clearInterval(timer) }
-  }, [ready, loginRequired])
+    return () => { notificationsLive.current = false; stop?.(); document.removeEventListener('visibilitychange', onVisibility); window.clearInterval(timer) }
+  }, [ready, loginRequired, loadNotifications])
   const [homeSummaryError, setHomeSummaryError] = useState('')
   const [summaryReload, setSummaryReload] = useState(0)
   useEffect(() => {
@@ -272,7 +275,9 @@ export default function App() {
     // 37#3：dragDropEnabled 早已开启但全仓无处理器——拖入被 WebView2 静默
     // 吞掉。现在全窗口接收 OS 拖放：文件经共享导入通道暂存进资料库，
     // 生成器/资料库页由 material.* 事件自动刷新
-    if (!ready || loginRequired) return
+    // 144#1：只读分享页不渲染 import-progress 胶囊与 ToastStack，拖放导入
+    // 会真实写入资料库却零反馈——与 Ctrl+K 的 136#6 同口径跳过 shared 页
+    if (!ready || loginRequired || page === 'shared') return
     let disposed = false
     let unlisten: (() => void) | undefined
     void getCurrentWebview().onDragDropEvent(event => {
@@ -287,7 +292,7 @@ export default function App() {
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
       .catch(() => { /* 拖放监听不可用时保持无拖放行为，不影响主流程 */ })
     return () => { disposed = true; unlisten?.() }
-  }, [ready, loginRequired, notify])
+  }, [ready, loginRequired, page, notify])
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.theme
     document.documentElement.classList.toggle('large-text', preferences.largeText)
@@ -362,6 +367,13 @@ export default function App() {
     if (focusSession && ['running', 'paused'].includes(focusSession.status) && !(await finishFocus(true))) return
     focusTaskRef.current = null
     setFocusSession(null)
+  }
+  // 140#2：App 级弹层的顶栏/侧栏入口与 Ctrl+K（133#6）同款守卫——原先
+  // 直接 setModal 互相顶替，任一弹层半填中点另一入口会无确认卸载原弹层
+  // （133#6 的守卫只覆盖了键盘路径）
+  const openAppModal = (next: 'search' | 'quick' | 'notifications' | 'tasks') => {
+    if (modal || hasOpenModal()) return
+    setModal(next)
   }
   const navigate = (target: PageId) => {
     setPage(target); window.location.hash = target; setMobileNav(false); setTutorOpen(false)
@@ -472,11 +484,11 @@ export default function App() {
       {/* 43#12：ChevronDown 形似可展开的下拉，实际整钮跳转学习计划——改右箭头对齐导航语义 */}
       <button className="goal-switch" onClick={() => navigate('plan')}><span><Target size={17} /></span><div><small>当前目标</small><strong>{homeSummary?.goal || '尚未设置学习目标'}</strong></div><ChevronRight size={15} /></button>
       <nav className="main-nav" aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{group.label}</span>{group.items.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><item.icon size={18} /><span>{item.label}</span>{item.id === 'review' && reviewUnread > 0 && <i>{reviewUnread}</i>}</button>)}</div>)}</nav>
-      <div className="sidebar-bottom"><button className={page === 'settings' ? 'active' : ''} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>设置与偏好</span></button><button onClick={() => setModal('tasks')}><Zap size={18} /><span>Agent 任务中心</span></button><div className="sidebar-profile"><span>{(homeSummary?.name || '本').slice(0, 1)}</span><div><strong>{homeSummary?.name || '本地学习者'}</strong><small>连续学习 {homeSummary?.streak ?? 0} 天</small></div><button aria-label="个人设置" onClick={() => navigate('settings')}><MoreHorizontal size={18} /></button></div></div>
+      <div className="sidebar-bottom"><button className={page === 'settings' ? 'active' : ''} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => navigate('settings')}><SettingsIcon size={18} /><span>设置与偏好</span></button><button onClick={() => openAppModal('tasks')}><Zap size={18} /><span>Agent 任务中心</span></button><div className="sidebar-profile"><span>{(homeSummary?.name || '本').slice(0, 1)}</span><div><strong>{homeSummary?.name || '本地学习者'}</strong><small>连续学习 {homeSummary?.streak ?? 0} 天</small></div><button aria-label="个人设置" onClick={() => navigate('settings')}><MoreHorizontal size={18} /></button></div></div>
     </aside>
 
     <div className="app-main">
-      <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识节点…</span><kbd>Ctrl + K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences(current => ({ ...current, theme: current.theme === 'light' ? 'dark' : 'light' }))}  /* 35#5：updater 形态——渲染闭包整对象会被排队写入整体覆盖（32#13 同型） */>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)} title={modelTasks > 0 ? `${modelTasks} 个模型请求进行中（Agent 每步模型调用同时计数），点击打开知舟导师；运行中的任务可在 Agent 任务中心查看或取消` : undefined}>{modelTasks > 0 && <span className="live-dot" aria-hidden="true" />}<Sparkles size={16} />问知舟</Button></div></header>
+      <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => openAppModal('search')}><Search size={17} /><span>搜索课程、笔记或知识节点…</span><kbd>Ctrl + K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => openAppModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences(current => ({ ...current, theme: current.theme === 'light' ? 'dark' : 'light' }))}  /* 35#5：updater 形态——渲染闭包整对象会被排队写入整体覆盖（32#13 同型） */>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => openAppModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)} title={modelTasks > 0 ? `${modelTasks} 个模型请求进行中（Agent 每步模型调用同时计数），点击打开知舟导师；运行中的任务可在 Agent 任务中心查看或取消` : undefined}>{modelTasks > 0 && <span className="live-dot" aria-hidden="true" />}<Sparkles size={16} />问知舟</Button></div></header>
       <main id="main-content" className="main-content" tabIndex={-1}><Suspense fallback={<div className="page-loading" role="status"><LoaderMark />正在加载学习工作区…</div>}><PageErrorBoundary key={page}>{renderPage()}</PageErrorBoundary></Suspense></main>
     </div>
 
@@ -489,7 +501,7 @@ export default function App() {
       <div className="form-stack"><div className="segmented">{['任务', '笔记'].map(item => <button className={quickType === item ? 'active' : ''} aria-pressed={quickType === item} key={item} onClick={() => setQuickType(item)}>{item}</button>)}</div><label>{quickType === '任务' ? '要做什么？' : '想记下什么？'}<input autoFocus value={quickTitle} onChange={e => setQuickTitle(clampToBytes(e.target.value, 500))} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void addQuick() }} placeholder={quickType === '任务' ? '例如：复习递归错题' : '例如：先验概率决定判断的起点'} /></label><p className="form-help">{quickType === '任务' ? '将加入今日任务，之后可在学习计划中调整。' : '将保存到笔记资料库，标签为「复盘」。'}</p><Button onClick={() => void addQuick()} disabled={quickBusy || !quickTitle.trim()}>{quickBusy ? '正在保存…' : `保存${quickType}`}</Button></div>
     </Modal>
     <Modal open={modal === 'notifications'} onClose={() => setModal(null)} title="通知与提醒">
-      {notificationsError && <div className="form-error" role="alert"><span>{notificationsError}</span><Button variant="ghost" size="sm" onClick={() => { setNotificationsError(''); void engagementBackend.notifications().then(next => { setNotifications(next); setNotificationsError('') }).catch(error => { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }) }}>重新读取</Button></div>}
+      {notificationsError && <div className="form-error" role="alert"><span>{notificationsError}</span><Button variant="ghost" size="sm" onClick={() => { setNotificationsError(''); void loadNotifications() }}>重新读取</Button></div>}
       {notifications?.suppressed && <p className="form-help">当前处于免打扰时段；通知仍保留在中心，不主动弹出提醒。</p>}
       <div className="notification-list">{notifications?.items.map(item => <button key={item.id} disabled={notificationBusy} onClick={() => void readNotification(item.id, item.page)}><span className="notification-icon"><Bell size={18} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{new Date(item.createdAt).toLocaleString()} · {item.readAt ? '已读' : '未读'}</small></div></button>)}{notifications && !notifications.items.length && <div className="search-empty">当前没有真实通知。到期复习、计划和预约会在这里出现。</div>}{!notifications && !notificationsError && <div className="search-empty">正在读取真实通知…</div>}</div><Button variant="ghost" disabled={!notifications || notifications.unreadCount === 0 || notificationBusy} onClick={() => void markAllRead()}><Check size={16} />全部标为已读</Button>
     </Modal>

@@ -90,7 +90,9 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       const entries = await Promise.all(plan.result.stages.map(async stage => [stage.id, await backend.getReadingProgress(plan.id, stage.id)] as const))
       if (stageRef.current.planId !== requestedPlanId) return
       setProgress(Object.fromEntries(entries))
-    } catch (cause) { setError(backendErrorMessage(cause)) }
+      // 144#5：catch 补同款复查——课程 A 切到 B 后，A 的进度请求恰在切换后
+      // 失败返回时不再把错误横幅打到 B 的页面上方
+    } catch (cause) { if (stageRef.current.planId === requestedPlanId) setError(backendErrorMessage(cause)) }
   }, [plan])
   // 正在阅读的讲义版本：事件刷新时保持同一版本，生成新版本期间不被拉回
   const readingVersionRef = useRef<number | undefined>(undefined)
@@ -104,7 +106,8 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       if (stageRef.current.planId !== requested.planId || stageRef.current.stageId !== requested.stageId) return
       readingVersionRef.current = version ?? next.version
       setLecture(next)
-    } catch (cause) { setError(backendErrorMessage(cause)) }
+      // 144#5：catch 补同款复查——切换后旧阶段的失败不再归因到新内容页
+    } catch (cause) { if (stageRef.current.planId === requested.planId && stageRef.current.stageId === requested.stageId) setError(backendErrorMessage(cause)) }
   }, [plan, stageId])
   // 76#8：序号守卫（51#2 家族补齐）
   const plansSeq = useRef(0)

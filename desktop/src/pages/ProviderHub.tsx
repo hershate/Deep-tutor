@@ -118,7 +118,9 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
       setCircuits(circuitStates)
       setPageError('')
     } catch (error) {
-      setPageError(backendErrorMessage(error))
+      // 144#4：catch 补序号守卫（成功分支同款）——旧请求失败晚到不再覆盖
+      // 新请求成功后的清错，数据已是新的却显示「读取失败」
+      if (ticket === refreshSeq.current) setPageError(backendErrorMessage(error))
     } finally {
       setLoading(false)
     }

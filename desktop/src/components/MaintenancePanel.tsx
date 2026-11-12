@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Check, Database, LoaderCircle, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
 import { Badge, Button, Modal } from './UI'
 import { onBackendEvent, reportBackendError } from '../backend/client'
@@ -22,6 +22,16 @@ export default function MaintenancePanel() {
   // 74#9：整理数据库与清理一样会停止运行中任务——补确认层保持对称
   const [vacuumOpen, setVacuumOpen] = useState(false)
   const candidates = report ? categories.flatMap(([key, label]) => report.orphans[key].map(item => ({ ...item, label }))) : []
+  // 144#4：report 通道补序号守卫（51#2 家族）——事件刷新与 scan/清理后的
+  // 复查并发时，慢的旧响应不再把新报告拉回旧状态
+  const reportSeq = useRef(0)
+  const pullReport = useCallback(async () => {
+    const ticket = ++reportSeq.current
+    try {
+      const next = await maintenanceBackend.report()
+      if (ticket === reportSeq.current) setReport(next)
+    } catch (error) { if (ticket === reportSeq.current) reportBackendError(error) }
+  }, [])
 
   useEffect(() => {
     // A-5：订阅运维事件——别的窗口/会话完成清理或体检时同步刷新，
@@ -30,15 +40,15 @@ export default function MaintenancePanel() {
     let disposed = false
     void onBackendEvent(event => {
       if (disposed || !event.kind.startsWith('maintenance.')) return
-      void maintenanceBackend.report().then(setReport).catch(() => {})
+      void pullReport()
     // 136#2：订阅链补 .catch——与全仓其余订阅同口径，不留 unhandled rejection
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(reportBackendError)
     return () => { disposed = true; unlisten?.() }
-  }, [])
+  }, [pullReport])
 
   const scan = async () => {
     setBusy('scan')
-    try { setReport(await maintenanceBackend.report()) }
+    try { await pullReport() }
     catch (error) { reportBackendError(error) }
     finally { setBusy('') }
   }
@@ -49,7 +59,7 @@ export default function MaintenancePanel() {
       setCleanup(result)
       setVacuum(null)
       setConfirmOpen(false)
-      setReport(await maintenanceBackend.report())
+      await pullReport()
     } catch (error) { reportBackendError(error, 'write') }
     finally { setBusy('') }
   }

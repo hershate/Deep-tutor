@@ -38,10 +38,3 @@ export type Project = {
   planId?: string | null
   milestones: Milestone[]
 }
-
-export type ChatMessage = {
-  id: number
-  role: 'user' | 'assistant'
-  text: string
-  source?: string
-}

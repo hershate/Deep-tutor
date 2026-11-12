@@ -30,6 +30,14 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+// 142#3：全局 unhandledrejection 兜底——136#2 仓级整改后现有 fire-and-forget
+// 调用点均有 .catch 或内部 try/catch；未来漏网的 rejection 只进 console 时
+// 用户无可见反馈，此处经 backend-notice 通道（134#8 状态类提示）补一条可见横幅
+window.addEventListener('unhandledrejection', event => {
+  console.error('未处理的 Promise 拒绝', event.reason)
+  window.dispatchEvent(new CustomEvent('backend-notice', { detail: '一个后台操作未能完成，部分数据可能未刷新；可重试相关操作。' }))
+})
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>

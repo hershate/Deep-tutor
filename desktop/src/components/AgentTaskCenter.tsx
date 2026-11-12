@@ -47,7 +47,8 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
       entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       setTasks(entries.slice(0, 40))
       setError('')
-    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setLoading(false) }
+      // 144#4：catch 补序号守卫（成功分支同款）——旧请求失败晚到不再覆盖新请求成功后的清错
+    } catch (cause) { if (ticket === refreshSeq.current) setError(backendErrorMessage(cause)) } finally { setLoading(false) }
   }, [])
   useEffect(() => {
     void refresh()

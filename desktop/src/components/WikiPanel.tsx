@@ -23,31 +23,37 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
   const [reading, setReading] = useState<{ citation: KnowledgeCitation | null; detail: MaterialDetail } | null>(null)
   const [noteHit, setNoteHit] = useState<KnowledgeHit | null>(null)
   const currentId = useRef<number | null>(null)
-
-  const refresh = useCallback(async () => {
-    const items = await knowledgeBackend.list()
-    setSessions(items)
-    // 32#23：get 在途期间用户可能已切到其他会话——按请求时的 id 复查再 set
-    if (currentId.current) {
-      const requested = currentId.current
-      const next = await knowledgeBackend.get(requested)
-      if (currentId.current === requested) setCurrent(next)
-    }
-  }, [])
   // 115#6：读取失败态——原先 sessions 恒 []，侧栏把「读取失败」陈述成
   // 「尚无问答历史」的假空态；失败给横幅+重试，事件刷新恢复后自动清除
   const [historyError, setHistoryError] = useState('')
-  useEffect(() => {
-    const fail = (error: unknown) => {
-      setHistoryError(backendErrorMessage(error))
-      reportBackendError(error)
+  // 144#4：补序号守卫（51#2 家族）——原先成功与失败分支均无守卫，旧请求
+  // 失败晚到会覆盖新请求成功后的清错；清错/报错内聚进 refresh 统一带守卫，
+  // get 段沿用 32#23 的 id 复查
+  const refreshSeq = useRef(0)
+  const refresh = useCallback(async () => {
+    const ticket = ++refreshSeq.current
+    try {
+      const items = await knowledgeBackend.list()
+      if (ticket !== refreshSeq.current) return
+      setSessions(items)
+      setHistoryError('')
+      // 32#23：get 在途期间用户可能已切到其他会话——按请求时的 id 复查再 set
+      if (currentId.current) {
+        const requested = currentId.current
+        const next = await knowledgeBackend.get(requested)
+        if (ticket === refreshSeq.current && currentId.current === requested) setCurrent(next)
+      }
+    } catch (error) {
+      if (ticket === refreshSeq.current) { setHistoryError(backendErrorMessage(error)); reportBackendError(error) }
     }
-    void refresh().then(() => setHistoryError('')).catch(fail)
+  }, [])
+  useEffect(() => {
+    void refresh()
     let unlisten: (() => void) | undefined
     // 32#5：晚解析守卫——卸载早于 listen() resolve 时立即注销
     let disposed = false
     onBackendEvent(event => {
-      if (event.kind.startsWith('knowledge.')) void refresh().then(() => setHistoryError('')).catch(fail)
+      if (event.kind.startsWith('knowledge.')) void refresh()
     }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
     return () => { disposed = true; unlisten?.() }
   }, [refresh])
@@ -164,7 +170,7 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
       <div className="row-actions"><span>实际范围：{current.sources.map(source => source.title).join('、')}</span><Button variant="ghost" size="sm" onClick={() => setRemoveTarget(current)} disabled={['running', 'cancelling'].includes(current.status)}><Trash2 size={14} />删除此条</Button></div>
     </article> : <EmptyState title="向你的真实知识库提问" description="选择已解析资料，再输入问题。回答、引用位置与历史都由原生后端保存。" />}</div>
     <form className="wiki-composer" onSubmit={event => { event.preventDefault(); void ask() }}><textarea rows={3} value={question} onChange={event => setQuestion(clampToBytes(event.target.value, 8000))} placeholder="例如：根据所选资料，先验概率是什么？" aria-label="向知识库提问" /><div><span>{selected.length ? `基于 ${selected.length} 份实际资料作答` : '请至少选择一份资料'}</span><Button type="submit" disabled={busy || !question.trim() || !selected.length}><ArrowUp size={17} />提问</Button></div></form>
-  </main><aside className="wiki-history"><div><History size={17} /><strong>真实问答历史</strong></div>{sessions.map(item => <div key={item.id}><button onClick={() => choose(item)}><strong>{item.question}</strong><span>{item.citations.length} 条引用 · 第 {item.attempt} 次尝试 · {statusName(item.status)}</span></button><button aria-label={`删除问答 ${item.question}`} onClick={() => setRemoveTarget(item)} disabled={['running', 'cancelling'].includes(item.status)}><Trash2 size={13} /></button></div>)}{historyError && !sessions.length && <div className="form-error" role="alert"><span>问答历史读取失败：{historyError}</span><Button variant="ghost" size="sm" onClick={() => { void refresh().then(() => setHistoryError('')).catch(() => {}) }}>重新读取</Button></div>}{/* 117 轮 C6：已有历史时读取失败也给精简提示（对齐 Integrations staleBanner），不再静默停留旧数据 */}{historyError && sessions.length > 0 && <p className="form-error" role="status">问答历史刷新失败，当前显示的是上次读取的结果；<button className="text-action" onClick={() => { void refresh().then(() => setHistoryError('')).catch(() => {}) }}>重新读取</button></p>}{!sessions.length && !historyError && <p className="form-help">尚无问答历史；提问后会保存在本地。</p>}{sessions.length > 0 && <Button variant="ghost" size="sm" onClick={() => setClearOpen(true)}><Trash2 size={15} />清空历史</Button>}<ConfirmDialog open={clearOpen} onClose={() => setClearOpen(false)} onConfirm={() => { setClearOpen(false); void clear() }} title="清空问答历史？" description="将删除全部 Wiki 问答会话与引用记录；此操作不可恢复。" confirmLabel="确认清空" /><ConfirmDialog open={removeTarget !== null} onClose={() => setRemoveTarget(null)} onConfirm={() => { const target = removeTarget; setRemoveTarget(null); if (target) void remove(target.id) }} title="删除这条问答？" description={`「${removeTarget?.question ?? ''}」的回答与引用定位记录将一并删除；此操作不可恢复。`} confirmLabel="确认删除" busy={busy} /></aside>
+  </main><aside className="wiki-history"><div><History size={17} /><strong>真实问答历史</strong></div>{sessions.map(item => <div key={item.id}><button onClick={() => choose(item)}><strong>{item.question}</strong><span>{item.citations.length} 条引用 · 第 {item.attempt} 次尝试 · {statusName(item.status)}</span></button><button aria-label={`删除问答 ${item.question}`} onClick={() => setRemoveTarget(item)} disabled={['running', 'cancelling'].includes(item.status)}><Trash2 size={13} /></button></div>)}{historyError && !sessions.length && <div className="form-error" role="alert"><span>问答历史读取失败：{historyError}</span><Button variant="ghost" size="sm" onClick={() => { void refresh() }}>重新读取</Button></div>}{/* 117 轮 C6：已有历史时读取失败也给精简提示（对齐 Integrations staleBanner），不再静默停留旧数据 */}{historyError && sessions.length > 0 && <p className="form-error" role="status">问答历史刷新失败，当前显示的是上次读取的结果；<button className="text-action" onClick={() => { void refresh() }}>重新读取</button></p>}{!sessions.length && !historyError && <p className="form-help">尚无问答历史；提问后会保存在本地。</p>}{sessions.length > 0 && <Button variant="ghost" size="sm" onClick={() => setClearOpen(true)}><Trash2 size={15} />清空历史</Button>}<ConfirmDialog open={clearOpen} onClose={() => setClearOpen(false)} onConfirm={() => { setClearOpen(false); void clear() }} title="清空问答历史？" description="将删除全部 Wiki 问答会话与引用记录；此操作不可恢复。" confirmLabel="确认清空" /><ConfirmDialog open={removeTarget !== null} onClose={() => setRemoveTarget(null)} onConfirm={() => { const target = removeTarget; setRemoveTarget(null); if (target) void remove(target.id) }} title="删除这条问答？" description={`「${removeTarget?.question ?? ''}」的回答与引用定位记录将一并删除；此操作不可恢复。`} confirmLabel="确认删除" busy={busy} /></aside>
 
     <Modal open={reading !== null} onClose={() => setReading(null)} title={reading?.detail.title ?? '资料原文'} wide>{reading && <div><p className="form-help">{reading.citation ? `第 ${reading.citation.line} 行 · 字符 ${reading.citation.charStart}–${reading.citation.charEnd}` : '实际解析文本'} · SHA-256 {reading.detail.sha256}</p><pre className="citation-source-text">{reading.citation ? reading.detail.text?.split(reading.citation.quote).map((part, index, parts) => <span key={index}>{part}{index < parts.length - 1 && <mark>{reading.citation!.quote}</mark>}</span>) : reading.detail.text ?? '尚未产生解析文本。'}</pre></div>}</Modal>
     <Modal open={noteHit !== null} onClose={() => setNoteHit(null)} title={noteHit?.title ?? '笔记检索结果'}><p>{noteHit?.excerpt}</p><p className="form-help">来自笔记 #{noteHit?.noteId} · 实际匹配 {noteHit?.score} 次</p></Modal>

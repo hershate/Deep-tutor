@@ -76,7 +76,8 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
         setPlans(allPlans.filter(item => item.adoptedProjectId !== null && item.result))
         setMaterials(allMaterials.filter(item => ['parsed', 'degraded'].includes(item.status) && item.textLength > 0))
         setError('')
-      } catch (cause) { if (active) setError(backendErrorMessage(cause)) }
+        // 144#4：catch 补序号守卫（原先只有卸载守卫）——旧请求失败晚到不再覆盖新请求成功后的清错
+      } catch (cause) { if (active && ticket === loadSeq.current) setError(backendErrorMessage(cause)) }
     }
     void load()
     const throttledFetch = deltaThrottle()

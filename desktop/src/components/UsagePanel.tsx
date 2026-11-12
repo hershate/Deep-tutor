@@ -39,7 +39,8 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
       setRegenerationLimit(current => (usage.settings.regenerationLimit === previous.regenerationLimit ? current : usage.settings.regenerationLimit))
       previousSettings.current = { sessionUsd: usage.settings.sessionUsd, dailyUsd: usage.settings.dailyUsd, regenerationLimit: usage.settings.regenerationLimit }
       setError('')
-    } catch (cause) { setError(backendErrorMessage(cause)); reportBackendError(cause) }
+      // 144#4：catch 补序号守卫（成功分支同款）——旧请求失败晚到不再覆盖新请求成功后的清错
+    } catch (cause) { if (ticket === refreshSeq.current) { setError(backendErrorMessage(cause)); reportBackendError(cause) } }
   }, [])
   useEffect(() => {
     void refresh()
