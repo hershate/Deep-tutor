@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Runtime};
 
-pub const GRADING_SYSTEM: &str = "你是学习测评评分器。只能依据题目、学生作答、给定评分要点和资料原文评分，不增加评分项，不迎合学生，不虚构资料。只返回要求的 JSON 对象。";
+pub const GRADING_SYSTEM: &str = "你是学习测评评分器。依据题目、学生作答、评分要点和可选资料评分，不增加评分项，不迎合学生。有资料时引用必须逐字来自原文；没有资料时不得虚构资料或引用。只返回要求的 JSON 对象。";
 
 /// 123#4：同时在飞的主观评分上限——整卷快速提交时线程/连接/模型请求
 /// 按题扇出原先无界；4 与生成域单 worker 口径同量级，评分请求本身
@@ -457,7 +457,7 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
         "studentAnswer": response, "citations": citations,
         "requiredOutput": {
             "criteria": [{"id": "评分项标识", "score": "0到1的完成比例", "evidence": "评分依据", "feedback": "具体反馈"}],
-            "overallFeedback": "总体反馈", "citations": [{"materialId": "资料数字ID", "quote": "资料连续原文"}],
+            "overallFeedback": "总体反馈", "citations": if source_list.is_empty() { json!([]) } else { json!([{"materialId": "资料数字ID", "quote": "资料连续原文"}]) },
         },
     }))?;
     let messages = vec![

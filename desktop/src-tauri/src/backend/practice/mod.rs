@@ -20,7 +20,7 @@ use tauri::{AppHandle, Runtime};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-const GENERATION_SYSTEM: &str = "你是学习测评命题器。只能依据给定知识节点与资料原文命题，只返回符合要求的 JSON 对象。所有引用必须逐字来自资料，不能虚构概念、学习证据、链接或答案。";
+const GENERATION_SYSTEM: &str = "你是学习测评命题器。依据给定知识节点与可选资料命题，只返回符合要求的 JSON 对象。有资料时所有引用必须逐字来自原文；没有资料时可依据节点信息出通用题，但引用必须为空。不能虚构学习证据、链接或答案。";
 
 /// 123#2：单份资料进入 prompt 的上限（原有口径不变）
 const MAX_SOURCE_CHARS: usize = 12_000;
@@ -368,10 +368,10 @@ fn sources(
 }
 
 fn validate_citations(citations: &[Citation], sources: &[Source]) -> Result<()> {
-    if citations.is_empty() {
+    if citations.is_empty() && !sources.is_empty() {
         return Err(BackendError::new(
             "citation_missing",
-            "题目必须包含资料原文引用",
+            "使用资料命题时，题目必须包含资料原文引用",
         ));
     }
     for citation in citations {
@@ -455,7 +455,7 @@ fn generation_prompt(
         .iter()
         .all(|kind| ["short", "essay"].contains(&kind.as_str()));
     let prompt = format!(
-        "生成 {} 道学习题，范围为 {:?}。题目类别：{}（请求了多种类别时，每种类别至少 1 道，除非题目总数少于类别数）。只返回 {{\"questions\":[{{\"kind\":\"choice|fill|short|essay\",\"prompt\":\"...\",\"options\":[\"...\"],\"answer\":正确选项下标或参考答案,\"hint\":\"...\",\"explanation\":\"...\",\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料连续原文\"}}],\"nodeIds\":[\"...\"],\"difficulty\":1到5,\"rubric\":[{{\"id\":\"评分项标识\",\"description\":\"评分要点\",\"points\":分值}}]}}]}}。choice 必须给 2 到 6 个不同选项，answer 是从 0 开始的下标；fill 的 answer 必须是准确、简洁、可用于文字核对的原文术语；short 与 essay 必须给参考答案和 2 到 6 项 rubric，points 总和为 1。其他题型的 rubric 为空数组。每题至少一条真实引用。难度：{}。节点：{}。资料：{}",
+        "生成 {} 道学习题，范围为 {:?}。题目类别：{}（请求了多种类别时，每种类别至少 1 道，除非题目总数少于类别数）。只返回 {{\"questions\":[{{\"kind\":\"choice|fill|short|essay\",\"prompt\":\"...\",\"options\":[\"...\"],\"answer\":正确选项下标或参考答案,\"hint\":\"...\",\"explanation\":\"...\",\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料连续原文\"}}],\"nodeIds\":[\"...\"],\"difficulty\":1到5,\"rubric\":[{{\"id\":\"评分项标识\",\"description\":\"评分要点\",\"points\":分值}}]}}]}}。choice 必须给 2 到 6 个不同选项，answer 是从 0 开始的下标；fill 的 answer 必须是准确、简洁、可用于文字核对的原文术语；short 与 essay 必须给参考答案和 2 到 6 项 rubric，points 总和为 1。其他题型的 rubric 为空数组。有资料时每题至少一条真实引用；没有资料时 citations 必须为空数组，依据节点信息出通用题，不得伪造原文。难度：{}。节点：{}。资料：{}",
         input.count.unwrap_or(5),
         input.kinds,
         if subjective { "subjective" } else { "objective" },

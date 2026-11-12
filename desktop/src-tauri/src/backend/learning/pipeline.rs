@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
 
-pub(crate) const MODEL_SYSTEM: &str = "你是知舟 Deep Tutor 的学习方案生成器。你是文字模型，只能依据给定资料和明确输入工作。只输出一个 JSON 对象，不要 Markdown、代码围栏或额外解释。不要编造引用、链接、用量或已完成步骤。";
+pub(crate) const MODEL_SYSTEM: &str = "你是知舟 Deep Tutor 的学习方案生成器。你是文字模型，依据明确输入和可选资料工作；没有资料时可依据目标与当前基础构建通用学习框架。只输出一个 JSON 对象，不要 Markdown、代码围栏或额外解释。不要编造引用、链接、用量或已完成步骤。";
 
 #[derive(Default)]
 struct RunArtifacts {
@@ -138,7 +138,7 @@ pub(crate) fn resources(input: &PlanInput, sources: &[Source]) -> Value {
 
 fn graph_prompt(input: &PlanInput, sources: &[Source]) -> Result<String> {
     Ok(format!(
-        "构建知识图谱。只返回 {{\"nodes\":[...],\"edges\":[...]}}。\nnodes 每项必须是 {{\"id\":\"小写英文短横线标识\",\"title\":\"...\",\"summary\":\"...\",\"difficulty\":1到5,\"required\":true或false,\"estimatedMinutes\":5到600,\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"该资料中连续存在的原文\"}}]}}。edges 每项是 {{\"from\":\"前置节点id\",\"to\":\"后续节点id\"}}。\n节点总数不得超过 100，每个节点至少一条真实引用，不得生成资料之外的引用或 URL。根据目标与当前基础选择必学内容，不虚构已掌握程度。\n学习目标：{}\n当前基础：{}\n资料快照（JSON）：{}",
+        "构建知识图谱。只返回 {{\"nodes\":[...],\"edges\":[...]}}。\nnodes 每项必须是 {{\"id\":\"小写英文短横线标识\",\"title\":\"...\",\"summary\":\"...\",\"difficulty\":1到5,\"required\":true或false,\"estimatedMinutes\":5到600,\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"该资料中连续存在的原文\"}}]}}。edges 每项是 {{\"from\":\"前置节点id\",\"to\":\"后续节点id\"}}。\n节点总数不得超过 100。有资料时每个节点至少一条真实引用，不得生成资料之外的引用或 URL；没有资料时 citations 必须为空数组，可依据目标与当前基础构建通用知识框架。不得虚构已掌握程度。\n学习目标：{}\n当前基础：{}\n资料快照（JSON）：{}",
         serde_json::to_string(&input.goal)?,
         serde_json::to_string(&input.level)?,
         serde_json::to_string(sources)?,

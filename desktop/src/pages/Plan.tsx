@@ -188,7 +188,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
       <div className="goal-main"><span className="goal-icon"><Target size={25} /></span><div><span>当前主目标 · {plan.id} · v{plan.version}</span><h2>{plan.goal}</h2><p>目标日 {plan.deadline} · 每周可投入 {overview?.weeklyHours ?? 0} 小时 · {plan.adoptedProjectId === null ? '尚未采用' : '已采用'}</p></div></div>
       <div className="goal-progress"><div><strong>{progress}%</strong><span>阶段阅读进度</span></div><ProgressBar value={progress} srLabel={`阶段阅读进度 ${Math.round(progress)}%`} /></div>
       <Button variant="secondary" onClick={openGoal}><SlidersHorizontal size={17} />调整目标</Button>
-    </section> : <section className="surface"><EmptyState title="尚未创建学习方案" description="从已解析资料生成真实方案，采用后会出现排期与阶段。你仍可以添加并保存自己的任务。" action={<Button onClick={() => onNavigate('generator')}>创建真实方案</Button>} /></section>}
+    </section> : <section className="surface"><EmptyState title="尚未创建学习方案" description="填写目标即可生成方案，辅助资料可选；采用后会出现排期与阶段。你也可以直接添加并保存自己的任务。" action={<Button onClick={() => onNavigate('generator')}>创建真实方案</Button>} /></section>}
     {plan && !ready && <div className="capacity-warning"><RefreshCw size={18} className={plan.status === 'running' ? 'spin' : ''} /><div><strong>方案状态：{statusName(plan.status)} · 生成进度 {plan.progress}%</strong><p>{plan.error ? `${plan.error.code}：${plan.error.message}${plan.error.code === 'invalid_persisted_plan' ? '。该方案数据不完整，无法恢复——请重新生成或新建方案（原方案的目标与已完成步骤仍留在历史中）。' : ''}` : plan.status === 'running' ? '正在等待原生步骤与真实事件，不会提前展示新的排期。' : '当前没有完整可采用的方案结果。'}</p><Button variant="secondary" size="sm" onClick={() => onNavigate('generator')}>查看真实生成步骤</Button></div></div>}
 
     <div className="plan-toolbar">

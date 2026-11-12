@@ -1,7 +1,7 @@
 use super::super::commands::emit;
 use super::super::error::{BackendError, Result};
 
-const LECTURE_SYSTEM: &str = "你是知舟 Deep Tutor 的讲义撰写者。你是文字模型，只能依据给定资料撰写指定知识节点的自学讲义。只输出一个 JSON 对象，不要 Markdown 代码围栏或额外解释。所有引用必须逐字取自资料原文，不得编造来源、链接或结论。";
+const LECTURE_SYSTEM: &str = "你是知舟 Deep Tutor 的讲义撰写者。你是文字模型，依据给定知识节点与可选资料撰写自学讲义；没有资料时依据节点信息撰写通用讲解。只输出一个 JSON 对象，不要 Markdown 代码围栏或额外解释。有资料时所有引用必须逐字取自原文，没有资料时不得编造来源或引用。";
 use super::super::providers::{self, ChatMessage};
 use super::super::store::Store;
 use super::*;
@@ -147,10 +147,10 @@ pub(crate) fn validate_content(content: &LectureContent, sources: &[Source]) -> 
             "讲义超过 500 行，需拆分为更小的单元",
         ));
     }
-    if content.citations.is_empty() {
+    if content.citations.is_empty() && !sources.is_empty() {
         return Err(BackendError::new(
             "citation_missing",
-            "讲义单元至少需要一条原文引用",
+            "使用资料生成时，讲义单元至少需要一条原文引用",
         ));
     }
     for citation in &content.citations {
@@ -596,7 +596,7 @@ fn unit<R: Runtime>(
         }
     };
     let prompt = format!(
-        "为知识节点撰写自学讲义。只返回 {{\"title\":\"...\",\"overview\":\"...\",\"sections\":[{{\"heading\":\"...\",\"content\":\"Markdown 正文\"}}],\"examples\":[{{\"title\":\"...\",\"content\":\"...\"}}],\"checkpoints\":[{{\"question\":\"...\",\"answer\":\"...\"}}],\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料中连续存在的原文\"}}]}}。\n正文必须基于资料，包含概念解释和至少一道检查题；示例可为空数组；所有引用必须真实存在于资料中，不得编造来源或链接。总正文控制在 250 行以内。\n阶段：{}\n节点：{}\n节点摘要：{}\n难度：{}\n资料快照：{}",
+        "为知识节点撰写自学讲义。只返回 {{\"title\":\"...\",\"overview\":\"...\",\"sections\":[{{\"heading\":\"...\",\"content\":\"Markdown 正文\"}}],\"examples\":[{{\"title\":\"...\",\"content\":\"...\"}}],\"checkpoints\":[{{\"question\":\"...\",\"answer\":\"...\"}}],\"citations\":[{{\"materialId\":资料数字ID,\"quote\":\"资料中连续存在的原文\"}}]}}。\n包含概念解释和至少一道检查题，示例可为空数组。有资料时正文须依据资料且所有引用必须真实存在；没有资料时依据节点信息撰写通用讲解，citations 必须为空数组，不得编造来源或链接。总正文控制在 250 行以内。\n阶段：{}\n节点：{}\n节点摘要：{}\n难度：{}\n资料快照：{}",
         stage.title,
         node.title,
         node.summary,

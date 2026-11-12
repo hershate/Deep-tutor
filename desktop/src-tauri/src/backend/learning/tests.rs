@@ -130,7 +130,7 @@ fn model_server(material_id: i64, cyclic: bool) -> TestServer {
                 "sections": [{"heading": "真实概念", "content": "依据资料生成的讲义正文"}],
                 "examples": [{"title": "真实例题", "content": "例题与解答"}],
                 "checkpoints": [{"question": "检查问题", "answer": "检查答案"}],
-                "citations": [{"materialId": material_id, "quote": "概率"}],
+                "citations": if material_id > 0 { json!([{"materialId": material_id, "quote": "概率"}]) } else { json!([]) },
             })
         } else if request.contains("构建知识图谱") {
             let concepts = [
@@ -151,7 +151,7 @@ fn model_server(material_id: i64, cyclic: bool) -> TestServer {
                     json!({
                         "id": id, "title": title, "summary": format!("依据教材学习{title}"),
                         "difficulty": index / 3 + 1, "required": true, "estimatedMinutes": 15,
-                        "citations": [{"materialId": material_id, "quote": title}],
+                        "citations": if material_id > 0 { json!([{"materialId": material_id, "quote": title}]) } else { json!([]) },
                     })
                 })
                 .collect::<Vec<_>>();
@@ -286,6 +286,36 @@ fn eight_steps_use_real_model_results_and_actual_usage() {
             .code,
         "material_in_use"
     );
+}
+
+#[test]
+fn no_material_plan_runs_through_adoption_and_lecture_generation() {
+    let (app, state) = setup();
+    let server = model_server(0, false);
+    configure_provider(&app, &state, &server.url());
+    let mut input = input(0);
+    input.material_ids.clear();
+    let started = start(app.handle(), &state, input).unwrap();
+    let plan = wait_terminal(&state, &started.id);
+    assert!(["done", "degraded"].contains(&plan.status.as_str()), "{:?}", plan.error);
+    let result = plan.result.as_ref().unwrap();
+    assert!(result.resources["items"].as_array().unwrap().is_empty());
+    assert!(result.graph.nodes.iter().all(|node| node.citations.is_empty()));
+    actions::adopt(app.handle(), &state, &plan.id).unwrap();
+    let stage_id = result.stages[0].id.clone();
+    lecture::generate(app.handle(), &state, &plan.id, &stage_id, false).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let lecture = lecture::get(&state, &plan.id, &stage_id, None).unwrap();
+        if lecture.status == "done" {
+            assert_eq!(lecture.completed_units, lecture.total_units);
+            assert!(lecture.units.iter().all(|unit| unit.content.as_ref().unwrap().citations.is_empty()));
+            break;
+        }
+        assert_ne!(lecture.status, "failed", "{:?}", lecture.error);
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 // 31#5：complete_step(7) 已落盘但 result_json 未写的断点窗口——resume 从

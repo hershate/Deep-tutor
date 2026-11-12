@@ -194,7 +194,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   }
   const time = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
 
-  const intro = <section className="surface exam-intro"><Badge tone="blue">阶段测评</Badge><h2>创建一份真实模拟考试</h2><p>按已采用学习方案与资料生成试题。题目就绪时才开始计时，交卷后统一查看答案、评分和知识证据。</p><div className="exam-facts"><div><FileQuestion size={20} /><strong>5–20 题</strong><span>四种题型可组合</span></div><div><Clock3 size={20} /><strong>1–240 分钟</strong><span>绝对截止时间，重启不重置</span></div></div><p className="form-help">交卷时未作答按 0 分计，并明确标记为未作答；正在评分的作答不会伪造为完成。</p><Button size="lg" onClick={() => setSetupOpen(true)} disabled={!plans.length} title={plans.length ? undefined : '先在「方案生成」创建并采用一份学习方案，才能按资料生成试题'}>配置模拟考试<ArrowRight size={17} /></Button>{!plans.length && <p className="form-help">按钮暂不可用：需要先在「方案生成」创建并采用一份包含资料的学习方案。</p>}</section>
+  const intro = <section className="surface exam-intro"><Badge tone="blue">阶段测评</Badge><h2>创建一份真实模拟考试</h2><p>按已采用学习方案生成试题，辅助资料可选。题目就绪后首次打开试卷才开始计时，交卷后统一查看答案、评分和知识证据。</p><div className="exam-facts"><div><FileQuestion size={20} /><strong>5–20 题</strong><span>四种题型可组合</span></div><div><Clock3 size={20} /><strong>1–240 分钟</strong><span>绝对截止时间，重启不重置</span></div></div><p className="form-help">交卷时未作答按 0 分计，并明确标记为未作答；正在评分的作答不会伪造为完成。</p><Button size="lg" onClick={() => setSetupOpen(true)} disabled={!plans.length} title={plans.length ? undefined : '先在「方案生成」创建并采用一份学习方案；辅助资料可选'}>配置模拟考试<ArrowRight size={17} /></Button>{!plans.length && <p className="form-help">按钮暂不可用：需要先在「方案生成」创建并采用学习方案；辅助资料可选。</p>}</section>
 
   return <div className="exam-layout"><div>
     {!exam ? intro : ['generating', 'cancelling'].includes(exam.set.status) ? <section className="surface exam-intro"><h2>{exam.set.status === 'cancelling' ? '正在取消试卷生成' : '正在生成真实试卷'}</h2><p>{plan?.goal ?? exam.set.planId} · 第 {exam.set.attempt} 次尝试</p><pre className="streaming-output">{output || generationOutput || '等待模型返回试题…'}</pre><Button variant="secondary" onClick={() => void cancelGeneration()} disabled={busy || exam.set.status === 'cancelling'}>{busy ? '正在取消…' : '取消生成'}</Button></section>
@@ -227,7 +227,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
             {answer.feedback.answer !== undefined && <p>参考答案：{question.kind === 'choice' && typeof answer.feedback.answer === 'number' ? question.options[answer.feedback.answer] : answer.feedback.answer}</p>}
             {answer.feedback.explanation && <p>{answer.feedback.explanation}</p>}
           </div>}
-          <div className="practice-citations"><strong>资料依据</strong>          {question.citations.map((citation, citationIndex) => <p key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</p>)}</div>
+          {question.citations.length > 0 && <div className="practice-citations"><strong>资料依据</strong>{question.citations.map((citation, citationIndex) => <p key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</p>)}</div>}
         </div>
         <div className="question-actions">{!completed && <Button onClick={() => void submit()} disabled={recorded || busy || expired || (question.kind === 'choice' ? selected === null : !draft.trim())}>保存答案<ArrowRight size={17} /></Button>}<Button variant="secondary" onClick={() => setIndex(Math.min(index + 1, exam.questions.length - 1))} disabled={index === exam.questions.length - 1}>下一题<ChevronRight size={17} /></Button></div>
       </> : <p>试卷尚未生成题目。</p>}

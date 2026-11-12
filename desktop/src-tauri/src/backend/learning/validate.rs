@@ -56,10 +56,10 @@ pub fn validate_graph(graph: &Graph, sources: &[Source]) -> Result<()> {
                 "知识节点标题、摘要、难度或预计时长无效",
             ));
         }
-        if node.citations.is_empty() {
+        if node.citations.is_empty() && !sources.is_empty() {
             return Err(BackendError::new(
                 "citation_missing",
-                "每个知识节点至少需要一个原文引用",
+                "使用资料生成时，每个知识节点至少需要一个原文引用",
             ));
         }
         for citation in &node.citations {

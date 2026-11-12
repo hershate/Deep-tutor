@@ -309,10 +309,10 @@ fn validate_input(state: &LearningState, input: &PlanInput) -> Result<PlanInput>
         ));
     }
     let _ = validate::deadline(&input.deadline)?;
-    if input.material_ids.is_empty() || input.material_ids.len() > 8 {
+    if input.material_ids.len() > 8 {
         return Err(BackendError::new(
             "invalid_materials",
-            "每个方案须选择 1 到 8 份已解析资料",
+            "每个方案最多选择 8 份已解析资料；也可以不选择资料",
         ));
     }
     if input
