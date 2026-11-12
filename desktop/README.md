@@ -13,7 +13,7 @@
 | `src-tauri/src/backend/` | Rust 原生业务、SQLite、事件、文件与网络能力 |
 | `src-tauri/tauri.conf.json` | 应用与 NSIS 打包配置 |
 | `src-tauri/capabilities/` | WebView 权限声明（opener/dialog 等 scope 强制层） |
-| `src-tauri/assets/` | 8 个 Skill 资产（声明式结构，随包分发） |
+| `src-tauri/assets/` | 8 个 Skill 资产目录（各 `SKILL.md` 经 `include_str!` 嵌入二进制；各 README.md 及 ppt-slide-builder 的 templates/references 仅仓库存档，见 NOTICE） |
 | `scripts/` | 构建辅助（`tauri.mjs` 复制安装包并双向 SHA-256 校验） |
 
 `dist/`、`node_modules/`、`src-tauri/target/`、`src-tauri/gen/` 是可重建产物，不入库；`src-tauri/licenses/` 为构建时收集的第三方许可（根 .gitignore 覆盖），同样不入库。
@@ -22,7 +22,7 @@
 
 - commands 返回真实结果或类型化错误，events 提供实时输出。
 - SQLite 保存业务状态、执行记录与事件 outbox；终态先落盘再发送。
-- 事件具有单调递增 id，支持 Last-Event-ID 续接，不重复执行或计费。
+- 事件具有单调递增 id，经单通道 `backend://event` 推送；前端以「事件触发即全量快照校准」续接（游标取快照 `lastEventId`），不重复执行或计费。
 - 大文件、原件与导出文件位于应用数据目录，不写入仓库。
 - API Key 只进入系统密钥库，不进入 WebView 长期存储、日志、导出或同步载荷。
 - 文本模型不识别媒体内容；音视频和图片只提供真实原件预览。

@@ -164,7 +164,7 @@ flowchart TD
 2. enabled/has_key 校验 → `protocol::stream_chat_with_policy`（protocol.rs:351）按 `profile.protocol` 分派：OpenAI Chat（openai.rs:701 `stream_chat_with_policy` 自建 SSE 泵 `stream_once` :1024）/ OpenAI Responses（responses.rs:86）/ Anthropic（anthropic.rs:98）/ Gemini（gemini.rs:114）。
 3. HTTP 客户端（openai.rs:258 / :269）：禁自动重定向 + DNS 解析后固定 IP（防 DNS rebinding）+ `public_address` 拒绝非公网（:103）；`endpoint`（:212）做 SSRF/路径穿越校验。
 4. 流式约束：`validate_messages` 1-64 条/256KB（openai.rs:562）；响应 1MB（read_json :310，4xx 时读 body 末段进错误信息）；增量文本累计 1MB（protocol.rs:23）；SSE 每 chunk 超时窗口前后各检查一次取消（protocol.rs cancel 检查）。
-5. SSE 泵（`stream_once`，55 号专项加固）：游标偏移逐行切分（`position()` 相对偏移加 cursor，消 O(N²) 缓冲 drain）；行终止兼容 CRLF/LF/裸 CR，首行剥 BOM；「空闲字节预算」限制单事件累计无进展字节数防恶意慢流；`data:` 行解析剥 `error:null` 心跳；工具调用 index 上限 256、同 index 异 id fail-closed；干净 FIN 或 EOF 且零事件/零 `data:` 行一律归 `endpoint_unreachable`（不误报成功）。四协议（openai/responses/anthropic/gemini）游标循环同构（protocol.rs stream_events 复用）。
+5. SSE 泵（`stream_once`，55 号专项加固）：游标偏移逐行切分（`position()` 相对偏移加 cursor，消 O(N²) 缓冲 drain）；行终止兼容 CRLF/LF/裸 CR，首行剥 BOM；「空闲字节预算」限制单事件累计无进展字节数防恶意慢流；`data:` 行解析剥 `error:null` 心跳；工具调用条目上限 256 四协议一致（145#1 起 Gemini 补齐——id 缺省本地生成的最小条目计入 produced_bytes 使空闲预算恒归零，原先可无界膨胀）、同 index 异 id fail-closed；干净 FIN 或 EOF 且零事件/零 `data:` 行一律归 `endpoint_unreachable`（不误报成功）。四协议（openai/responses/anthropic/gemini）游标循环同构（protocol.rs stream_events 复用）。
 6. delta 双写：增量先入缓冲，按 4KB/150ms 窗口合并为 `provider.chat_delta` 事件落库 + emit（首个 delta 前沿触发立即可见，流结束含错误路径冲刷余量，P/mod.rs:1305 起 `flush` 闭包）；每次冲刷同时把至今累积全文物化到 `provider_requests.output/reasoning`（UPDATE 限 running 行，终态 UPDATE 覆盖为最终值）——运行中请求的 `getProviderChat` 读列短路，不再每次轮询全量重放 events 拼接（重放仅作崩溃续读兜底，`completed_chat` :1087）。
 7. 结束 UPDATE status=done/cancelled/failed + 终态事件（P/mod.rs:1416）。
 
@@ -197,15 +197,15 @@ sequenceDiagram
 
 ## 6. 路由、聚合、故障转移与熔断
 
-`route_provider_chat`（P/commands.rs:169）→ `routing::stream_chat`（routing.rs:872）：
-1. `select`（:402）按 RoutingSettings.mode（direct/routing/aggregate）选 profile+model；任务路由表 `routes: BTreeMap<task, providerId>`。
-2. 幂等：已存在同 request_id attempt 直接复用（:888-910）。
-3. `usage::ensure_budget`（usage.rs:480）按 session_usd/daily_usd 拒绝超预算——消耗经 `budget_spend`（usage.rs:443）SQL 聚合 usage_rates 加权，不再全表读入内存。
-4. INSERT `provider_route_runs('running')` + `provider.route_started`（routing.rs:933）。
-5. 候选循环（failover 队列）：`circuit_permit`（:626）——熔断 open 且冷却未到 → `circuit_open` 拒绝；到期 CAS 置 half_open（:634）；`save_attempt`（:729）逐试次落库 + `provider.route_attempt` 事件（携带 upstream_request_id，前端借此切换流匹配，`useAgent.ts:156`）；调用直连层（StreamPolicy 取自 circuit timeout/retries）；成功 `record_circuit`（:670）closed 复位 failures；失败且 `can_failover`（:592）→ 下一候选。熔断读-改-写在 IMMEDIATE 事务内，消除并发窗口。
-6. 全部不可用 → `all_providers_unavailable`（routing.rs:1127）。
+`route_provider_chat`（P/commands.rs:208）→ `routing::stream_chat`（routing.rs:989）：
+1. `select`（:450）按 RoutingSettings.mode（direct/routing/aggregate）选 profile+model；任务路由表 `routes: BTreeMap<task, providerId>`。
+2. 幂等：已存在同 request_id attempt 直接复用（:1051 起 OR IGNORE + 一致性校验续读）。
+3. `usage::ensure_budget`（usage.rs:521）按 session_usd/daily_usd 拒绝超预算——消耗经 `budget_spend`（usage.rs:492）SQL 聚合 usage_rates 加权，不再全表读入内存。
+4. INSERT `provider_route_runs('running')` + `provider.route_started`（routing.rs:1102/1108）。
+5. 候选循环（failover 队列）：`circuit_permit`（:676）——熔断 open 且冷却未到 → `circuit_open` 拒绝；到期 CAS 置 half_open（:684）；`save_attempt`（:846）逐试次落库 + `provider.route_attempt` 事件（携带 upstream_request_id，前端借此切换流匹配，`useAgent.ts:156`）；调用直连层（StreamPolicy 取自 circuit timeout/retries）；成功 `record_circuit`（:749）closed 复位 failures；失败且 `can_failover`（:635）→ 下一候选。熔断读-改-写在 IMMEDIATE 事务内，消除并发窗口。
+6. 全部不可用 → `all_providers_unavailable`（routing.rs:1290）。
 
-熔断状态机（`provider_circuits.state`）：closed→open（failures≥3）；open→half_open（冷却 60s 到期 CAS）；half_open→closed（成功）/→open（失败或重启恢复，recover routing.rs:1427）。
+熔断状态机（`provider_circuits.state`）：closed→open（failures≥3）；open→half_open（冷却 60s 到期 CAS）；half_open→closed（成功）/→open（失败或重启恢复，recover routing.rs:1467）。
 
 路由候选循环（**仅 routing 模式生效**；direct/aggregate 单上游直连：无熔断、无故障转移、无候选级重试，与界面文案一致）：
 
@@ -308,12 +308,12 @@ flowchart TD
 `send_agent_message`（命令，agent/commands.rs:27；域函数 `send` agent/mod.rs:619）：
 1. 预算闸：会话累计 output_tokens ≥ budget_tokens 拒绝（mod.rs:634）；同会话 running 查重（:657）。
 2. Immediate 事务 INSERT `agent_runs('running')` + 用户消息 + `agent.run_started`；注册取消标志。
-3. 线程 `agent-run-{id}` 跑 `run_loop`（:974）：每轮首查取消 → 会话预算 → `usage::ensure_budget` → `begin_step`（:851，25 步上限；可复用已完成请求；request_id=`agent-{run}-{attempt}-{step}`）→ `routing::stream_chat("agent")` 带 12 工具目录。历史重放先修剪悬挂 tool_calls/孤儿 tool 消息（23#9），并收敛到最近 62 条 / 200KB 内（34#8，validate_messages 上限 64 条 / 256KB）；工具循环的 tool 消息前必须落 assistant(tool_calls) 声明（34#5）；单响应内重复 tool_call id 只回复一次（122#7，严格端点拒重复 id）。too_many/取消判定在 assistant 消息落库**之前**——超限中断时已产生的部分输出以 partial=true 保存，不再丢弃。超长工具结果（>16KB）落库为结构化包装 `{status,truncated,notice,preview}`——保持合法 JSON（122#1，前端可解析降级展示而非误显等待）。
+3. 线程 `agent-run-{id}` 跑 `run_loop`（:994）：每轮首查取消 → 会话预算 → `usage::ensure_budget` → `begin_step`（:865，25 步上限；可复用已完成请求；request_id=`agent-{run}-{attempt}-{step}`）→ `routing::stream_chat("agent")` 带 12 工具目录。历史重放先修剪悬挂 tool_calls/孤儿 tool 消息（23#9），并收敛到最近 62 条 / 200KB 内（34#8，validate_messages 上限 64 条 / 256KB）；工具循环的 tool 消息前必须落 assistant(tool_calls) 声明（34#5）；单响应内重复 tool_call id 只回复一次（122#7，严格端点拒重复 id）。too_many/取消判定在 assistant 消息落库**之前**——超限中断时已产生的部分输出以 partial=true 保存，不再丢弃。超长工具结果（>16KB）落库为结构化包装 `{status,truncated,notice,preview}`——保持合法 JSON（122#1，前端可解析降级展示而非误显等待）。
 4. 成本从 `provider_requests.usage_json` 聚合，会话口径双通道：`agent_session_id = ?` 外键为主（31#1，导入经 FK 重映射保持关联），GLOB `agent-<run>-*` 仅兜底无主行（34#16，防直连请求串扰他人会话；`SESSION_OUTPUT_TOKENS_SQL` mod.rs:691、usage.rs:448-455）。
-5. 无 tool_calls → `finish_run("done")`；有则工具循环：`tools::execute`（tools.rs:483）先幂等登记 `agent_tool_calls`（ON CONFLICT 重放或 `tool_active`）再分发。终态事件载荷含 sessionId（122#8）。`resume`（mod.rs:1275）入口与 send 同口径：预算耗尽/步数到顶直接拒绝，不翻 running（122#2）。
+5. 无 tool_calls → `finish_run("done")`；有则工具循环：`tools::execute`（tools.rs:496）先幂等登记 `agent_tool_calls`（ON CONFLICT 重放或 `tool_active`）再分发。终态事件载荷含 sessionId（122#8）。`resume`（mod.rs:1298）入口与 send 同口径：预算耗尽/步数到顶直接拒绝，不翻 running（122#2）。
 
 工具目录（tools.rs:13-91）：workspace.list/read/write/edit、web.search/web.fetch（走 §9 抓取链）、memory.save/recall/delete、history.load/search、artifact.promote。写文件产物 `commit_artifact`（:272）：阶段/单元校验 → `lecture::validate_content` → `artifact_path`（:167，拒绝对对路径/父级/>6 层/非 json-md-txt/符号链接/越界）→ 原子写（tmp+previous 双 rename）→ `agent_artifacts`（expires_at=+24h）。
-审批：memory.save/delete、artifact.promote 产生 `agent_approvals('pending')`；`approve_agent_request` CAS pending→approved 执行——promote 校验 sha256 与阶段未漂移，讲义须 done，整版本拷贝 `learning_lecture_units` 并推进版本；memory.save 的 key_exists 复查在写事务内（122#9）。历史重放修剪：`history()`（agent/mod.rs:718）重放前剔除悬挂 tool_calls（无完整对应 tool 回复）与孤儿 tool 消息（无对应声明）——OpenAI 系端点对不自洽序列返回 400，取消/超限中断后的 run 曾因此永久无法恢复。
+审批：memory.save/delete、artifact.promote 产生 `agent_approvals('pending')`；`approve_agent_request` CAS pending→approved 执行——promote 校验 sha256 与阶段未漂移，讲义须 done，整版本拷贝 `learning_lecture_units` 并推进版本；memory.save 的 key_exists 复查在写事务内（122#9）。历史重放修剪：`history()`（agent/mod.rs:730）重放前剔除悬挂 tool_calls（无完整对应 tool 回复）与孤儿 tool 消息（无对应声明）——OpenAI 系端点对不自洽序列返回 400，取消/超限中断后的 run 曾因此永久无法恢复。
 
 Agent 工具循环：
 
@@ -369,8 +369,8 @@ flowchart TD
 
 ## 10. 判分与复习调度算法
 
-**客观题**（practice/mod.rs 判分段）：choice——answer 须为合法选项下标且等于期望；fill——`normalize`（去空白+lowercase，practice/mod.rs:1281）后全等；`correct`（:1338）同时决定错题与掌握度写入——hints 模式作答不进错题本、不置掌握（遮蔽承诺）。
-**主观题**（subjective.rs）：INSERT `practice_answers('grading')` + request_id=`practice-grade-{id}-1` → 线程 `grade`：题面+参考答案+rubric+学生作答 prompt → `stream_chat` 4096 → `evaluate`（:366）逐项 `score∈[0,1]×points` 求和并 clamp，`correct = score≥0.8` → 二次 `validate_citations`。rubric 校验 2-6 项、points∈(0,1]、总和=1（`validate_rubric` subjective.rs:54）。
+**客观题**（practice/mod.rs 判分段）：choice——answer 须为合法选项下标且等于期望；fill——`normalize`（去空白+lowercase，practice/mod.rs:1290）后全等；`correct`（:1347）同时决定错题与掌握度写入——hints 模式作答不进错题本、不置掌握（遮蔽承诺）。
+**主观题**（subjective.rs）：INSERT `practice_answers('grading')` + request_id=`practice-grade-{id}-1` → 线程 `grade`：题面+参考答案+rubric+学生作答 prompt → `stream_chat` 4096 → `evaluate`（:372）逐项 `score∈[0,1]×points` 求和并 clamp，`correct = score≥0.8` → 二次 `validate_citations`。rubric 校验 2-6 项、points∈(0,1]、总和=1（`validate_rubric` subjective.rs:54）。
 **共同尾部**：错题 upsert wrong_count+1（hints 模式除外）；逐节点写 `learning_node_evidence`（kind practice、evidence_key=`practice-answer-{answer_id}`）——**hints 模式跳过 evidence 写入**（31#12：evidence 带真实得分会被知识图谱页「0/1」反推对错，与错题本同口径遮蔽）；**进行中的考试同样延迟到交卷时统一补写**（101#4：考试承诺「交卷后统一反馈」，逐题即时写 evidence 会经掌握度在交卷前泄露对错）；变式答对 → 原错题 mastered=1（variants.rs:106-133）；全部作答完 → set completed。
 **模拟考交卷**（exams.rs:74）：幂等；评分中拒收（:119）；未答题逐题落 0 分 practice_answers + evidence(0)（:141-163）——不写错题本（03#13-27 未作答≠做错，避免空题灌满错题与变式来源）。考试计时从首次成功拉卷（生成完成后的第一次 detail 读取）起算：`start_exam_timer` 原子置位幂等（`UPDATE ... WHERE timer_started_at IS NULL`），重启不重置；未拉卷的考试 remaining 为 None（前端显示无时限），deadline 只在有起点的会话计算。
 **复习调度**（review/mod.rs:403 grade，SM-2 简化、4 档无 q 因子；挂起卡片返回 `card_suspended`）：
@@ -528,11 +528,11 @@ stateDiagram-v2
 | learning_plan_steps.status | pending/running/done/failed/cancelled/interrupted | done/failed/cancelled | 同上 + begin_step 复用 |
 | learning_lectures.status | empty/running/cancelling → done/failed/cancelled；interrupted。done 仅自 running（1.1.8/119#2：收尾 UPDATE 带 status='running' 守卫，cancelling 映射终态 cancelled、已生成单元保留、不落版本行） | done/failed/cancelled | lecture::recover :844 |
 | knowledge_sessions.status | running/cancelling → done/failed/cancelled；interrupted | done/failed/cancelled | K::recover :891 |
-| practice_sets.status | generating/cancelling → ready/failed/cancelled；interrupted；ready→completed | ready/completed/failed/cancelled | practice::recover :1695 |
-| practice_answers.status | grading/cancelling → done/failed/cancelled；interrupted | done/failed/cancelled | subjective::recover :807 |
+| practice_sets.status | generating/cancelling → ready/failed/cancelled；interrupted；ready→completed | ready/completed/failed/cancelled | practice::recover :1704 |
+| practice_answers.status | grading/cancelling → done/failed/cancelled；interrupted | done/failed/cancelled | subjective::recover :813 |
 | project_versions.status | running/cancelling → done/failed/cancelled；interrupted。done 仅自 running（1.1.8/119#3：取消交叠时 feedback_json 照存但终态 cancelled、不发 feedback_completed） | done/failed/cancelled | projects::recover :632 |
-| agent_runs.status | running/cancelling → done/cancelled/failed；interrupted | done/cancelled/failed | agent::recover :1408 |
-| agent_approvals.status | pending → approved/cancelled/expired | approved/cancelled/expired | 过期由 promote 惰性置 expired（tools.rs promote；resolve_pending :793） |
+| agent_runs.status | running/cancelling → done/cancelled/failed；interrupted | done/cancelled/failed | agent::recover :1435 |
+| agent_approvals.status | pending → approved/cancelled/expired | approved/cancelled/expired | 过期由 promote 惰性置 expired（tools.rs promote；resolve_pending :797） |
 | provider_requests.status | running → done/cancelled/failed；interrupted | done/cancelled/failed | recover_chats P/mod.rs:1461 |
 | provider_route_runs.status | running/cancelling → 终态；interrupted | done/failed/cancelled | routing::recover :1453 |
 | provider_circuits.state | closed/open/half_open | — | recover :1453 |
@@ -549,8 +549,8 @@ stateDiagram-v2
 ## 13. 并发模型总览
 
 - **线程**：全部后台线程经 `security::thread_builder()`（SEC/mod.rs:119）创建以继承 principal（thread-local PRINCIPAL :34；`session_principal` :76 供 async 命令从会话派生）。裸线程无 principal 时 `Store::new` 返回 `store_unavailable`（fail-closed，store.rs:74-88；测试环境回退根库语义）。命名线程：`backend-startup`、`learning-plan-{id}`、`lecture-{id}`、`wiki-answer-{id}`、`practice-generate-{id}`、`practice-grade-{id}`、`project-feedback-{id}`、`agent-run-{id}`、`material-parse-{id}`、`sync-{id}`、调度线程。全部 catch_unwind，panic 映射 `task_panicked` 落失败态。
-- **锁**：`BackendState.store: Mutex<Store>`（全局单连接）；`STORE_OPEN_LOCK`（打开互斥）；`WORKSPACE_SWITCH: RwLock`（切换写锁/命令读锁）；各域 `active: Mutex<HashMap<id, Arc<AtomicBool>>>` 取消注册表；maintenance `OPERATION`；sync 全局 `ACTIVE/NEXT_JOB`；startup `LOCATION_LOCK`（pointer 原子写）。
-- **SQLite 并发**：WAL + synchronous=NORMAL + busy_timeout 10s；写路径 `unchecked_transaction`；关键防重用 Immediate 事务（agent send、resume、start_focus、备份 prepare_ids、熔断读改写）或条件 UPDATE（review grade）。
+- **锁**：`BackendState.store: Mutex<Store>`（全局单连接）；`STORE_OPEN_LOCK`（打开互斥）；`WORKSPACE_SWITCH: RwLock`（切换写锁/命令读锁）；各域 `active: Mutex<HashMap<id, Arc<AtomicBool>>>` 取消注册表——141#1/145#2 起六长任务入口（agent send/resume、practice generate/resume、主观题 submit/resume）统一 register 模式：锁内只做运行中复查与登记（瞬时），IMMEDIATE 事务移出锁窗口、commit 失败补偿移除登记，长写事务 busy_timeout 等待期间取消/停机入口不被域锁堵死（learning::start 自 451 行起同款）；maintenance `OPERATION`；sync 全局 `ACTIVE/NEXT_JOB`；startup `LOCATION_LOCK`（pointer 原子写）。
+- **SQLite 并发**：WAL + synchronous=NORMAL + busy_timeout 10s；写路径 `unchecked_transaction`；关键防重用 Immediate 事务（agent send、resume、practice generate/resume、主观题 submit/resume、start_focus、备份 prepare_ids、熔断读改写）或条件 UPDATE（review grade）。
 - **停止协议**：各域 `stop` 置取消标志 + 取消上游请求 + 15s 轮询等待 active map 清空（learning L/mod.rs:856、providers P/mod.rs:1292、materials M/mod.rs:120、agent :1172、sync :896）；`security::guard::stop_all` 八域（agent/练习/知识/方案/模型请求/同步/资料解析/专注）scoped threads **并行**独立停并汇总结果（73#9；reports::stop 收尾专注会话为 interrupted），maintenance 与备份导入复用同一入口；重置（reset_application，backend/commands.rs:82）先并行停八域，DB reset 成功后才删原件备份与凭据。
 
 事件表不随重置清除：`store.reset` 清 15 模块表 + kv 六 namespace，`events` 原样保留（`lastEventId` 单调语义与前端游标续接依赖保留；回放可见重置前的 namespace/revision 轨迹，载荷不含正文）——这是有意取舍。

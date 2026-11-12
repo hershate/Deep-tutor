@@ -31,7 +31,7 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test + dev-smoke]
 ```
 
-发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.9，check-versions.mjs 校验）。
+发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.10，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
