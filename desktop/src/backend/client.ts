@@ -432,7 +432,8 @@ export const backend = {
   exportProviderConfigFile: (destination: string) => invoke<{ bytes: number; sha256: string }>('export_provider_config_file', { destination }),
   importProviderDeepLink: (link: string) => invoke<ProviderProfile>('import_provider_deep_link', { link }),
   testProvider: (id: string, realRequest: boolean) => invoke<ProviderTestResult>('test_provider', { id, realRequest }),
-  streamProviderChat: (requestId: string, profileId: string, messages: ProviderChatMessage[], maxTokens: number) => invoke<ProviderRequest>('stream_provider_chat', { requestId, profileId, messages, maxTokens }),
+  // 138#1：streamProviderChat 包装零调用方（实链路 route/getProviderChat），
+  // 连同后端注册一并收敛移除
   cancelProviderChat: (requestId: string) => invoke<void>('cancel_provider_chat', { requestId }),
   getProviderChat: (requestId: string) => invoke<ProviderRequest>('get_provider_chat', { requestId }),
   startLearningPlan: (input: LearningPlanInput) => invoke<LearningPlan>('start_learning_plan', { input }),
@@ -458,7 +459,8 @@ export const backend = {
   // 以整条命令反序列化失败暴露）；92#3：产物内容运行时守卫
   getAgentSession: (id: number | string) => invoke<AgentSession>('get_agent_session', { id: String(id) }).then(session => { session.artifacts.forEach(guardAgentArtifact); return session }),
   sendAgentMessage: (sessionId: number | string, content: string) => invoke<AgentRun>('send_agent_message', { sessionId: String(sessionId), content }),
-  getAgentRun: (id: number | string) => invoke<AgentRun>('get_agent_run', { id: String(id) }),
+  // 138#1：getAgentRun 包装零调用方（会话读取走 getAgentSession），连同
+  // 后端注册一并收敛移除
   cancelAgentRun: (id: number | string) => invoke<AgentRun>('cancel_agent_run', { id: String(id) }),
   resumeAgentRun: (id: number | string) => invoke<AgentRun>('resume_agent_run', { id: String(id) }),
   deleteAgentSession: (id: number | string) => invoke<void>('delete_agent_session', { id: String(id) }),

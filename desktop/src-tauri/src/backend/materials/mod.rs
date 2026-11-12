@@ -682,21 +682,30 @@ fn stage_validated<R: Runtime>(
                 });
             }
             if !reused {
-                // 126#14：删除前复查——线程 A 插入失败走删除分支的窗口内，
-                // 线程 B 并发导入同哈希观察到 destination 一致（reused=true
-                // 跳过写文件）且插入成功；A 无条件删除会让 B 的记录永久
-                // 指向已删文件（missing_original）。此刻库中已有同哈希记录
-                // 即说明原件被他人认领，保留
-                let claimed: bool = store
-                    .conn
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM materials WHERE sha256 = ?1)",
-                        params![sha256],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(false);
-                if !claimed {
-                    let _ = fs::remove_file(&destination);
+                // 126#14+130#19：EXISTS 复查与 remove 之间仍有微秒窗——线程 B
+                // 在复查通过后、删除落地前提交同哈希插入，其记录会永久指向已删
+                // 原件。先把原件挪到临时名再复查：复查命中认领者则挪回原位（B 的
+                // 记录短暂 missing 后自愈，original_available 每次查询实时判定无
+                // 缓存），无人认领才真正删除；残留临时件由维护孤儿扫描兜底
+                let trash = destination.with_extension(format!(
+                    "{kind}.discard-{}-{}",
+                    std::process::id(),
+                    TEMP_ID.fetch_add(1, Ordering::Relaxed)
+                ));
+                if fs::rename(&destination, &trash).is_ok() {
+                    let claimed: bool = store
+                        .conn
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM materials WHERE sha256 = ?1)",
+                            params![sha256],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(false);
+                    if claimed {
+                        let _ = fs::rename(&trash, &destination);
+                    } else {
+                        let _ = fs::remove_file(&trash);
+                    }
                 }
             }
             return Err(error);

@@ -340,9 +340,11 @@ fn main() {
             providers::commands::export_provider_config_file,
             providers::commands::import_provider_deep_link,
             providers::commands::test_provider,
-            providers::commands::stream_provider_chat,
             // 21#2：stream_provider_chat_with_tools 前端零调用（Agent 工具流量
-            // 经 route_provider_chat 在 Rust 内部直调），从注册表移除收敛 IPC 面
+            // 经 route_provider_chat 在 Rust 内部直调），从注册表移除收敛 IPC 面。
+            // 138#1：stream_provider_chat 前端同样零调用（实链路是
+            // route_provider_chat/get_provider_chat），同口径收敛；后端函数
+            // 保留供 protocol_tests 直调
             providers::commands::cancel_provider_chat,
             providers::commands::get_provider_chat,
             providers::commands::get_routing_settings,
@@ -444,7 +446,8 @@ fn main() {
             agent::commands::list_agent_sessions,
             agent::commands::get_agent_session,
             agent::commands::send_agent_message,
-            agent::commands::get_agent_run,
+            // 138#1：get_agent_run 前端零调用（会话读取走 get_agent_session），
+            // 从注册表移除收敛 IPC 面；后端函数保留（resume 内部使用+测试直调）
             agent::commands::cancel_agent_run,
             agent::commands::resume_agent_run,
             agent::commands::delete_agent_session,

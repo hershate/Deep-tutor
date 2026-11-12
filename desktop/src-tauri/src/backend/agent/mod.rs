@@ -417,7 +417,8 @@ pub fn get(state: &AgentState, id: &str) -> Result<AgentSession> {
                 .unwrap_or_default(),
             tool_call_id: row.get(5)?,
             name: row.get(6)?,
-            step_index: row.get::<_, i64>(7)? as u32,
+            // 137#4：DB 值窄化取饱和语义——外部改库超界值不再截断回绕
+            step_index: row.get::<_, i64>(7)?.clamp(0, u32::MAX as i64) as u32,
             partial: row.get(8)?,
             created_at: row.get(9)?,
         })
@@ -432,7 +433,7 @@ pub fn get(state: &AgentState, id: &str) -> Result<AgentSession> {
             Ok(AgentRun {
                 id: row.get(0)?,
                 status: row.get(1)?,
-                steps: row.get::<_, i64>(2)? as u32,
+                steps: row.get::<_, i64>(2)?.clamp(0, u32::MAX as i64) as u32,
                 input_tokens: row.get::<_, i64>(3)?.max(0) as u64,
                 output_tokens: row.get::<_, i64>(4)?.max(0) as u64,
                 current_request_id: row.get(5)?,
@@ -701,7 +702,8 @@ fn session_output_tokens(state: &AgentState, session_id: i64) -> Result<u64> {
         SESSION_OUTPUT_TOKENS_SQL,
         params![session_id],
         |row| row.get::<_, i64>(0),
-    )? as u64)
+    )?
+    .max(0) as u64)
 }
 
 fn get_run(state: &AgentState, id: i64) -> Result<AgentRun> {
@@ -709,7 +711,7 @@ fn get_run(state: &AgentState, id: i64) -> Result<AgentRun> {
     store.conn.query_row("SELECT id, status, steps, input_tokens, output_tokens, current_request_id, error_code, error_message, created_at, updated_at FROM agent_runs WHERE id = ?1", params![id], |row| {
         let code: Option<String> = row.get(6)?;
         let message: Option<String> = row.get(7)?;
-        Ok(AgentRun { id: row.get(0)?, status: row.get(1)?, steps: row.get::<_, i64>(2)?.max(0) as u32, input_tokens: row.get::<_, i64>(3)?.max(0) as u64, output_tokens: row.get::<_, i64>(4)?.max(0) as u64, current_request_id: row.get(5)?, error: code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("Agent 运行失败"))), created_at: row.get(8)?, updated_at: row.get(9)? })
+        Ok(AgentRun { id: row.get(0)?, status: row.get(1)?, steps: row.get::<_, i64>(2)?.clamp(0, u32::MAX as i64) as u32, input_tokens: row.get::<_, i64>(3)?.max(0) as u64, output_tokens: row.get::<_, i64>(4)?.max(0) as u64, current_request_id: row.get(5)?, error: code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("Agent 运行失败"))), created_at: row.get(8)?, updated_at: row.get(9)? })
     }).optional()?.ok_or_else(|| BackendError::new("not_found", "Agent 运行不存在"))
 }
 
@@ -878,7 +880,8 @@ fn begin_step<R: Runtime>(
         "SELECT attempt FROM agent_runs WHERE id = ?1",
         params![run.id],
         |row| row.get::<_, i64>(0),
-    )? as u32;
+    )?
+    .clamp(0, u32::MAX as i64) as u32;
     let retry = !completed && current.is_some();
     let reusable = retry && providers::completed_chat(&state.providers, current.as_deref())?;
     let attempt = if retry && !reusable {
@@ -1029,7 +1032,7 @@ fn run_loop<R: Runtime>(
         let (input_tokens, output_tokens): (u64, u64) = store.conn.query_row(
             "SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.inputTokens') AS INTEGER)), 0), COALESCE(SUM(CAST(json_extract(usage_json, '$.outputTokens') AS INTEGER)), 0) FROM provider_requests WHERE request_id GLOB ?1",
             params![format!("agent-{run_id}-*")],
-            |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64)),
+            |row| Ok((row.get::<_, i64>(0)?.max(0) as u64, row.get::<_, i64>(1)?.max(0) as u64)),
         )?;
         store.conn.execute("UPDATE agent_runs SET input_tokens = ?1, output_tokens = ?2, updated_at = ?3 WHERE id = ?4", params![input_tokens as i64, output_tokens as i64, now()?, run_id])?;
         if request.status != "done" {
