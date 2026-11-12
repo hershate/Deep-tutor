@@ -40,6 +40,10 @@
   110#7：`desktop/package.json` 的 katex override（59#8 有意决策）退出条件——
   rehype-katex 发布声明支持 katex ^0.19 的版本后移除。110#9：dialog 2.8.4
   传递编译 tauri-plugin-fs 2.7.1（未注册、零权限，仅体积名义条目）。
+  146#20：生产 CSP 保留 `style-src 'unsafe-inline'`——收紧前须安装包实测
+  KaTeX/mark 是否走 `setAttribute('style', …)` 内联属性路径（该路径会被
+  去掉 unsafe-inline 的 CSP 拦截，CSSOM 设置不受限）；实测前不动，避免
+  公式渲染静默失效。
   跑 cargo 一律带：`export PATH="/f/DevCache/toolchains/winlibs-16.2.0-ucrt/mingw64/bin:$PATH"`
   （gnu 工具链链接需要 dlltool）与 `CARGO_HOME=F:/DevCache/cargo`、
   `RUSTUP_HOME=F:/DevCache/rustup`（Git Bash 里用正斜杠）；rustfmt 已装于该工具链。

@@ -18,6 +18,11 @@ allowed-tools: Read Write Edit Glob Bash WebSearch
 
 # PPT Slide Builder
 
+> **历史存档标注（146#5）**：本文引用的 `templates/base.html` 与
+> `references/animation-reference.md` 仅存在于仓库源码树，未随应用
+> 打包（bundle 只嵌入各 SKILL.md 本体）；安装态应用内不存在这两个文件，
+> 依赖它们的步骤指令不可照做，仅作历史存档展示。
+
 ## Purpose
 
 创建并维护**PPT 风格的全屏网页演示文稿**。每个演示项目使用统一样式（由用户指定的配色、字体、间距等主题参数），支持多页面管理、元素入场动画和页面过渡动画。所有操作（创建/修改/删除/动画）通过本 skill 严格控制，确保长期编辑后项目文件的稳定性和一致性。输出为纯静态 HTML，双击即可在浏览器中全屏播放。

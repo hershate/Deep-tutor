@@ -46,25 +46,25 @@ graph TD
 
 | 模块 | 文件/行数 | 职责 | 关键状态结构 |
 |---|---|---|---|
-| backend（根） | 6 / 3224 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:87`：store Mutex + 10 个域 State） |
+| backend（根） | 6 / 3224 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:115`：store Mutex + 10 个域 State） |
 | startup | 1 / 975 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
-| store | 1 / 1794 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:63`） |
-| security | 6 / 3078 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:228`） |
-| providers | 15 / 10812 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:193`） |
+| store | 1 / 1794 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:177`） |
+| security | 6 / 3078 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:247`） |
+| providers | 15 / 10812 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:203`） |
 | web | 4 / 1203 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
 | materials | 5 / 3439 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
 | notes | 4 / 1251 | 笔记归档导入、知识库体检 | 无 |
 | learning | 9 / 5278 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
 | planning | 3 / 1067 | 周视图、强度、目标、排期 | 复用 LearningState |
 | knowledge | 3 / 1398 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:29`） |
-| practice | 9 / 5129 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:25`） |
+| practice | 9 / 5129 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:30`） |
 | review | 2 / 959 | SM-2 式间隔复习 | 复用 SQLite 事务 |
 | projects | 3 / 1145 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 4098 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:47`） |
+| agent | 4 / 4098 | 会话/工具循环/审批/记忆/产物 | `AgentState`（`mod.rs:91`） |
 | engagement | 3 / 1372 | 全局搜索、通知、档案、首页 | 复用 |
 | reports | 3 / 1897 | 专注会话、学习报告、日历 | 复用 |
 | community | 3 / 1795 | 本机讨论/小组/预约/提醒 | 复用 |
-| plugins | 3 / 1277 | 声明式事件插件 | `PluginState`（`mod.rs:21`） |
+| plugins | 3 / 1277 | 声明式事件插件 | `PluginState`（`mod.rs:51`） |
 | backup | 5 / 3642 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:141`） |
 | sharing | 3 / 1062 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
 | sync | 7 / 2555 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:28-29`） |
@@ -158,7 +158,7 @@ flowchart TD
     N --> O[执行 handler]
 ```
 
-- `switch()`（`guard.rs:49`）：停 7 个子系统（:20-28）→ 写锁内替换 `BackendState.store` 为目标用户库（:98-117）→ 执行 → 必要时回滚 → 重启 sync 调度（:82）。
+- `switch()`（`guard.rs:188`）：停 7 个子系统（:20-28）→ 写锁内替换 `BackendState.store` 为目标用户库（:98-117）→ 执行 → 必要时回滚 → 重启 sync 调度（:82）。
 
 用户切换时序：
 

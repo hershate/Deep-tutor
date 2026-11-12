@@ -92,14 +92,15 @@ or authority. Do not claim a security property without an enforcing implementati
 - Current decisions: `note/产品与技术决策.md`.
 - Feature and acceptance matrix: `note/14-Tauri原生后端覆盖清单.md`.
 - Validation contract: `plan/README.md`.
-- `make lint` checks Rust formatting, cross-file version consistency (`scripts/check-versions.mjs`)
-  and the frontend production build.
+- `make lint` checks Rust formatting, cross-file version consistency (`scripts/check-versions.mjs`),
+  the frontend production build and `npm audit` (runtime + dev scopes; 110#1).
 - `make test` runs `cargo test --release --locked -- --test-threads=1` in `desktop/src-tauri`.
 - The Rust toolchain is pinned to 1.99.1 via `rust-toolchain.toml` (CI pins the same
   version); do not bump it casually — local stable and pinned rustfmt rules may diverge.
 - `make check` runs lint, tests and a dev-server smoke (`scripts/dev-smoke.sh`:
-  starts vite on dedicated port 43198 with --strictPort, asserts `http://127.0.0.1:43198/`
-  returns 200, then kills only the listening PID). `make build` collects third-party
+  port preflight fails fast if 43198 is taken, starts vite on 43198 with --strictPort,
+  asserts the served index contains the app mount marker, then tree-kills its own
+  process tree and sweeps leftover listeners on the port). `make build` collects third-party
   licenses (`scripts/collect-licenses.mjs`) and produces the Tauri 2 NSIS installer.
 - Real provider accounts, media-codec playback and interactive installation require separate
   acceptance; local protocol fixtures and compilation do not prove those environments.

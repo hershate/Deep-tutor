@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// 校验版本号一致（package.json / tauri.conf.json / Cargo.toml / 根 README）。
+// 校验版本号一致（package.json / package-lock.json / tauri.conf.json /
+// Cargo.toml / Cargo.lock 工作区包 / 根 README，共六处）。
 // 升版漏改任一处时在 lint/check 阶段直接失败，而不是静默产出错版本安装包
-// （15#9/C-1：README 版本行纳入白名单；路径以脚本位置定位，不依赖 cwd）。
+// （15#9/C-1：README 版本行纳入白名单；路径以脚本位置定位，不依赖 cwd；
+// 143#7：首行注释与实际校验面六处对齐——lock 文件漂移同样有检出通道）。
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'

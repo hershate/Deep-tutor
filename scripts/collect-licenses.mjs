@@ -158,7 +158,12 @@ if (!existsSync(modules)) {
       }
       const names = readdirSync(dir)
       // 49#2：statSync 过滤目录（licenses/ 等目录名同样命中 /^licen[cs]e/i）
-      const license = pickFromNames(names, name => statSync(join(dir, name)).isFile())
+      // 146#15：statSync 兜底——断链符号链接（部分包 postinstall/junction
+      // 拷贝产生）抛 ENOENT 会让整个许可收集在 NSIS 前崩溃，报 Node 堆栈
+      // 而非许可语义错误；异常按非普通文件处理
+      const license = pickFromNames(names, name => {
+        try { return statSync(join(dir, name)).isFile() } catch { return false }
+      })
       if (license) {
         const name = (nested ? `nested_${relative(modules, dirname(dir)).replace(/[\\/]/g, '__')}__${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
         copyFileSync(join(dir, license), join(outDir, `npm-${name}-${license}`))

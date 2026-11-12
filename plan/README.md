@@ -15,9 +15,9 @@ make check
 make build
 ```
 
-- `make lint`：Rust 格式、六处版本校验（check-versions.mjs）与 TypeScript/Vite 生产构建。
+- `make lint`：Rust 格式、六处版本校验（check-versions.mjs）、TypeScript/Vite 生产构建与 npm audit（runtime+dev 双口径，联网）。
 - `make test`：完整 Rust 测试，真实 SQLite、MockRuntime、临时文件与本机回环协议服务，串行执行。
-- `make check`：上述检查全部通过，另含 dev server 冒烟（起 vite 于专用端口 43198，断言 `http://127.0.0.1:43198/` 返回 200 后按监听 PID 停服；检出 vite 配置破坏 dev 工作流而其余门禁仍绿的回归）。
+- `make check`：上述检查全部通过，另含 dev server 冒烟（端口预检——43198 被占即败；起 vite 于 43198 strictPort，断言 index 含应用挂载标记后树杀自身进程树、按端口兜底清理孤儿；检出 vite 配置破坏 dev 工作流而其余门禁仍绿的回归）。
 - `make build`：先收集第三方许可再生成 Tauri 2 NSIS 安装包，最终文件统一输出到根目录 `dist/` 并校验复制哈希，不运行安装器或打开应用。配置测试锁定 `DeepTutor` 的安装目录、开始菜单目录和安装包名称均为 ASCII，同时保持应用标识与学习数据位置不变。
 
 不得通过前台窗口、对话框、键鼠注入或截屏进行自动测试。

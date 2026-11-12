@@ -6,28 +6,29 @@
 
 | 入口 | 命令 | 实际动作 |
 |---|---|---|
-| Makefile:31 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 六处版本校验 + `npm run build`（tsc -b && vite build） |
+| Makefile:31 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 六处版本校验 + `npm run build`（tsc -b && vite build）+ `npm audit --omit=dev && npm audit`（runtime + dev 双口径，110#1） |
 | Makefile:39 | `make test` | `cargo test --release --locked -- --test-threads=1`（desktop/src-tauri） |
 | Makefile:43 | `make check` | lint + test + dev-smoke（dev server 冒烟，1.1.9 并入） |
 | Makefile:25 | `make build` | lint 前置（131#3）→ `collect-licenses.mjs` 收集第三方许可 → `npm run tauri build -- -- --locked`（`--locked` 透传 cargo，Cargo.lock 不一致即失败）→ tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
 | Makefile:52 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
 
-本地 Rust 工具链按 `rust-toolchain.toml` 钉 1.99.1（本机解析为 gnu 目标，经 winlibs 的 dlltool 链接，`RUSTUP_HOME=F:\DevCache
-ustup`）；CI 为同版本 msvc（windows-latest）；crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`（AGENTS.md 约定）。
+本地 Rust 工具链按 `rust-toolchain.toml` 钉 1.99.1（本机解析为 gnu 目标，经 winlibs 的 dlltool 链接，`RUSTUP_HOME=F:\DevCache\rustup`）；CI 为同版本 msvc（windows-latest）；crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`（AGENTS.md 约定）。
 
-CI（.github/workflows/ci.yml）：push:main + PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → 前端类型检查（`npx tsc --noEmit`，先于数十分钟 Rust 测试暴露类型错误）→ `cargo fmt --check` → 原生测试（同 --test-threads=1）→ check-versions → collect-licenses → NSIS 安装包（完整前端构建在该步骤的 beforeBuildCommand 内执行）→ 对产物实跑 `--verify-native` 契约自检 → 上传构件（含 .sha256） `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
+CI（.github/workflows/ci.yml）：push:main + PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → 前端类型检查（`npx tsc --noEmit`，先于数十分钟 Rust 测试暴露类型错误）→ dev server 冒烟（117#5，scripts/dev-smoke.sh：起 vite 于 43198 断言应用标记后树杀）→ 依赖审计（110#1，`npm audit --omit=dev && npm audit` 双口径）→ `cargo fmt --check` → 原生测试（同 --test-threads=1）→ check-versions → collect-licenses → NSIS 安装包（完整前端构建在该步骤的 beforeBuildCommand 内执行）→ 对产物实跑 `--verify-native` 契约自检 → 上传构件（含 .sha256） `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
 
 ```mermaid
 flowchart LR
     A[push:main / PR / 手动触发] --> B[npm ci Node 24]
     B --> T[npx tsc --noEmit 前端类型检查]
-    T --> C[cargo fmt --check]
+    T --> S[dev server 冒烟 43198]
+    S --> AU[npm audit 双口径]
+    AU --> C[cargo fmt --check]
     C --> D[cargo test --release --locked 串行]
     D --> E[check-versions + collect-licenses]
     E --> F[npm run tauri build NSIS 内含前端构建]
     F --> V[产物实跑 --verify-native 契约自检]
     V --> G[上传安装包与 .sha256 缺失即失败]
-    H[pre-push hook] --> I[make check = lint + test]
+    H[pre-push hook] --> I[make check = lint + test + dev-smoke]
 ```
 
 发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.9，check-versions.mjs 校验）。
@@ -222,14 +223,14 @@ flowchart LR
 | 数据库降级 | max(user_version, meta.schema_version)>SCHEMA_VERSION 拒绝（unsupported_schema） | 升级应用 | store.rs:216-231 |
 | 写锁竞争 | busy_timeout 10s → database_busy（前端瞬态自动重试至多 5 次） | 前端提示重试 | store.rs:172；error.rs |
 | 模型步骤中断 | 步骤 interrupted + request_id 持久化 | resume 复用 completed_chat，不重调上游 | learning/mod.rs:655-668 |
-| 提供商连续失败 | 熔断 open 60s | half_open 试探恢复 | routing.rs:626-714 |
-| 全部候选失败 | all_providers_unavailable | 换供应商/调路由 | routing.rs:1127 |
+| 提供商连续失败 | 熔断 open 60s | half_open 试探恢复 | routing.rs:673-843 |
+| 全部候选失败 | all_providers_unavailable | 换供应商/调路由 | routing.rs:1287 |
 | 预算超限 | ensure_budget 拒绝（session/daily USD，`budget_spend` SQL 聚合 usage.rs:443） | 用户调预算设置 | usage.rs:480 |
 | 解析线程崩溃 | catch_unwind → failed + internal_error | 重新 enqueue | materials/mod.rs:862,897 |
 | 同步回读不一致 | sync_verify_failed，任务失败 | 重试上传 | versions.rs:226-231 |
 | 备份导入中途失败 | IMMEDIATE 事务回滚 + 删除已装文件 | 修正后重新导入 | transfer.rs:1295-1314（install_files）、:1366 起（回滚删已装） |
 | 应用重置 | 先停任务；DB 成功后才删原件/凭据，失败保留备份 | reset_application | backend/commands.rs:82-110 |
-| 用户切换工作区 | 写锁停 7 子系统 → 换库 → 失败回滚 | 守卫 switch | security/guard.rs:49-127 |
+| 用户切换工作区 | 写锁停 7 子系统 → 换库 → 失败回滚 | 守卫 switch | security/guard.rs:188 |
 
 ## 6. 安全工作流
 
@@ -267,7 +268,7 @@ flowchart LR
 | Reports | get_learning_report/calendar、focus 全套 | focus./study.checkin/practice./review./plan. |
 | Community | get_community_overview、post/reply/reserve、claim_community_reminders（App.tsx 轮询） | community. |
 | Integrations | 插件全套 | plugin. |
-| ProviderHub | 供应商/路由/熔断/日志、stream_provider_chat | 经 refresh |
+| ProviderHub | 供应商/路由/熔断/日志、test_provider、route_provider_chat、cancel_provider_chat | 经 refresh |
 | Settings | 学习档案、setPreferences | security.session_started/state.changed |
 | SharedPlan | read_shared_plan、read_shared_plan_package | 无 |
 

@@ -133,9 +133,9 @@ sequenceDiagram
 | 6 | 五维校验 | validation_prompt :158 | 模型输出无效降级 unavailable_model；`validation_report`（:354）原生复核依赖/难度/认知负载 |
 | 7 | 方案落盘 | finish_result :453 | warnings 聚合；status=done（passed 且无警告）否则 degraded（complete_plan L/mod.rs:784-800） |
 
-模型调用统一 `model_json`（pipeline.rs:263）：`begin_step` → `routing::stream_chat`（request_id=`plan-{id}-{步}-{attempt}`，L/mod.rs:673）→ `parse_model_json`（剥 ``` 围栏，:177）→ 校验 → 失败共 2 次尝试（1 次重试）。
+模型调用统一 `model_json`（pipeline.rs:263）：`begin_step` → `routing::stream_chat`（request_id=`plan-{id}-{步}-{attempt}`，pipeline.rs:298）→ `parse_model_json`（剥 ``` 围栏，:177）→ 校验 → 失败共 2 次尝试（1 次重试）。
 
-**断点续接**：done 步骤的产物持久化在 `steps.output_json` 与 `artifacts_json $.stepN`（`complete_step` L/mod.rs:698 json_set）；`run` 先经 `step_output`+`persisted_artifact`（pipeline.rs:391 起）还原再执行未完成步骤。`begin_step`（L/mod.rs:647-660）对 status==interrupted 且 `providers::completed_chat` 的请求**复用原 request_id/attempt**，不重调上游、不重复计费。恢复入口：用户 `resume_learning_plan`（failed/cancelled/interrupted → running，L/mod.rs:461-478）与重启 `recover`（:975，running/cancelling → interrupted/cancelled；1.1.7 起主行 UPDATE 带活跃态守卫，changed==0 跳过翻行与事件）。
+**断点续接**：done 步骤的产物持久化在 `steps.output_json` 与 `artifacts_json $.stepN`（`complete_step` L/mod.rs:743 json_set）；`run` 先经 `step_output`+`persisted_artifact`（pipeline.rs:391 起）还原再执行未完成步骤。`begin_step`（L/mod.rs:689）对 status==interrupted 且 `providers::completed_chat` 的请求**复用原 request_id/attempt**，不重调上游、不重复计费。恢复入口：用户 `resume_learning_plan`（failed/cancelled/interrupted → running，L/mod.rs:474）与重启 `recover`（:984，running/cancelling → interrupted/cancelled；1.1.7 起主行 UPDATE 带活跃态守卫，changed==0 跳过翻行与事件）。
 
 八步流水线与分支：
 
@@ -159,22 +159,22 @@ flowchart TD
 
 ## 5. 提供商调用、流式与取消
 
-直连链：`stream_provider_chat`（P/commands.rs:92，async 命令；另有 test_provider/route_provider_chat 同构）先经 `security::session_principal`（SEC/mod.rs:76）从会话派生当前用户——async 命令体由 `respond_async` spawn 到 tokio worker，guard 的 thread-local principal 不可见——再 `spawn_blocking` + `with_principal` 传播 → `stream_chat_with_policy`（P/mod.rs:1126）：
-1. `begin_chat`（:989）INSERT `provider_requests('running')` + 注册取消标志 + emit `provider.chat_started`。
+直连链（143#4 重对：入口以注册表内命令为准）：`route_provider_chat`（P/commands.rs:208，async 命令，前端实际直连入口；`test_provider` :98 同构）先经 `security::session_principal`（SEC/mod.rs:76）从会话派生当前用户——async 命令体由 `respond_async` spawn 到 tokio worker，guard 的 thread-local principal 不可见——再 `spawn_blocking` + `with_principal` 传播 → `stream_chat_with_policy`（P/mod.rs:1245）。注：`stream_provider_chat`（P/commands.rs:117）的注册已随 138#1 移除（前端零调用），函数仅供测试面消费，不再是 IPC 入口。以下机制描述（begin_chat/协议分派/SSE 泵/双写）对注册入口与测试面同构共用：
+1. `begin_chat`（:1098）INSERT `provider_requests('running')` + 注册取消标志 + emit `provider.chat_started`。
 2. enabled/has_key 校验 → `protocol::stream_chat_with_policy`（protocol.rs:351）按 `profile.protocol` 分派：OpenAI Chat（openai.rs:701 `stream_chat_with_policy` 自建 SSE 泵 `stream_once` :1024）/ OpenAI Responses（responses.rs:86）/ Anthropic（anthropic.rs:98）/ Gemini（gemini.rs:114）。
 3. HTTP 客户端（openai.rs:258 / :269）：禁自动重定向 + DNS 解析后固定 IP（防 DNS rebinding）+ `public_address` 拒绝非公网（:103）；`endpoint`（:212）做 SSRF/路径穿越校验。
 4. 流式约束：`validate_messages` 1-64 条/256KB（openai.rs:562）；响应 1MB（read_json :310，4xx 时读 body 末段进错误信息）；增量文本累计 1MB（protocol.rs:23）；SSE 每 chunk 超时窗口前后各检查一次取消（protocol.rs cancel 检查）。
 5. SSE 泵（`stream_once`，55 号专项加固）：游标偏移逐行切分（`position()` 相对偏移加 cursor，消 O(N²) 缓冲 drain）；行终止兼容 CRLF/LF/裸 CR，首行剥 BOM；「空闲字节预算」限制单事件累计无进展字节数防恶意慢流；`data:` 行解析剥 `error:null` 心跳；工具调用 index 上限 256、同 index 异 id fail-closed；干净 FIN 或 EOF 且零事件/零 `data:` 行一律归 `endpoint_unreachable`（不误报成功）。四协议（openai/responses/anthropic/gemini）游标循环同构（protocol.rs stream_events 复用）。
-6. delta 双写：增量先入缓冲，按 4KB/150ms 窗口合并为 `provider.chat_delta` 事件落库 + emit（首个 delta 前沿触发立即可见，流结束含错误路径冲刷余量，P/mod.rs:1272 起 `flush`）；每次冲刷同时把至今累积全文物化到 `provider_requests.output/reasoning`（UPDATE 限 running 行，终态 UPDATE 覆盖为最终值）——运行中请求的 `getProviderChat` 读列短路，不再每次轮询全量重放 events 拼接（P/mod.rs:1027 重放仅作崩溃续读兜底，`completed_chat` :1055）。
-7. 结束 UPDATE status=done/cancelled/failed + 终态事件（P/mod.rs:1209 起）。
+6. delta 双写：增量先入缓冲，按 4KB/150ms 窗口合并为 `provider.chat_delta` 事件落库 + emit（首个 delta 前沿触发立即可见，流结束含错误路径冲刷余量，P/mod.rs:1305 起 `flush` 闭包）；每次冲刷同时把至今累积全文物化到 `provider_requests.output/reasoning`（UPDATE 限 running 行，终态 UPDATE 覆盖为最终值）——运行中请求的 `getProviderChat` 读列短路，不再每次轮询全量重放 events 拼接（重放仅作崩溃续读兜底，`completed_chat` :1087）。
+7. 结束 UPDATE status=done/cancelled/failed + 终态事件（P/mod.rs:1416）。
 
-取消：`cancel_provider_chat`（P/commands.rs:122）→ 路由层 `cancel_inner`（routing.rs:1148）置 `Arc<AtomicBool>`（Acquire/Release）→ 级联直连层 flag → SSE 泵检测后以 `cancelled` 错误收尾。
+取消：`cancel_provider_chat`（P/commands.rs:122）→ 路由层 `cancel_inner`（routing.rs:1308）置 `Arc<AtomicBool>`（Acquire/Release）→ 级联直连层 flag → SSE 泵检测后以 `cancelled` 错误收尾。
 
 直连流式时序：
 
 ```mermaid
 sequenceDiagram
-    participant C as stream_provider_chat
+    participant C as route_provider_chat
     participant B as begin_chat
     participant P as protocol 协议分派
     participant H as HTTP SSE 上游
@@ -426,7 +426,7 @@ flowchart TD
 ## 11. 备份、分享、同步、运维
 
 - **导出**（backup/archive.rs:390）：停 sync → `.dtbackup` 扩展名校验 → RAII 临时目录 → `VACUUM INTO state.db` → 回填 local_users/security_quotas → `secure_delete=ON` 清三张敏感表再 VACUUM → 收集三类文件（原件/插件清单/agent scratch 仅 json-md-txt）→ 写入前逐项哈希重验防 TOCTOU → zip ≤2GB → `materials::atomic_export` + `backup.exported`。
-- **预演/导入**（transfer.rs:1568 dry_run / import；backup 三个命令均为 `#[tauri::command(async)]` + `spawn_blocking`，44#1）：预演只读统计；导入前停全部子系统；schema 双端比对（唯一容忍 focus_sessions.paused_at）→ IMMEDIATE 事务内 `prepare_ids`（:276）：materials 按 sha256 复用已有 ID（130#5 起同名同角色多账号并入最低 id 并记 warning）、shared_plans 按 token_hash 复用、security_quotas 按 (user_id,resource) 复合键跳过、主键=外键子表（material_text/community_group_members/community_reservations）随父表映射重写、其余 INTEGER 主键 MAX+1、文本主键 `imported-{n}`、provider_requests 的 TEXT 主键冲突先按内容签名（model/created_at/finish_reason/attempts/latency_ms/status/usage_json 七字段，31#43；34#15 起含 usage_json 且按 request_id 排序取首——provider_id 不可用，profiles 每次导入都重映射）找回既有行复用（重复导入幂等，agent- 前缀请求不改名）、kv 重编号、preferences 已有则跳过 → `stage_files`（:1491，须在 prepare_ids 之后：插件清单目标路径按重映射 id 落位）→ 外键拓扑排序 → `transform`（:970）重写列与 `*_json` 内嵌 ID（tool_calls_json 内嵌 "id" 一并重写）→ 单事务 import_rows（缺列行剔除）+ install_files（canonicalize+hard_link）→ 失败回滚删已装文件 → 收尾各模块 recover + `backup.imported(appendOnly:true)`。导入/预演对 manifest 缺失文件显式枚举（driftedFiles/missingFiles 进 backupImportWarnings，前端 BackupPanel 展示漂移），不静默跳过。
+- **预演/导入**（transfer.rs:1567 dry_run / import；backup 三个命令均为 `#[tauri::command(async)]` + `spawn_blocking`，44#1）：预演只读统计；导入前停全部子系统；schema 双端比对（唯一容忍 focus_sessions.paused_at）→ IMMEDIATE 事务内 `prepare_ids`（:276）：materials 按 sha256 复用已有 ID（130#5 起同名同角色多账号并入最低 id 并记 warning）、shared_plans 按 token_hash 复用、security_quotas 按 (user_id,resource) 复合键跳过、主键=外键子表（material_text/community_group_members/community_reservations）随父表映射重写、其余 INTEGER 主键 MAX+1、文本主键 `imported-{n}`、provider_requests 的 TEXT 主键冲突先按内容签名（model/created_at/finish_reason/attempts/latency_ms/status/usage_json 七字段，31#43；34#15 起含 usage_json 且按 request_id 排序取首——provider_id 不可用，profiles 每次导入都重映射）找回既有行复用（重复导入幂等，agent- 前缀请求不改名）、kv 重编号、preferences 已有则跳过 → `stage_files`（:1490，须在 prepare_ids 之后：插件清单目标路径按重映射 id 落位）→ 外键拓扑排序 → `transform`（:969）重写列与 `*_json` 内嵌 ID（tool_calls_json 内嵌 "id" 一并重写）→ 单事务 import_rows（缺列行剔除）+ install_files（canonicalize+hard_link）→ 失败回滚删已装文件 → 收尾各模块 recover + `backup.imported(appendOnly:true)`。导入/预演对 manifest 缺失文件显式枚举（driftedFiles/missingFiles 进 backupImportWarnings，前端 BackupPanel 展示漂移），不静默跳过。
 - **分享**（sharing/mod.rs:267 create）：仅 done/degraded 方案、快照≤2MB；令牌 `dt_` 46 字符只存 SHA-256（token_hash）+ 根库 share_index；读取无登录时先查索引定位 owner，`with_user` 切库读取，仍未命中遍历 users/ 目录（≤10000）回填索引（:408-453）；revoked/expired 一律 `share_unavailable`。
 - **同步**（sync/）：上传 = `providers::export_config`（脱敏，无 apiKey，测试断言）→ PUT 历史对象+当前对象 → GET 回读双双比对（`sync_verify_failed`）→ 版本保留：list（S3 list-type=2 / WebDAV PROPFIND）按时间倒序 skip(10) 删除，复查 remaining>10 → `sync_retention_failed`（versions.rs:236 起）。调度线程 1s tick/60s 检查，auto_sync 且距上次上传 ≥24h 触发；上次 upload 终态为 failed 时缩短为 1h 重试（失败也写 finished_at，scheduler.rs:58-62；用户取消不触发短退避）。凭据 WebDAV 密码/S3 密钥存 keyring，库中 sync_config 脱敏（mod.rs:150）；下载/恢复的目的地拒绝落在应用数据目录内（数据根遏制）。
 - **运维**（maintenance/）：`health` 读 PRAGMA integrity_check/foreign_key_check/journal_mode/page 统计/WAL 字节数（mod.rs:106 起）；孤儿扫描白名单=DB 记录的原件 + agent scratch + 有效插件清单 + 可识别临时目录，缺失原件只报告；插件面（1.1.8/117#2）：install 的清单 tmp 写在 `plugins/` 根层与扫描同层共享 mtime 宽限，未入库清单与无清单目录同享宽限（覆盖 rename→commit 毫秒窗）、清理循环删除前 31#32 式复查，已安装缺 `manifest.json` 按库枚举报告（`plugin_manifest_missing`，目录被整体误删的僵尸行可见）；清理回收的 freedBytes 按删前目录实际字节入账、同批连带删除项只计 batch 不计 deletedFiles（1.1.8/117#4）；清理/VACUUM 前置 `OPERATION` 互斥（commands.rs:9）+ 停全部任务 + 锁 store，结束必重启调度（commands.rs:51）。

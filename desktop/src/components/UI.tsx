@@ -20,6 +20,9 @@ export function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<
   const raw = typeof href === 'string' ? href : ''
   // 104#10：URL scheme 大小写不敏感——HTTPS:// 与协议相对 // 原先落入
   // 「该链接类型不支持」的失真文案
+  // 140#1：协议相对链接 //host 强制升 https 是安全收紧的有意设计（防降级
+  // 到 http）；作者按源站 http 写入且目标站不支持 https 时浏览器报连接
+  // 错误，属源站问题而非应用故障
   const target = raw.startsWith('//') ? `https:${raw}` : raw
   const scheme = target.slice(0, target.indexOf('//') + 2).toLowerCase()
   if (scheme === 'https://') {

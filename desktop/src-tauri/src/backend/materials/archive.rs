@@ -138,6 +138,10 @@ pub fn import_archive<R: Runtime>(
     }
     // 阶段二：全部条目已过校验，按序号回读暂存（峰值仍单条目）；落库失败
     // （配额/IO）是逐条 outcome，不牵连整包与其余条目
+    // 139#4：两阶段的已知取舍——同一条目解压两次（200MB 解压总量上限下
+    // CPU 耗时约翻倍），换取整包原子性（任一条目校验失败时零落盘、
+    // 零部分导入）；在意耗时的改进方向是阶段一将已校验字节暂存临时目录
+    // 供阶段二复用（IO 换 CPU），当前按原子性优先保留双解压
     let mut outcomes = Vec::new();
     let mut staged = 0_usize;
     for (index, title, kind) in plan {

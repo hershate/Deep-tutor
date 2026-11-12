@@ -25,3 +25,7 @@
 ## 本仓库自有部分
 
 `desktop/`、`note/`、`plan/` 等本仓库原创内容，以及对参考设计的后续修改，适用根目录 [`LICENSE`](./LICENSE)（Apache-2.0）。上游组件和明确标明的第三方依赖仍适用其各自许可，不因本仓库修改而改变。
+
+## Skill 资产的存档地位
+
+`desktop/src-tauri/assets/skills/` 下 8 个资产目录（deep-tutor-intent / knowledge-map / quiz / resources / stages / validate / ppt-slide-builder / self-study-guide）中，构建链只把各目录的 `SKILL.md` 经 `include_str!` 嵌入二进制；各目录的 `README.md`（及 ppt-slide-builder 的 templates/references 文件）不嵌入、不打包、无代码引用，仅作仓库内历史存档——更新它们不影响安装产物（146#14；ppt-slide-builder 的 SKILL.md 头部另有存档标注，146#5）。

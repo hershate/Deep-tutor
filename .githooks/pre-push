@@ -1,8 +1,11 @@
 #!/bin/sh
-# 79#10d：本钩子跑完整门禁（fmt/test/前端构建），需要 AGENTS.md 声明的
-# 构建环境：PATH 含 winlibs mingw64/bin（dlltool），并设置
-# CARGO_HOME=F:/DevCache/cargo、RUSTUP_HOME=F:/DevCache/rustup。
-# GUI Git 客户端未继承这些导出时会因 dlltool 缺失失败——请改用已配置
-# 环境的终端推送，或临时 git push --no-verify。
+# 79#10d：本钩子跑完整门禁 make check（fmt/版本校验/前端构建/npm audit
+# runtime+dev 双口径·联网/后端 release 测试串行/dev 冒烟·起 vite 占
+# 43198 端口），需要 AGENTS.md 声明的构建环境：PATH 含 winlibs
+# mingw64/bin（dlltool），并设置 CARGO_HOME=F:/DevCache/cargo、
+# RUSTUP_HOME=F:/DevCache/rustup。
+# 143#8：audit 联网与 43198 端口预检失败都会红——离线环境或端口被占时
+# 按本注释预判。GUI Git 客户端未继承这些导出时会因 dlltool 缺失失败
+# ——请改用已配置环境的终端推送，或临时 git push --no-verify。
 set -e
 make check

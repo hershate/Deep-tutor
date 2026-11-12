@@ -80,9 +80,9 @@ Deep-tutor/
 ## 验证
 
 ```bash
-make lint                         # Rust 格式、六处版本校验与 TypeScript/Vite 构建
+make lint                         # Rust 格式、六处版本校验、TypeScript/Vite 构建与 npm audit（runtime+dev 双口径）
 make test                         # 原生后端全量测试，串行执行
-make dev-smoke                    # dev server 冒烟：起 vite（专用端口 43198）→ 断言 index 200 → 按 PID 停服
+make dev-smoke                    # dev server 冒烟：端口预检（被占即败）→ 起 vite（43198）→ 断言 index 含应用标记 → 树杀进程树 + 按端口兜底孤儿
 make check                        # 上述全部检查
 make build                        # Tauri 2 NSIS 安装包
 make hooks                        # 启用 .githooks/pre-push（推送前 make check）
