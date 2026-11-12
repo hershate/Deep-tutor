@@ -1467,19 +1467,15 @@ fn target_relative(entry: &FileEntry, maps: &IdMap) -> Result<String> {
                     "资料文件名与内容哈希不一致",
                 ));
             }
-            // 155#6：扩展名白名单（与 12 媒体格式 + 文档格式对齐）——
-            // 异常备份原先可落 {64hex}.{任意} 文件，磁盘名与行 kind 长期
-            // 不一致；白名单外的扩展名改按行 kind 落名（内容哈希已校验）
-            const KNOWN_EXTENSIONS: [&str; 14] = [
-                "pdf", "docx", "pptx", "epub", "txt", "md", "zip", "mp4", "m4v", "mov", "webm",
-                "mp3", "wav", "ogg",
-            ];
+            // 165#1：与真实导入共用扩展名真源；zip 仅作旧档案兼容。
             let declared = path
                 .extension()
                 .and_then(|value| value.to_str())
                 .map(str::to_ascii_lowercase)
                 .unwrap_or_default();
-            if !KNOWN_EXTENSIONS.contains(&declared.as_str()) {
+            let known = super::super::materials::SUPPORTED.contains(&declared.as_str())
+                || declared == "zip";
+            if !known {
                 return Ok(format!(
                     "materials/originals/{}.orphan-{}",
                     entry.sha256,

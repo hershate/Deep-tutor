@@ -126,6 +126,14 @@ fn health(service: &MaintenanceService) -> Result<DatabaseHealth> {
         ));
     }
     let path = service.learning.workspace_path();
+    let recorded_version: i64 = store.conn.query_row(
+        "SELECT COALESCE(MAX(CAST(value AS INTEGER)), 0) FROM meta WHERE key = 'schema_version'",
+        [],
+        |row| row.get(0),
+    )?;
+    let user_version: i64 = store
+        .conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))?;
     Ok(DatabaseHealth {
         integrity,
         foreign_key_violations,
@@ -133,10 +141,7 @@ fn health(service: &MaintenanceService) -> Result<DatabaseHealth> {
             .conn
             .query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))?
             .to_lowercase(),
-        schema_version: store
-            .conn
-            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))?
-            as u32,
+        schema_version: user_version.max(recorded_version) as u32,
         page_count: store
             .conn
             .query_row("PRAGMA page_count", [], |row| row.get::<_, i64>(0))?

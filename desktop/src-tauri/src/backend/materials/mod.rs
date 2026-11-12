@@ -21,7 +21,7 @@ use tauri::{AppHandle, Runtime};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-const SUPPORTED: [&str; 19] = [
+pub(crate) const SUPPORTED: [&str; 19] = [
     "pdf", "docx", "pptx", "epub", "txt", "md", "mp4", "mov", "m4v", "webm", "mp3", "wav", "ogg",
     "m4a", "png", "jpg", "jpeg", "gif", "webp",
 ];

@@ -53,13 +53,13 @@ fn xml(value: &str) -> String {
     escape_html(value)
 }
 
-/// 155#5：剥离 XML 1.0 非法 C0 控制字符（保留制表符）——笔记正文/
+/// 155#5：剥离 XML 1.0 非法 C0 控制字符（保留制表符与换行）——笔记正文/
 /// 资料解析文本可含垂直制表符等，原先原样进入 OPML 使严格解析器
 /// 拒收整个文件（PDF/Anki 路径各自滤过，OPML 漏配）
 fn xml_safe(value: &str) -> String {
     value
         .chars()
-        .filter(|character| *character == '\t' || !character.is_control())
+        .filter(|character| matches!(character, '\t' | '\n' | '\r') || !character.is_control())
         .collect()
 }
 
@@ -85,7 +85,7 @@ pub fn html(document: &ExportDocument) -> String {
         }
         content.push_str("</section>");
     }
-    format!("<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"generator\" content=\"Deep Tutor\"><title>{}</title><style>body{{margin:0;background:#f4f7f2;color:#18352d;font:16px/1.7 system-ui,sans-serif}}main{{max-width:860px;margin:auto;padding:36px 20px}}h1{{font-size:30px}}section{{margin:20px 0;padding:22px;border:1px solid #dce4dc;border-radius:12px;background:white}}h2{{font-size:20px;color:#326c5b}}li{{margin:6px 0}}</style></head><body><main><h1>{}</h1>{}</main></body></html>", escape_html(&document.title), escape_html(&document.title), content)
+    format!("<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"generator\" content=\"Deep Tutor\"><title>{}</title><style>body{{margin:0;background:#f4f7f2;color:#18352d;font:16px/1.7 system-ui,sans-serif}}main{{max-width:860px;margin:auto;padding:36px 20px}}h1{{font-size:30px}}section{{margin:20px 0;padding:22px;border:1px solid #dce4dc;border-radius:12px;background:white}}h2{{font-size:20px;color:#326c5b}}li{{margin:6px 0}}p,li,h1,h2{{overflow-wrap:anywhere}}</style></head><body><main><h1>{}</h1>{}</main></body></html>", escape_html(&document.title), escape_html(&document.title), content)
 }
 
 fn csv_cell(value: impl ToString) -> String {

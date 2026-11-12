@@ -131,7 +131,7 @@ fn exported(
 
 #[test]
 fn text_html_opml_csv_and_ics_use_actual_persisted_content() {
-    let (app, _, directory) = setup();
+    let (app, learning, directory) = setup();
     let markdown = exported(&app, input("plan", "md"), directory.path(), "plan.md").1;
     let markdown = String::from_utf8(markdown).unwrap();
     assert!(markdown.contains("条件概率：在已知条件下计算概率"));
@@ -140,6 +140,7 @@ fn text_html_opml_csv_and_ics_use_actual_persisted_content() {
         String::from_utf8(exported(&app, input("plan", "html"), directory.path(), "plan.html").1)
             .unwrap();
     assert!(html.contains("贝叶斯 &lt;script&gt; 学习"));
+    assert!(html.contains("overflow-wrap:anywhere"));
     assert!(!html.contains("贝叶斯 <script> 学习"));
     let opml =
         String::from_utf8(exported(&app, input("plan", "opml"), directory.path(), "plan.opml").1)
@@ -178,6 +179,37 @@ fn text_html_opml_csv_and_ics_use_actual_persisted_content() {
     .unwrap();
     assert!(csv.contains("\"'=真实笔记标题\""));
     assert!(csv.contains("笔记正文 <img src=x>"));
+    let store = learning.store().unwrap();
+    let notes = store.collection("notes").unwrap();
+    store
+        .replace_collection(
+            "notes",
+            notes.revision,
+            &json!([{
+                "id": 1, "title": "多行 OPML", "excerpt": "摘要", "tag": "复盘", "updated": "now",
+                "content": "第一行\n第二行\u{b}第三行"
+            }]),
+        )
+        .unwrap();
+    let multiline = String::from_utf8(
+        exported(
+            &app,
+            input("knowledge", "opml"),
+            directory.path(),
+            "multiline.opml",
+        )
+        .1,
+    )
+    .unwrap();
+    assert!(multiline.contains("第一行&#10;第二行第三行"), "{multiline}");
+    let mut reader = quick_xml::Reader::from_str(&multiline);
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Eof) => break,
+            Ok(_) => {}
+            Err(error) => panic!("OPML 必须可解析：{error}"),
+        }
+    }
 }
 
 #[cfg(windows)]

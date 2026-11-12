@@ -953,3 +953,44 @@ fn dangling_request_column_on_user_content_rows_is_nulled_and_kept() {
         "导入回执应包含置空警告：{import_warnings:?}"
     );
 }
+
+#[test]
+fn image_original_keeps_its_recorded_extension_after_backup_restore() {
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    let directory = tempfile::tempdir().unwrap();
+    let input_path = directory.path().join("image.png");
+    let bytes = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+    std::fs::write(&input_path, bytes).unwrap();
+    let imported = crate::backend::materials::import_files(
+        source_app.handle(),
+        &source.material_state(),
+        vec![input_path.to_string_lossy().into_owned()],
+    );
+    let material = imported[0].material.as_ref().unwrap();
+    let backup = directory.path().join("image.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": backup.to_string_lossy()}),
+    )
+    .unwrap();
+    let target = LearningState::for_tests().unwrap();
+    let target_app = setup(&target);
+    ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": backup.to_string_lossy()}),
+    )
+    .unwrap();
+    let restored = target
+        .database_path()
+        .parent()
+        .unwrap()
+        .join("materials/originals")
+        .join(format!("{}.png", material.sha256));
+    assert_eq!(std::fs::read(restored).unwrap(), bytes);
+}

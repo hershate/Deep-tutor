@@ -388,15 +388,17 @@ fn lecture_document(state: &LearningState, input: &ExportInput) -> Result<Export
             .map(|item| format!("{} — {}", item.question, item.answer))
             .collect(),
     ));
-    document.sections.push(section(
-        "原文引用".into(),
-        vec![],
-        content
-            .citations
-            .iter()
-            .map(|item| format!("资料 #{}：{}", item.material_id, item.quote))
-            .collect(),
-    ));
+    if !content.citations.is_empty() {
+        document.sections.push(section(
+            "原文引用".into(),
+            vec![],
+            content
+                .citations
+                .iter()
+                .map(|item| format!("资料 #{}：{}", item.material_id, item.quote))
+                .collect(),
+        ));
+    }
     for item in &content.checkpoints {
         document.cards.push(ExportCard::new(
             item.question.clone(),

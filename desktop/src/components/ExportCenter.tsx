@@ -80,7 +80,7 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
       if (disposed || !event.kind.startsWith('plan.')) return
       void backend.listLearningPlans().then(items => {
         if (disposed) return
-        setPlans(items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status)))
+        setPlans(items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status) && (scope !== 'lecture' || plan.adoptedProjectId !== null)))
         if (loadFailedRef.current) {
           loadFailedRef.current = false
           setLoadFailed(false)
@@ -92,7 +92,7 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
       // 不留 unhandled rejection
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(() => {})
     return () => { disposed = true; unlisten?.() }
-  }, [open])
+  }, [open, scope])
 
   const plan = plans.find(item => item.id === planId) || null
   useEffect(() => {
