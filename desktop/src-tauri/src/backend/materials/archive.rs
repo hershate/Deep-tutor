@@ -102,7 +102,10 @@ pub fn import_archive<R: Runtime>(
         let title = if !file_name.trim().is_empty() && file_name.len() <= 500 {
             file_name.to_string()
         } else {
-            return Err(BackendError::new("invalid_archive_entry", "资料包文件名无效"));
+            return Err(BackendError::new(
+                "invalid_archive_entry",
+                "资料包文件名无效",
+            ));
         };
         let kind = file_name
             .rsplit_once('.')

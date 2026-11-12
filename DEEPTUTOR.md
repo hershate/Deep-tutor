@@ -79,7 +79,7 @@ explicitly declared, not inferred from a file name.
 - sensitive: desktop/src-tauri/src/backend/export/**   # PDF/Anki/文件写磁盘，与 backup/sharing 同属文件输出域
 - sensitive: desktop/src-tauri/src/backend/store.rs
 - sensitive: desktop/src-tauri/src/backend/*/commands.rs   # 域级 IPC 入口：参数映射与路径遏制
-- sensitive: desktop/src-tauri/src/backend/commands.rs     # 根级 IPC 入口（bootstrap/replace_collection/reset_application 等 9 个生产命令；events_since 已移出注册表仅存测试面）
+- sensitive: desktop/src-tauri/src/backend/commands.rs     # 根级 IPC 入口（bootstrap/replace_collection/reset_application 等 9 个生产命令；events_since 已移出注册表仅存测试面（文件内命令函数共 10 个，1 个仅测试面））
 - sensitive: desktop/src-tauri/src/startup.rs              # 启动与数据目录 IPC 入口（set/reset_storage_location、restart_application 等 5 命令）
 - sensitive: desktop/src-tauri/src/main.rs
 

@@ -549,7 +549,8 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .map-legend .legend-locked { background: var(--border-strong); }
 .map-layout { display: grid; gap: 20px; }
 .map-surface { min-width: 0; padding: 22px; }
-.knowledge-canvas { position: relative; width: 100%; aspect-ratio: 760 / 390; min-height: 330px; }
+.knowledge-canvas { position: relative; flex: none; } /* 147#15：尺寸由 JSX 按 128px/列、76px/行下限内联给定，父级横向滚动兜底 */
+.map-surface { overflow-x: auto; }
 .knowledge-canvas > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .knowledge-canvas line { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
 .knowledge-canvas line.path-edge { stroke: var(--accent); stroke-width: 3; stroke-dasharray: none; }

@@ -1111,7 +1111,8 @@ fn transform(
             }
             // 99#6：审计型父表悬挂 lenient 跳行（同引用列分支）
             Err(error)
-                if lenient_backup_parent(table, parent) && error.code == "invalid_backup_reference" =>
+                if lenient_backup_parent(table, parent)
+                    && error.code == "invalid_backup_reference" =>
             {
                 return Err(BackendError::new("pruned_backup_reference", &error.message));
             }
@@ -1287,14 +1288,16 @@ fn global_conflict(tx: &Connection, table: &str, row: &Row) -> Result<bool> {
 /// adoptions/排期表），导入整单拒绝使历史备份不可恢复；跳行降级并计入
 /// backupImportWarnings。仅这四张表收窄，其余 kv 引用断链仍整单拒绝
 fn lenient_backup_parent(table: &str, parent: &str) -> bool {
-    matches!(parent, "provider_requests" | "provider_route_runs" | "events")
-        || (matches!(
-            table,
-            "focus_sessions"
-                | "learning_plan_adoptions"
-                | "learning_plan_schedule_tasks"
-                | "learning_node_tasks"
-        ) && (parent == "kv:tasks" || parent == "kv:projects"))
+    matches!(
+        parent,
+        "provider_requests" | "provider_route_runs" | "events"
+    ) || (matches!(
+        table,
+        "focus_sessions"
+            | "learning_plan_adoptions"
+            | "learning_plan_schedule_tasks"
+            | "learning_node_tasks"
+    ) && (parent == "kv:tasks" || parent == "kv:projects"))
 }
 
 /// 102#1：携带请求列（request_id/grader_request_id/current_request_id）的
@@ -1468,8 +1471,8 @@ fn target_relative(entry: &FileEntry, maps: &IdMap) -> Result<String> {
             // 异常备份原先可落 {64hex}.{任意} 文件，磁盘名与行 kind 长期
             // 不一致；白名单外的扩展名改按行 kind 落名（内容哈希已校验）
             const KNOWN_EXTENSIONS: [&str; 14] = [
-                "pdf", "docx", "pptx", "epub", "txt", "md", "zip", "mp4", "m4v", "mov",
-                "webm", "mp3", "wav", "ogg",
+                "pdf", "docx", "pptx", "epub", "txt", "md", "zip", "mp4", "m4v", "mov", "webm",
+                "mp3", "wav", "ogg",
             ];
             let declared = path
                 .extension()
@@ -1480,7 +1483,11 @@ fn target_relative(entry: &FileEntry, maps: &IdMap) -> Result<String> {
                 return Ok(format!(
                     "materials/originals/{}.orphan-{}",
                     entry.sha256,
-                    declared.chars().take(16).filter(|c| c.is_ascii_alphanumeric()).collect::<String>()
+                    declared
+                        .chars()
+                        .take(16)
+                        .filter(|c| c.is_ascii_alphanumeric())
+                        .collect::<String>()
                 ));
             }
             Ok(entry.path.clone())

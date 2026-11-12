@@ -206,7 +206,9 @@ pub fn ics(document: &ExportDocument) -> Result<String> {
 /// OPML text 属性专用转义（11#8）：属性规范化会折叠字面换行为空格，
 /// 多行内容改以字符引用 &#10; 保留行结构
 fn xml_attr(value: &str) -> String {
-    xml(&xml_safe(value)).replace('\n', "&#10;").replace('\r', "")
+    xml(&xml_safe(value))
+        .replace('\n', "&#10;")
+        .replace('\r', "")
 }
 
 pub fn opml(document: &ExportDocument) -> String {

@@ -683,7 +683,8 @@ pub mod commands {
             use tauri::Manager;
             let state = app.state::<StartupState>();
             reset_location(&state.pointer)?;
-            let pending = (state.current_root() != state.default_root).then(|| state.default_root.clone());
+            let pending =
+                (state.current_root() != state.default_root).then(|| state.default_root.clone());
             state.set_pending(pending)?;
             overview(&app)
         })

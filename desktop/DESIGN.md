@@ -17,7 +17,7 @@ Operate：学习者是来完成任务的。可扫描性、学习闭环、真实�
 
 ## 字体与排版
 
-字体栈：`Aptos, Noto Sans SC, Source Han Sans SC, PingFang SC, Microsoft YaHei, sans-serif`。中文不使用斜体。正文默认 16px，辅助文字不小于 12px（styles.css 已按此下限收敛，新增规则不得低于 12px）；阅读正文行高 1.85，操作区行高 1.5–1.75。标题通过字重、尺寸和间距建立层级。大字模式以 `body` zoom 等比放大全站固定字号。
+字体栈：`Aptos, Noto Sans SC, Source Han Sans SC, PingFang SC, Microsoft YaHei, sans-serif`。中文不使用斜体。正文默认 16px，辅助文字不小于 12px（styles.css 已按此下限收敛，新增规则不得低于 12px；唯一例外是 48#11 的窄窗解析状态紧凑徽章 10px，带省略截断保证状态可见）；阅读正文行高 1.85，操作区行高 1.5–1.75。标题通过字重、尺寸和间距建立层级。大字模式以 `body` zoom 等比放大全站固定字号。
 
 ## 布局
 

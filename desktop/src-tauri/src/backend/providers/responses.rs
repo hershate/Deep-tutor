@@ -381,7 +381,11 @@ where
                         let upstream_code = event
                             .get("code")
                             .and_then(Value::as_str)
-                            .or_else(|| event.pointer("/response/error/code").and_then(Value::as_str))
+                            .or_else(|| {
+                                event
+                                    .pointer("/response/error/code")
+                                    .and_then(Value::as_str)
+                            })
                             .or_else(|| event.pointer("/error/code").and_then(Value::as_str))
                             .unwrap_or_default();
                         let code = match upstream_code {
@@ -394,10 +398,9 @@ where
                         };
                         // 66#4：上游 message 截断到 200 字符——对齐 openai/gemini
                         // 的防长技术细节/注入文案口径（原先整段直传）
-                        return Err(output.error(
-                            code,
-                            &message.chars().take(200).collect::<String>(),
-                        ));
+                        return Err(
+                            output.error(code, &message.chars().take(200).collect::<String>())
+                        );
                     }
                     _ => {
                         // 99#9：未覆盖事件不再完全静默——stderr 留痕供代理网关排障

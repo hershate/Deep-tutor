@@ -27,14 +27,20 @@ function graphLayout(graph: LearningGraph) {
   })
   const maximum = Math.max(...groups.keys(), 0)
   const positions = new Map<string, Position>()
+  // 147#15：画布按节点最小间距动态扩展——固定 760×390 下深图（层数≥5）
+  // 列距 <112px 节点宽、同层多节点行距 <66px 节点高，节点互相重叠并叠到
+  // 顶边；按 128px/列、76px/行的下限扩画布，稀疏图保持原 760×390 紧凑
+  const perLevel = Math.max(1, ...Array.from(groups.values(), ids => ids.length))
+  const width = Math.max(760, (maximum + 2) * 128)
+  const height = Math.max(390, (perLevel + 1) * 76)
   for (const [level, ids] of groups) {
     ids.forEach((id, index) => positions.set(id, {
-      x: (level + 1) * 760 / (maximum + 2),
-      y: (index + 1) * 390 / (ids.length + 1),
+      x: (level + 1) * width / (maximum + 2),
+      y: (index + 1) * height / (ids.length + 1),
       depth: level,
     }))
   }
-  return positions
+  return { positions, width, height }
 }
 
 export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, initialPlanId, focusTarget, onFocusConsumed }: { onNavigate: (page: PageId) => void; notify: (message: string) => void; onStudy?: (planId: string, stageId: string) => void; onPractice?: (planId: string, stageId: string, nodeId: string) => void; initialPlanId?: string | null; focusTarget?: { planId: string; nodeId: string; nonce: number } | null; onFocusConsumed?: () => void }) {
@@ -124,7 +130,8 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
     onFocusConsumed?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只随定位目标与图谱数据驱动
   }, [focusTarget, graph])
-  const positions = useMemo(() => graph ? graphLayout(graph) : new Map<string, Position>(), [graph])
+  const layout = useMemo(() => graph ? graphLayout(graph) : { positions: new Map<string, Position>(), width: 760, height: 390 }, [graph])
+  const { positions, width: mapWidth, height: mapHeight } = layout
   const node = graph?.nodes.find(item => item.id === selected)
   const progress = overview?.nodes.find(item => item.nodeId === selected)
   const stage = plan?.result?.stages.find(item => item.nodeIds.includes(selected))
@@ -173,9 +180,9 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
       <section className="surface map-surface">
         <SectionHeader title="真实知识网络" description={path ? `最短补学路径：${path.map(id => graph.nodes.find(item => item.id === id)?.title || id).join(' → ')}` : '点击节点查看证据，或选择目标计算真实有向最短路径。'} action={<div className="heading-actions"><select aria-label="补学目标" value={target} onChange={event => { setTarget(event.target.value); setPath(null) }}>{graph.nodes.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select><Button variant={path ? 'primary' : 'secondary'} size="sm" onClick={() => path ? setPath(null) : void generatePath()} disabled={busy}><Route size={16} />{path ? '退出路径' : '生成补学路径'}</Button></div>} />
         {/* 146#10：show-path 死类已删（无 CSS 规则、无脚本消费）；路径高亮由 path-edge/on-path 类承载 */}
-        {view === '图谱' ? <div className="knowledge-canvas">
-          <svg viewBox="0 0 760 390" preserveAspectRatio="none" aria-hidden="true">{graph.edges.map(edge => { const a = positions.get(edge.from); const b = positions.get(edge.to); const onPath = path?.some((id, index) => index < path.length - 1 && id === edge.from && path[index + 1] === edge.to); return a && b ? <line key={`${edge.from}-${edge.to}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={onPath ? 'path-edge' : ''} /> : null })}</svg>
-          {graph.nodes.map(item => { const nodeProgress = overview?.nodes.find(progress => progress.nodeId === item.id); const mastery = nodeProgress?.mastery; const position = positions.get(item.id); if (!position) return null; const hasEvidence = mastery !== null && mastery !== undefined; const middle = hasEvidence || nodeProgress?.readingCompleted; return <button key={item.id} className={`map-node ${hasEvidence ? ((mastery ?? 0) >= 80 ? 'node-mastered' : 'node-learning') : middle ? 'node-learning' : 'node-locked'} ${selected === item.id ? 'selected' : ''} ${path?.includes(item.id) ? 'on-path' : ''}`} aria-current={selected === item.id ? 'true' : undefined} style={{ left: `${position.x / 760 * 100}%`, top: `${position.y / 390 * 100}%` }} onClick={() => { setSelected(item.id); setPath(null) }}><span className="node-status">{hasEvidence && (mastery ?? 0) >= 80 ? <Check size={15} /> : middle ? <GitBranch size={15} /> : <CircleDashed size={15} />}</span><strong>{item.title}</strong><small>{!hasEvidence ? (nodeProgress?.readingCompleted ? '已阅读' : '待评估') : `${mastery}%`}</small></button> })}
+        {view === '图谱' ? <div className="knowledge-canvas" style={{ width: mapWidth, height: mapHeight }}>
+          <svg viewBox={`0 0 ${mapWidth} ${mapHeight}`} preserveAspectRatio="none" aria-hidden="true">{graph.edges.map(edge => { const a = positions.get(edge.from); const b = positions.get(edge.to); const onPath = path?.some((id, index) => index < path.length - 1 && id === edge.from && path[index + 1] === edge.to); return a && b ? <line key={`${edge.from}-${edge.to}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={onPath ? 'path-edge' : ''} /> : null })}</svg>
+          {graph.nodes.map(item => { const nodeProgress = overview?.nodes.find(progress => progress.nodeId === item.id); const mastery = nodeProgress?.mastery; const position = positions.get(item.id); if (!position) return null; const hasEvidence = mastery !== null && mastery !== undefined; const middle = hasEvidence || nodeProgress?.readingCompleted; return <button key={item.id} className={`map-node ${hasEvidence ? ((mastery ?? 0) >= 80 ? 'node-mastered' : 'node-learning') : middle ? 'node-learning' : 'node-locked'} ${selected === item.id ? 'selected' : ''} ${path?.includes(item.id) ? 'on-path' : ''}`} aria-current={selected === item.id ? 'true' : undefined} style={{ left: position.x, top: position.y }} onClick={() => { setSelected(item.id); setPath(null) }}><span className="node-status">{hasEvidence && (mastery ?? 0) >= 80 ? <Check size={15} /> : middle ? <GitBranch size={15} /> : <CircleDashed size={15} />}</span><strong>{item.title}</strong><small>{!hasEvidence ? (nodeProgress?.readingCompleted ? '已阅读' : '待评估') : `${mastery}%`}</small></button> })}
         </div> : <div className="knowledge-list">{graph.nodes.map(item => { const mastery = overview?.nodes.find(progress => progress.nodeId === item.id)?.mastery; return <button key={item.id} onClick={() => setSelected(item.id)} className={selected === item.id ? 'active' : ''} aria-current={selected === item.id ? 'true' : undefined}><div><strong>{item.title}</strong><span>{item.summary}</span></div><div><span>{mastery === null || mastery === undefined ? '待评估' : `${mastery}%`}</span><ProgressBar value={mastery || 0} srLabel={`节点掌握度 ${mastery ?? 0}%`} /></div><ArrowRight size={17} /></button> })}</div>}
       </section>
       {node && <aside className="surface node-detail">
