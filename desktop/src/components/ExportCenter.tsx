@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowDownToLine, CalendarDays, Check, Code2, FileArchive, FileText, FolderOpen, Layers3, LoaderCircle, Presentation, Table2 } from 'lucide-react'
 import { Badge, Button, Modal } from './UI'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
@@ -45,6 +45,9 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   const [loadFailed, setLoadFailed] = useState(false)
   const [errorSource, setErrorSource] = useState<'load' | 'lecture' | 'export' | 'reveal'>('export')
   const [reloadToken, setReloadToken] = useState(0)
+  // 130#6：plan.* 事件重拉的清错判定读最新值（订阅闭包挂载一次，state 快照会过期）
+  const loadFailedRef = useRef(false)
+  loadFailedRef.current = loadFailed
 
   useEffect(() => {
     if (!open) return
@@ -62,7 +65,10 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   }, [open, initialPlanId, reloadToken])
   useEffect(() => {
     // 信息项：弹窗开着期间新完成的方案实时进入列表（plan. 前缀事件触发重拉）
-    // 121#5：重拉成功同步清读取失败态与「读取失败」横幅（列表已可用）
+    // 121#5：重拉成功同步清读取失败态与「读取失败」横幅（列表已可用）。
+    // 130#6：只清「读取失败」态——原先无条件清 error，正在阅读的导出/讲义/
+    // reveal 失败横幅被无关 plan.* 事件重拉清掉（121#5 意图只覆盖读取失败）。
+    // ref 取最新值：订阅挂载一次（51#9），闭包内的 loadFailed 是挂载时快照
     if (!open) return
     let unlisten: (() => void) | undefined
     let disposed = false
@@ -71,11 +77,16 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
       void backend.listLearningPlans().then(items => {
         if (disposed) return
         setPlans(items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status)))
-        setLoadFailed(false)
-        setErrorSource('export')
-        setError('')
+        if (loadFailedRef.current) {
+          loadFailedRef.current = false
+          setLoadFailed(false)
+          setErrorSource('export')
+          setError('')
+        }
       }).catch(() => {})
-    }).then(remove => { if (disposed) remove(); else unlisten = remove })
+      // 136#2：订阅链补 .catch——事件系统故障时与全仓其余订阅同口径提示，
+      // 不留 unhandled rejection
+    }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(() => {})
     return () => { disposed = true; unlisten?.() }
   }, [open])
 
@@ -107,11 +118,13 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   const run = async (format: ExportFormat, extension: string) => {
     setBusy(format)
     setError('')
-    setDone(null)
-    setDonePath('')
     try {
       const destination = await backend.saveMaterialFile(title, extension)
       if (!destination) return
+      // 134#1：清旧回执挪到保存路径确认之后——取消保存对话框不再连带清掉
+      // 上一次成功导出的回执与「在资源管理器中显示」入口（对齐 BackupPanel）
+      setDone(null)
+      setDonePath('')
       const result = await exportBackend.content({ scope, format, planId: needsPlan ? planId : null, stageId: scope === 'lecture' ? stageId : null, unitIndex: scope === 'lecture' ? unitIndex : null, version: null }, destination)
       setDone(result)
       setDonePath(destination)

@@ -552,6 +552,11 @@ export function isCancelRace(error: unknown) {
     'no_paused_focus',
     'job_active',
     'request_active',
+    // 138#2：69#1 家族口径补齐——供应商检测中（ProviderHub testProfile 双击）
+    // 与变式生成中（跨窗/跨入口触达）都是「另一操作已在处理」的真实竞态，
+    // 与 job_active/request_active 同场景同反馈
+    'test_active',
+    'variant_generation_active',
   ].includes(code)
 }
 

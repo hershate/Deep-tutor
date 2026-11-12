@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, CloudCog, Download, Eye, LoaderCircle, RefreshCw, ShieldCheck, Square, Upload } from 'lucide-react'
-import { Badge, Button, Modal, SectionHeader, Toggle } from './UI'
+import { Badge, Button, Modal, RevealExport, SectionHeader, Toggle } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../backend/client'
 import { syncBackend } from '../backend/sync'
 import type { SyncConfigInput, SyncJob, SyncOverview, SyncVersion } from '../backend/sync'
@@ -29,6 +29,8 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   // 原先弹窗里只有无限 spinner，无错误也无重试入口
   const [versionsError, setVersionsError] = useState('')
   const [busy, setBusy] = useState('')
+  // 134#10：下载任务的目标路径——reveal 定位最近一次下载配置的落盘位置
+  const [downloadTarget, setDownloadTarget] = useState('')
   const [error, setError] = useState('')
   const versionsOpenRef = useRef(false)
 
@@ -98,6 +100,8 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
       const destination = kind === 'download' ? await backend.saveMaterialFile('DeepTutor-provider-config', 'json') : null
       if (kind === 'download' && !destination) return
       const accepted = await syncBackend.start(kind, destination)
+      // 134#10：下载任务的目标路径——任务面板之外供「在资源管理器中显示」定位
+      if (kind === 'download' && destination) setDownloadTarget(destination)
       notify(`${jobNames[kind]}任务 ${accepted.id} 已启动，等待真实远端结果`)
       await refresh()
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
@@ -133,6 +137,7 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
       <Button variant="secondary" size="sm" disabled={!configured || Boolean(busy)} onClick={() => void start('upload')}><Upload size={15} />上传脱敏配置</Button>
       <Button variant="ghost" size="sm" disabled={!configured || Boolean(busy)} onClick={() => void start('download')}><Download size={15} />下载配置</Button>
       <Button variant="ghost" size="sm" disabled={!configured || Boolean(busy)} onClick={() => void start('import')}><RefreshCw size={15} />下载并追加导入</Button>
+      {downloadTarget && <RevealExport path={downloadTarget} />}
     </div>
     <div className="data-actions"><Button variant="ghost" size="sm" disabled={!configured || busy === 'versions'} onClick={() => void openVersions()}><RefreshCw size={15} />{busy === 'versions' ? '正在读取远端版本…' : '浏览远端历史版本'}</Button></div>
     <p className="form-help">自动同步开启后每 24 小时检查到期任务；上传同时保存历史版本，最多保留最近 10 个。</p>

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from 'react'
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, RefObject } from 'react'
-import { X, Inbox } from 'lucide-react'
-import { openExternalUrl } from '../backend/shell'
+import { X, Inbox, FolderOpen } from 'lucide-react'
+import { openExternalUrl, revealInFileManager } from '../backend/shell'
 import { reportBackendError } from '../backend/client'
 
 export function Button({ children, variant = 'primary', size = 'md', className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'light'; size?: 'sm' | 'md' | 'lg' }) {
@@ -155,6 +155,11 @@ export function useFocusContainment(ref: RefObject<HTMLElement | null>, active: 
 const MODAL_STACK: { id: number; close: () => void }[] = []
 let modalSequence = 0
 let overflowLocks = 0
+// 133#7：弹层栈真源判定——App 级键盘仲裁原先以 document.querySelector('.overlay')
+// 类名查询判「有弹层打开」，与 MODAL_STACK 脱钩（自绘弹层/类名重构即静默失效）
+export function hasOpenModal() {
+  return MODAL_STACK.length > 0
+}
 
 export function Modal({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -202,6 +207,14 @@ export function Modal({ open, onClose, title, children, wide = false }: { open: 
 
 // 20#5/28#11：破坏性操作确认对话框——对齐 Settings 清除数据的防误触标准
 // （PRODUCT.md 原则 4：关键操作可见、可撤销或可恢复）
+// 134#10：导出落盘后的「在资源管理器中显示」共享入口——后端
+// write_export_bytes 已为各导出命令登记 reveal 回执（24h TTL，白名单零
+// 改动），此前仅 ExportCenter/BackupPanel 接入；导出页保存 destination
+// 后复用本组件
+export function RevealExport({ path }: { path: string }) {
+  return <Button variant="ghost" size="sm" onClick={() => void revealInFileManager(path).catch(reportBackendError)}><FolderOpen size={15} />在资源管理器中显示</Button>
+}
+
 export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel = '确认', busy = false }: {
   open: boolean
   onClose: () => void

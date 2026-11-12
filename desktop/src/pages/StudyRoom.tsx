@@ -178,10 +178,10 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
           throttledFetch(() => void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause))))
         }
       }
-    }).then(remove => { if (disposed) remove(); else unlisten = remove })
-    return () => { disposed = true; unlisten?.() }
-      // 76#7：卸载取消武装中的定时器
-      throttledFetch.cancel()
+    }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(reportBackendError)
+    // 136#2：订阅链补 .catch，不留 unhandled rejection；
+    // 113#1 同款：cancel 原先排在 return 之后是不可达死代码，移入 cleanup 生效
+    return () => { disposed = true; unlisten?.(); throttledFetch.cancel() }
   }, [])
 
   const stage = plan?.result?.stages.find(item => item.id === stageId)

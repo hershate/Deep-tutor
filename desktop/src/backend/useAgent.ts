@@ -84,10 +84,16 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       void refreshSessionRef.current(id)
     }, 200)
   }, [])
+  // 136#3：refresh 补序号守卫（51#2 家族唯一漏网，同文件 refreshSession 已有
+  // 108#4）——旧 refresh 响应后到会把旧过滤集写回，activeIdRef 不在旧集时
+  // 回退 find(title)/首项，正在查看的会话被切走（列表回跳闪烁）
+  const refreshSeqRef = useRef(0)
   const refresh = useCallback(async () => {
     if (!enabled) return
+    const ticket = ++refreshSeqRef.current
     try {
       const [items, learningPlans] = await Promise.all([backend.listAgentSessions(), backend.listLearningPlans()])
+      if (ticket !== refreshSeqRef.current) return
       const adopted = learningPlans.filter(item => item.adoptedProjectId !== null)
       const available = planId ? items.filter(item => item.planId === planId) : items
       rememberRuns(available)
@@ -100,7 +106,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       activeIdRef.current = next
       setActiveId(next)
       setError('')
-    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setLoading(false) }
+    } catch (cause) { if (ticket === refreshSeqRef.current) setError(backendErrorMessage(cause)) } finally { if (ticket === refreshSeqRef.current) setLoading(false) }
   }, [enabled, planId, rememberRuns, sessionTitle])
 
   useEffect(() => { void refresh() }, [refresh])

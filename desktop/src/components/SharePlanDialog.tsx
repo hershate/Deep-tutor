@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Download, Eye, Link2, LoaderCircle, Share2, Trash2 } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, Modal } from './UI'
-import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { sharingBackend } from '../backend/sharing'
 import type { CreatedShare, ShareMetadata } from '../backend/sharing'
 import type { LearningPlan } from '../backend/client'
@@ -45,7 +45,8 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
     let remove: (() => void) | undefined
     void onBackendEvent(event => {
       if (event.kind.startsWith('share.')) void refreshShares().catch(cause => setError(backendErrorMessage(cause)))
-    }).then(unlisten => { if (active) remove = unlisten; else unlisten() })
+    // 136#2：订阅链补 .catch——与全仓其余订阅同口径，不留 unhandled rejection
+    }).then(unlisten => { if (active) remove = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; remove?.() }
   }, [open, initialPlanId, refreshShares])
 

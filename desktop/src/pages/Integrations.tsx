@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ArrowDownToLine, Blocks, Code2, FileCode2, Layers3, Plug, RefreshCw, ShieldCheck, Trash2, Upload, Zap } from 'lucide-react'
-import { Badge, Button, ConfirmDialog, EmptyState, IconButton, SectionHeader, Toggle } from '../components/UI'
+import { Badge, Button, ConfirmDialog, EmptyState, IconButton, RevealExport, SectionHeader, Toggle } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { pluginBackend, type PluginEvent, type PluginOverview } from '../backend/plugins'
 import UsagePanel from '../components/UsagePanel'
@@ -100,6 +100,8 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   }
   // 43#2：资产下载写盘期间禁用，防止连点叠出多个保存对话框
   const [downloading, setDownloading] = useState('')
+  // 134#10：最近一次资产落盘路径——供「在资源管理器中显示」定位（后端已登记回执）
+  const [downloadPath, setDownloadPath] = useState('')
   const download = async (id: string) => {
     if (downloading) return
     setDownloading(id)
@@ -108,6 +110,7 @@ export default function Integrations({ notify }: { notify: (message: string) => 
       const destination = await backend.saveMaterialFile(id, 'md')
       if (!destination) return
       const result = await pluginBackend.saveAsset(id, destination)
+      setDownloadPath(destination)
       notify(`已下载真实资产（${result.bytes.toLocaleString()} 字节）`)
     } catch (error) { reportBackendError(error) } finally { setDownloading('') }
   }
@@ -134,6 +137,6 @@ export default function Integrations({ notify }: { notify: (message: string) => 
 
     {tab === '用量与成本' && <UsagePanel notify={notify} />}
 
-    {tab === '开发者资源' && (data ? <div className="developer-layout"><main><section className="surface skill-assets"><SectionHeader title="可审查的 Skill 与原生运维资产" description="历史 Skill 仅作方法论参考，不是当前原生运行时；内容按原始文件读取并校验 SHA-256。" />{data.assets.map(asset => <div key={asset.id}><FileCode2 size={18} /><div><strong>{asset.title}</strong><span>{asset.kind === 'legacy-skill' ? '历史方法论资产，不直接执行' : 'Tauri 2 原生应用运维'} · {asset.bytes.toLocaleString()} 字节</span></div><Button variant="ghost" size="sm" disabled={downloading !== ''} onClick={() => void download(asset.id)}>{downloading === asset.id ? '正在等待选择保存位置…' : <><ArrowDownToLine size={15} />下载</>}</Button></div>)}</section><section className="surface security-matrix"><SectionHeader title="当前原生扩展边界" description="仅展示实际实现，不宣称未提供的认证或在线安全能力。" />{[['清单校验', '仅接受声明式 JSON 事件插件；拒绝未知字段与脚本入口'], ['路径边界', '插件 ID 经过校验，安装文件限制在应用数据目录'], ['事件去重', '真实事件先写 outbox；插件与事件 ID 联合去重'], ['重载保护', '无效清单不改变当前启用配置，并记录失败审计'], ['密钥边界', '插件清单不接受 API Key；密钥由系统密钥库管理'], ['生命周期', '启停、重载、卸载和重置均有真实持久化结果']].map(([name, description]) => <div key={name}><ShieldCheck size={17} /><strong>{name}</strong><span>{description}</span><Badge tone="neutral">原生实现</Badge></div>)}</section></main><aside><section className="surface startup-card"><Code2 size={23} /><h3>Tauri 2 原生运维</h3><div><span>交付方式</span><strong>NSIS 应用安装包</strong></div><div><span>持久化</span><strong>SQLite WAL · 原子事务 · 事件 outbox</strong></div><div><span>插件边界</span><strong>声明式清单 · 无脚本执行</strong></div><Button variant="secondary" disabled={downloading !== ''} onClick={() => void download('native-operations')}>{downloading === 'native-operations' ? '正在等待选择保存位置…' : '下载原生运维说明'}</Button></section></aside></div> : loadPending)}
+    {tab === '开发者资源' && (data ? <div className="developer-layout"><main><section className="surface skill-assets"><SectionHeader title="可审查的 Skill 与原生运维资产" description="历史 Skill 仅作方法论参考，不是当前原生运行时；内容按原始文件读取并校验 SHA-256。" action={downloadPath ? <RevealExport path={downloadPath} /> : undefined} />{data.assets.map(asset => <div key={asset.id}><FileCode2 size={18} /><div><strong>{asset.title}</strong><span>{asset.kind === 'legacy-skill' ? '历史方法论资产，不直接执行' : 'Tauri 2 原生应用运维'} · {asset.bytes.toLocaleString()} 字节</span></div><Button variant="ghost" size="sm" disabled={downloading !== ''} onClick={() => void download(asset.id)}>{downloading === asset.id ? '正在等待选择保存位置…' : <><ArrowDownToLine size={15} />下载</>}</Button></div>)}</section><section className="surface security-matrix"><SectionHeader title="当前原生扩展边界" description="仅展示实际实现，不宣称未提供的认证或在线安全能力。" />{[['清单校验', '仅接受声明式 JSON 事件插件；拒绝未知字段与脚本入口'], ['路径边界', '插件 ID 经过校验，安装文件限制在应用数据目录'], ['事件去重', '真实事件先写 outbox；插件与事件 ID 联合去重'], ['重载保护', '无效清单不改变当前启用配置，并记录失败审计'], ['密钥边界', '插件清单不接受 API Key；密钥由系统密钥库管理'], ['生命周期', '启停、重载、卸载和重置均有真实持久化结果']].map(([name, description]) => <div key={name}><ShieldCheck size={17} /><strong>{name}</strong><span>{description}</span><Badge tone="neutral">原生实现</Badge></div>)}</section></main><aside><section className="surface startup-card"><Code2 size={23} /><h3>Tauri 2 原生运维</h3><div><span>交付方式</span><strong>NSIS 应用安装包</strong></div><div><span>持久化</span><strong>SQLite WAL · 原子事务 · 事件 outbox</strong></div><div><span>插件边界</span><strong>声明式清单 · 无脚本执行</strong></div><Button variant="secondary" disabled={downloading !== ''} onClick={() => void download('native-operations')}>{downloading === 'native-operations' ? '正在等待选择保存位置…' : '下载原生运维说明'}</Button></section></aside></div> : loadPending)}
   </div>
 }

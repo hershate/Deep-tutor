@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpenCheck, Brain, CircleAlert, Clock3, Download, LoaderCircle, Target, TrendingUp } from 'lucide-react'
-import { Badge, Button, EmptyState, LineChart, MiniBars, ProgressBar, SectionHeader } from '../components/UI'
+import { Badge, Button, EmptyState, LineChart, MiniBars, ProgressBar, RevealExport, SectionHeader } from '../components/UI'
 import { CalendarReport, PlanReport } from '../components/ReportViews'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { reportsBackend } from '../backend/reports'
@@ -25,6 +25,8 @@ export default function Reports({ notify, onNavigate }: { notify: (message: stri
   const [calendar, setCalendar] = useState<CalendarData | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  // 134#10：导出落盘路径——供「在资源管理器中显示」定位（后端已登记回执）
+  const [exportPath, setExportPath] = useState('')
   const [selected, setSelected] = useState<string[]>([])
 
   // 28#4：序号守卫——切周期/事件风暴期并发刷新先发后至时，旧响应不得
@@ -71,6 +73,7 @@ export default function Reports({ notify, onNavigate }: { notify: (message: stri
       const destination = await reportsBackend.save()
       if (!destination) return
       const result = await reportsBackend.export(destination, period)
+      setExportPath(destination)
       notify(`真实学习报告已导出：${result.bytes.toLocaleString()} 字节`)
     } catch (error) { reportBackendError(error) } finally { setBusy('') }
   }
@@ -86,7 +89,7 @@ export default function Reports({ notify, onNavigate }: { notify: (message: stri
   const metrics = report?.metrics
   const difference = metrics && metrics.previousFocusSeconds > 0 ? (metrics.focusSeconds - metrics.previousFocusSeconds) / metrics.previousFocusSeconds : null
   return <div className="page reports-page">
-    <div className="page-heading"><div><h1>学习报告</h1><p>只展示真实记录；没有证据时不以示例数字代替。</p></div><div className="heading-actions"><div className="segmented" aria-busy={pending}>{periods.map(item => <button key={item.id} className={period === item.id ? 'active' : ''} aria-pressed={period === item.id} onClick={() => setPeriod(item.id)}>{item.label}</button>)}{pending && <LoaderCircle size={15} className="spin" aria-label="正在切换周期" />}</div><Button variant="secondary" disabled={busy === 'export'} onClick={() => void exportReport()}>{busy === 'export' ? <LoaderCircle size={16} className="spin" /> : <Download size={17} />}导出</Button></div></div>
+    <div className="page-heading"><div><h1>学习报告</h1><p>只展示真实记录；没有证据时不以示例数字代替。</p></div><div className="heading-actions"><div className="segmented" aria-busy={pending}>{periods.map(item => <button key={item.id} className={period === item.id ? 'active' : ''} aria-pressed={period === item.id} onClick={() => setPeriod(item.id)}>{item.label}</button>)}{pending && <LoaderCircle size={15} className="spin" aria-label="正在切换周期" />}</div><Button variant="secondary" disabled={busy === 'export'} onClick={() => void exportReport()}>{busy === 'export' ? <LoaderCircle size={16} className="spin" /> : <Download size={17} />}导出</Button>{exportPath && <RevealExport path={exportPath} />}</div></div>
     <div className="report-view-tabs">{['总览', '日历', '按方案'].map(item => <button key={item} className={view === item ? 'active' : ''} aria-pressed={view === item} onClick={() => setView(item)}>{item}</button>)}</div>
     {error && <div className="form-error" role="alert"><CircleAlert size={16} /><span>{error}</span><Button variant="ghost" size="sm" onClick={() => { setError(''); void refresh() }}>重新读取</Button></div>}
     {!report ? error ? null : <div className="page-loading" role="status"><LoaderCircle size={22} className="spin" />正在读取真实学习记录…</div> : <>

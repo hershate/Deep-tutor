@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, BookOpen, Check, CircleDashed, GitBranch, List, Map as MapIcon, Play, Route, Target } from 'lucide-react'
 import type { PageId } from '../data'
 import { Badge, Button, ProgressBar, SectionHeader } from '../components/UI'
-import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import type { KnowledgeOverview, LearningGraph, LearningPlan } from '../backend/client'
 
 type Position = { x: number; y: number; depth: number }
@@ -91,7 +91,8 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
       // 练习/复习证据落库后掌握度随之变化，停留页面也要刷新（事件载荷不带 planId，直接重拉概览）
       if (event.kind === 'study.progress_changed' && event.payload.planId === planRef.current?.id) void refreshOverviewRef.current()
       else if (['practice.answer_graded', 'practice.answer_submitted', 'practice.set_completed', 'practice.exam_completed', 'practice.mistake_mastered_by_variant', 'review.graded'].includes(event.kind)) void refreshOverviewRef.current()
-    }).then(remove => { if (disposed) remove(); else unlisten = remove })
+    // 136#2：订阅链补 .catch——与全仓其余订阅同口径，不留 unhandled rejection
+    }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(reportBackendError)
     return () => { disposed = true; unlisten?.() }
   }, [])
 

@@ -182,9 +182,9 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .btn-light { background: var(--lime-400); color: var(--pine-950); border-color: var(--lime-400); }
 .btn-light:hover { background: var(--lime-300); }
 .btn-sm { min-height: 38px; padding-inline: 12px; font-size: 13px; }
-/* 128#3：默认尺寸档占位——全站默认按钮都带 btn-md 但零规则（.btn-sm/
-   .btn-lg 有定义），保留类名生成、为未来单独调整默认尺寸留通道 */
-.btn-md { }
+/* 128#3：默认尺寸档占位——全站默认按钮都带 btn-md 但无专属规则（.btn-sm/
+   .btn-lg 有定义），保留类名生成、为未来单独调整默认尺寸留通道；
+   130#16：空规则块改纯注释形式，避免 lint 工具接入时报空规则 */
 .btn-lg { min-height: 50px; padding-inline: 22px; }
 .surface { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
@@ -235,6 +235,8 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .empty-state h3 { color: var(--text); margin: 14px 0 6px; }
 .empty-state p { max-width: 440px; }
 .toast-stack { position: fixed; left: 50%; bottom: 86px; z-index: 100; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: calc(100vw - 32px); }
+/* 133#8：大批量拖放导入的常驻进度指示——分钟级任务不再只有终态 toast */
+.import-progress { position: fixed; left: 50%; bottom: 46px; z-index: 100; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; background: var(--surface-raised); border: 1px solid var(--border); box-shadow: var(--shadow); font-size: 13px; color: var(--text-secondary); }
 .toast-stack .toast { position: static; transform: none; }
 .toast { position: fixed; left: 50%; bottom: 86px; z-index: 100; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); display: flex; align-items: center; gap: 9px; padding: 12px 14px; border: 1px solid oklch(0.5 0.04 160); border-radius: 11px; background: var(--pine-950); color: white; box-shadow: 0 14px 40px oklch(0.15 0.02 160 / .3); font-size: 13px; animation: toast-in .2s ease-out; }
 .toast > svg { color: var(--lime-400); }
@@ -541,6 +543,9 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 （点击瞬间内容微移），对齐 .option-list 的 border-color 范式 */
 .map-node.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 4px 12px oklch(0.25 0.02 160 / .07); }
 .map-node.on-path { box-shadow: 0 0 0 5px var(--accent-soft); }
+/* 130#7：组合态（选中且在路径上）显式合并两态阴影——原先与 on-path 同
+   特异度且靠前，选中环被 5px 光晕整体替换，路径视图里选中标记只剩边框色差 */
+.map-node.selected.on-path { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 0 5px var(--accent-soft), 0 4px 12px oklch(0.25 0.02 160 / .07); }
 .map-node strong { font-size: 12px; }
 .map-node small { color: var(--muted); font-size: 12px; }
 .node-status { color: var(--accent); }
@@ -684,8 +689,9 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .review-progress .badge { grid-column: 2; grid-row: 1; }
 .flashcard { position: relative; width: 100%; height: 350px; margin-bottom: 22px; border: 0; border-radius: 18px; background: transparent; transform-style: preserve-3d; transition: transform .45s ease; }
 /* 128#4：翻卡悬停反馈——.45s transform 过渡原先无任何触发规则（死代码），
-悬停轻微上浮提示可点击翻面 */
-.flashcard:hover { transform: translateY(-3px); }
+悬停轻微上浮提示可点击翻面。130#17：:not(.is-flipped) 提权——已翻面态
+与 :hover 同特异度且靠后，原先翻面后悬停反馈整体失效 */
+.flashcard:not(.is-flipped):hover { transform: translateY(-3px); }
 .flashcard.is-flipped { transform: rotateY(180deg); }
 .flashcard-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; border: 1px solid var(--border); border-radius: 18px; backface-visibility: hidden; text-align: center; overflow-y: auto; }
 .flashcard-front { background: var(--pine-950); color: white; }

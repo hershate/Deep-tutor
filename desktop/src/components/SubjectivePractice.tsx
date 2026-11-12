@@ -84,10 +84,10 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string' && (event.payload.requestId === requestId || upstreams.get(event.payload.requestId) === requestId)) throttledUpdate(update)
     })
     listening.then(stop => { if (active) unlisten = stop; else stop() }).catch(reportBackendError)
-    // 28#5：卸载早于 listen() promise resolve 时立即注销
-    return () => { active = false; unlisten?.(); void listening.then(stop => { if (!active) stop() }) }
-      // 76#7：卸载取消武装中的定时器
-      throttledUpdate.cancel()
+    // 28#5：卸载早于 listen() promise resolve 时立即注销。
+    // 113#1 同款：cancel 原先排在 return 之后是不可达死代码——76#7 声称的
+    // 「卸载取消」自引入起从未生效，移入 cleanup 生效
+    return () => { active = false; unlisten?.(); void listening.then(stop => { if (!active) stop() }); throttledUpdate.cancel() }
   }, [answer?.requestId, answer?.status])
 
   const submit = async () => {

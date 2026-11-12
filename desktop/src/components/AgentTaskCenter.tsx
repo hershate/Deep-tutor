@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Ban, Check, CircleAlert, LoaderCircle, Square } from 'lucide-react'
 import { Badge, Button, EmptyState, ProgressBar } from './UI'
-import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, isCancelRace, reportBackendError } from '../backend/client'
 import type { Lecture } from '../backend/client'
 
 type TaskEntry = {
@@ -62,7 +62,8 @@ export default function AgentTaskCenter({ notify }: { notify: (message: string) 
         if (timer !== undefined) return
         timer = window.setTimeout(() => { timer = undefined; void refresh() }, 300)
       }
-    }).then(remove => { if (disposed) remove(); else unlisten = remove })
+    // 136#2：订阅链补 .catch——与全仓其余订阅同口径，不留 unhandled rejection
+    }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(reportBackendError)
     return () => { disposed = true; unlisten?.(); if (timer !== undefined) window.clearTimeout(timer) }
   }, [refresh])
   const cancel = async (task: TaskEntry) => {

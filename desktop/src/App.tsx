@@ -1,6 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, Map, Menu, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
+import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, LoaderCircle, Map, Menu, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Plan from './pages/Plan'
@@ -18,7 +19,7 @@ import TutorPanel from './components/TutorPanel'
 import AgentTaskCenter from './components/AgentTaskCenter'
 import DataDirectoryPanel from './components/DataDirectoryPanel'
 import SecurityPanel from './components/SecurityPanel'
-import { Button, ConfirmDialog, IconButton, Modal, useFocusContainment } from './components/UI'
+import { Button, ConfirmDialog, hasOpenModal, IconButton, Modal, useFocusContainment } from './components/UI'
 import type { PageId, Project, Task } from './data'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
@@ -73,6 +74,9 @@ export default function App() {
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
   // A-10：多槽 toast——两个并发后端错误后到不再覆盖先到
   const [toasts, setToasts] = useState<{ id: number; message: string; tone: 'info' | 'error' }[]>([])
+  // 133#8：拖放大批量导入的进行中反馈——原先只在终态 toast 一次，数百文件
+  // 分钟级静默；chip 常驻显示「正在导入资料 N/M」
+  const [importProgress, setImportProgress] = useState('')
   const [quickType, setQuickType] = useState('任务')
   const [quickTitle, setQuickTitle] = useState('')
   // 43#1：快速记录保存中的防抖态
@@ -156,7 +160,12 @@ export default function App() {
     // 后端错误以错误样式（alert）播报，与成功提示区分，不再共用绿色对勾
     const onError = (event: Event) => setToasts(current => [...current, { id: Date.now() + Math.random(), message: (event as CustomEvent<string>).detail, tone: 'error' as const }].slice(-4))
     window.addEventListener('backend-error', onError)
-    return () => window.removeEventListener('backend-error', onError)
+    // 134#8：状态类信息走独立 notice 通道——原先「正在等待…请稍候」类提示
+    // 经 backend-error 播报，被渲染为红色 role=alert 错误 toast，用户以为
+    // 保存出错；notice 以普通状态样式（role=status）呈现
+    const onNotice = (event: Event) => setToasts(current => [...current, { id: Date.now() + Math.random(), message: (event as CustomEvent<string>).detail, tone: 'info' as const }].slice(-4))
+    window.addEventListener('backend-notice', onNotice)
+    return () => { window.removeEventListener('backend-error', onError); window.removeEventListener('backend-notice', onNotice) }
   }, [])
   // 32#15：每条 toast 独立计时——原先依赖整个数组，任一新提示会重建全部
   // 计时器，旧提示的剩余存活时间被重置为满时长；以已登记集合保证每条只排一次
@@ -165,10 +174,14 @@ export default function App() {
     for (const toast of toasts) {
       if (scheduledToasts.current.has(toast.id)) continue
       scheduledToasts.current.add(toast.id)
+      // 134#2：时长按字数自适应——固定 3.2s/5.2s 下长统计文案（备份跳过
+      // 计数、多文件失败明细可达 60+ 字）读一半即逝且无历史回看；超过短文案
+      // 基线（16 字）后每字 +120ms（中文约 5-8 字/秒），封顶 10s
+      const extra = Math.max(0, toast.message.length - 16) * 120
       window.setTimeout(() => {
         scheduledToasts.current.delete(toast.id)
         setToasts(current => current.filter(item => item.id !== toast.id))
-      }, toast.tone === 'error' ? 5200 : 3200)
+      }, Math.min(10000, (toast.tone === 'error' ? 5200 : 3200) + extra))
     }
   }, [toasts])
   useEffect(() => {
@@ -266,9 +279,11 @@ export default function App() {
       if (disposed || event.payload.type !== 'drop') return
       const paths = event.payload.paths
       if (!paths?.length) return
-      void importMaterialPaths(paths)
+      setImportProgress(`正在导入资料 0/${paths.length}`)
+      void importMaterialPaths(paths, (processed, total) => { if (!disposed) setImportProgress(`正在导入资料 ${processed}/${total}`) })
         .then(summary => notify(summarizeMaterialImport(summary)))
         .catch(error => reportBackendError(error, 'write'))
+        .finally(() => { if (!disposed) setImportProgress('') })
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
       .catch(() => { /* 拖放监听不可用时保持无拖放行为，不影响主流程 */ })
     return () => { disposed = true; unlisten?.() }
@@ -282,20 +297,26 @@ export default function App() {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        // 14#4：专注层 z90 完全遮挡搜索模态（z70），此时打开只会劫持键盘焦点
-        if (!focusOpen) { event.preventDefault(); setModal('search') }
+        // 14#4：专注层 z90 完全遮挡搜索模态（z70），此时打开只会劫持键盘焦点。
+        // 133#6：modal 为单值状态——任一 App 级弹层打开时再开搜索会直接顶替
+        // （快速记录半填内容丢失）；补 !modal 守卫（页面级弹层经 hasOpenModal
+        // 判定）。136#6：只读分享页不渲染 SearchLayer——写入 modal 状态会在
+        // 返回应用后凭空弹出搜索层，补 page !== 'shared'
+        if (!focusOpen && !modal && !hasOpenModal() && page !== 'shared') { event.preventDefault(); setModal('search') }
       }
       if (event.key === 'Escape') {
         // 24#2：Esc 分层仲裁——Modal（含确认框）打开时交给弹层栈处理最顶层，
-        // 专注层次之，最后才收起抽屉/移动导航/共享页，一次 Esc 只关一层
-        if (document.querySelector('.overlay')) return
+        // 专注层次之，最后才收起抽屉/移动导航/共享页，一次 Esc 只关一层。
+        // 133#7：弹层判定改用 MODAL_STACK 真源——原先 .overlay 类名查询与
+        // 弹层栈脱钩，自绘弹层/类名重构会让 Esc 穿透关错层
+        if (hasOpenModal()) return
         if (focusOpen) { setFocusOpen(false); return }
         if (tutorOpen) { setTutorOpen(false); return }
         setMobileNav(false); exitShared()
       }
     }
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler)
-  }, [exitShared, focusOpen, tutorOpen])
+  }, [exitShared, focusOpen, modal, page, tutorOpen])
   const openFocus = (taskId?: number) => {
     // A-19：从任务行进入时可携带任务 id，专注秒计入任务桶参与取大——
     // 否则「自由专注 + 勾选任务」双来源双计（03#20 原场景）
@@ -456,7 +477,7 @@ export default function App() {
 
     <div className="app-main">
       <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => setModal('search')}><Search size={17} /><span>搜索课程、笔记或知识节点…</span><kbd>Ctrl + K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => setModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences(current => ({ ...current, theme: current.theme === 'light' ? 'dark' : 'light' }))}  /* 35#5：updater 形态——渲染闭包整对象会被排队写入整体覆盖（32#13 同型） */>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => setModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)} title={modelTasks > 0 ? `${modelTasks} 个模型请求进行中（Agent 每步模型调用同时计数），点击打开知舟导师；运行中的任务可在 Agent 任务中心查看或取消` : undefined}>{modelTasks > 0 && <span className="live-dot" aria-hidden="true" />}<Sparkles size={16} />问知舟</Button></div></header>
-      <main id="main-content" className="main-content" tabIndex={-1}><Suspense fallback={<div className="page-loading" role="status"><LoaderMark />正在加载学习工作区…</div>}>{renderPage()}</Suspense></main>
+      <main id="main-content" className="main-content" tabIndex={-1}><Suspense fallback={<div className="page-loading" role="status"><LoaderMark />正在加载学习工作区…</div>}><PageErrorBoundary key={page}>{renderPage()}</PageErrorBoundary></Suspense></main>
     </div>
 
     <nav className="mobile-bottom-nav" aria-label="移动端快捷导航">{[{ id: 'today' as PageId, label: '今日', icon: Home }, { id: 'study' as PageId, label: '学习', icon: BookOpen }, { id: 'review' as PageId, label: '复习', icon: Layers3 }, { id: 'library' as PageId, label: '笔记', icon: LibraryBig }].map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><item.icon size={20} /><span>{item.label}</span></button>)}<button onClick={() => setMobileNav(true)} aria-expanded={mobileNav} aria-controls="app-sidebar">{/* 128#6：展开状态广播（读屏感知「全部」打开的是侧栏菜单） */}<Menu size={20} /><span>全部</span></button></nav>
@@ -494,11 +515,41 @@ export default function App() {
       description="剩余计划时长将作废（已发生的专注秒数会保留），且无法恢复本次时段，需要从头重新开始。"
       confirmLabel="取消并重置"
     />
+    {importProgress && <div className="import-progress" role="status" aria-live="polite"><LoaderCircle size={15} className="spin" />{importProgress}</div>}
     <ToastStack toasts={toasts} onClose={dismissToast} />
   </div>
 }
 
 function LoaderMark() { return <span className="loader-mark" aria-hidden="true" /> }
+
+// 136#4：页面级错误边界——原先全仓只有 main.tsx 顶层一个（信息项 14 已知
+// 设计），任一页面 render 抛错或懒加载 chunk 失败时 React 卸载整树：侧栏、
+// 其余页面与全部未持久化本地 UI 状态（社区回复草稿、快速记录半填内容）一并
+// 丢失，只剩整应用错误页；此处只替换当前页，侧栏导航保持可用。key={page}
+// 使切页即换新边界实例——离开出错页自动恢复，不带错误态跨页
+class PageErrorBoundary extends Component<{ children: ReactNode }, { message: string }> {
+  state = { message: '' }
+  static getDerivedStateFromError(error: unknown) {
+    return { message: error instanceof Error ? error.message : String(error) }
+  }
+  componentDidCatch(error: unknown) {
+    console.error('页面渲染失败', error)
+  }
+  render() {
+    if (this.state.message) {
+      return <div className="page-loading" role="alert" style={{ minHeight: '60vh' }}>
+        <h1>本页遇到问题</h1>
+        <p>{this.state.message}</p>
+        <p>其他页面不受影响，可从左侧导航离开；重试不清除已保存的数据。</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+          <Button variant="secondary" onClick={() => this.setState({ message: '' })}>重试本页</Button>
+          <Button variant="ghost" onClick={() => window.location.reload()}>重新加载应用</Button>
+        </div>
+      </div>
+    }
+    return this.props.children
+  }
+}
 
 function SearchResultIcon({ kind }: { kind: string }) {
   const icons: Record<string, LucideIcon> = { note: FileText, material: BookOpen, node: Map, plan: CalendarDays, task: ListChecks, project: FolderKanban }

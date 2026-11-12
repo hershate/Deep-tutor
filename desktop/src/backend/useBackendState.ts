@@ -87,6 +87,8 @@ export function useBackendState() {
     let settled = false
     let timer: number | undefined
     let transientRetries = 0
+    // 136#5：会中期连续失败计数——一次瞬时坏读不再撕裂整个 UI
+    let sessionFailures = 0
     // 111#4：错误页恢复轮询的 single-flight——错误页期间每个后端事件/每次
     // 窗口聚焦都会再触发 fail，原先每路各自开一个每秒轮询（N 路并行 IPC），
     // 就绪时还并发调 start() 双 bootstrap
@@ -165,6 +167,15 @@ export function useBackendState() {
         setStartupError('本地后端仍在初始化（首次启动的大数据目录迁移或杀毒扫描可能较慢），正在继续等待……此页面会在就绪后自动恢复。')
         setReady(false)
         armRecoveryPoll(expectedGeneration, 1000, true)
+        return
+      }
+      // 136#5：会中期（ready 已立）非归类读错误保留快照——原先兜底分支不
+      // 区分启动期/会中期，一次 io_error/internal 即把整树切错误页（全部
+      // 页面卸载、本地 UI 状态清场），恢复只能靠 3s 轮询/下一事件成功后
+      // 几秒级闪断；改为只报横幅 toast 保留界面，连续 5 次失败才落错误页
+      if (readyRef.current && sessionFailures < 5) {
+        sessionFailures += 1
+        reportBackendError(error)
         return
       }
       transientRetries = 0
@@ -250,6 +261,8 @@ export function useBackendState() {
         if (!alive() || generation.current !== requestedGeneration) return
         settled = true
         transientRetries = 0
+        // 136#5：会中期失败被成功同步纠正——连续计数复位
+        sessionFailures = 0
         setStartupError('')
         setLoginRequired(false)
         setReady(true)
