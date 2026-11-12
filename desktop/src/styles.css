@@ -1274,7 +1274,8 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .lifecycle-track span { padding: 4px 6px; border-radius: 5px; background: var(--surface-soft); color: var(--muted); font: 12px monospace; }
 .lifecycle-track span.done { background: var(--accent-soft); color: var(--accent); }
 .lifecycle-track i { flex: 1; height: 1px; background: var(--border-strong); }
-.run-lifecycle p { margin-top: 10px; font-size: 12px; }
+.run-lifecycle p { margin-top: 10px; font-size: 12px; white-space: pre-line; overflow-wrap: anywhere; } /* 147#14：产物清单 join('
+') 原被折叠成一行 */
 .tool-catalog > button { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 6px 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-secondary); }
 .tool-catalog > button > span { flex: 1; text-align: left; font: 12px monospace; }
 .security-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 18px; padding: 12px; border-radius: 8px; background: var(--surface-soft); color: var(--muted); font-size: 12px; }
