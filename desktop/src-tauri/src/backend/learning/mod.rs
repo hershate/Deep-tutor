@@ -782,10 +782,13 @@ fn fail_step<R: Runtime>(
     };
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE learning_plan_steps SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND step_index = ?6",
+    let changed = tx.execute(
+        "UPDATE learning_plan_steps SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND step_index = ?6 AND status = 'running'",
         params![status, error.code, error.message, now()?, id, index as i64],
     )?;
+    if changed == 0 {
+        return Ok(());
+    }
     let event = Store::event(
         &tx,
         "plan.step_failed",

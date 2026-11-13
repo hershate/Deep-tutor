@@ -1299,7 +1299,15 @@ fn terminal_fixture() -> (tauri::App<tauri::test::MockRuntime>, LearningState, i
     ).unwrap();
     let id = store.conn.last_insert_rowid();
     store.conn.execute(
+        "INSERT INTO learning_plan_steps (plan_id, step_index, status, created_at, updated_at) VALUES (?1, 0, 'done', ?2, ?2)",
+        params![id, timestamp],
+    ).unwrap();
+    store.conn.execute(
         "INSERT INTO learning_lectures (plan_id, stage_id, version, status, current_unit, updated_at) VALUES (?1, 'stage-1', 1, 'done', 1, ?2)",
+        params![id, timestamp],
+    ).unwrap();
+    store.conn.execute(
+        "INSERT INTO learning_lecture_units (plan_id, stage_id, version, unit_index, node_id, status, updated_at) VALUES (?1, 'stage-1', 1, 0, 'prob', 'done', ?2)",
         params![id, timestamp],
     ).unwrap();
     (app, state, id)
@@ -1326,4 +1334,17 @@ fn terminal_lecture_ignores_late_failure_without_a_new_event() {
     ).unwrap();
     assert_eq!(status, "done");
     assert_eq!(state.store().unwrap().latest_event_id().unwrap(), before);
+}
+
+#[test]
+fn terminal_children_ignore_late_failures_without_new_events() {
+    let (app, state, id) = terminal_fixture();
+    let before = state.store().unwrap().latest_event_id().unwrap();
+    fail_step(app.handle(), &state, id, 0, &BackendError::new("late_failure", "迟到失败")).unwrap();
+    lecture::fail_unit(app.handle(), &state, id, "stage-1", 1, 0, &BackendError::new("late_failure", "迟到失败")).unwrap();
+    let store = state.store().unwrap();
+    let step: String = store.conn.query_row("SELECT status FROM learning_plan_steps WHERE plan_id = ?1 AND step_index = 0", params![id], |row| row.get(0)).unwrap();
+    let unit: String = store.conn.query_row("SELECT status FROM learning_lecture_units WHERE plan_id = ?1 AND stage_id = 'stage-1' AND version = 1 AND unit_index = 0", params![id], |row| row.get(0)).unwrap();
+    assert_eq!((step.as_str(), unit.as_str()), ("done", "done"));
+    assert_eq!(store.latest_event_id().unwrap(), before);
 }
