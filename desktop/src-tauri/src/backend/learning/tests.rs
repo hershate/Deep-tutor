@@ -1389,3 +1389,10 @@ fn terminal_children_ignore_late_failures_without_new_events() {
     assert_eq!((step.as_str(), unit.as_str()), ("done", "done"));
     assert_eq!(store.latest_event_id().unwrap(), before);
 }
+
+#[test]
+fn frontend_material_import_errors_are_visible_in_plan_generator() {
+    let source = include_str!("../../../../src/pages/PlanGenerator.tsx");
+    assert!(source.contains("summarizeMaterialImport"));
+    assert!(!source.contains("明细见控制台"));
+}

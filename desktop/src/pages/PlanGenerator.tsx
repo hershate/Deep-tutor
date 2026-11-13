@@ -7,7 +7,7 @@ import SharePlanDialog from '../components/SharePlanDialog'
 import ExportCenter from '../components/ExportCenter'
 import { localShareUrl } from '../backend/sharing'
 import { backend, backendErrorMessage, isCancelRace, onBackendEvent, deltaThrottle, reportBackendError } from '../backend/client'
-import { importMaterialPaths } from '../backend/materialImport'
+import { importMaterialPaths, summarizeMaterialImport } from '../backend/materialImport'
 import type { LearningCheckName, LearningGraph, LearningPlan, Material, ProviderRequest } from '../backend/client'
 import { webBackend } from '../backend/web'
 import { usageBackend } from '../backend/usage'
@@ -225,18 +225,18 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
       // 19#5：分批与 ZIP 逐包口径收敛到共享导入通道（与资料库页/拖放一致）；
       // 133#8：按钮带 N/M 计数——大批量导入不再静默
       const { outcomes, skipped } = await importMaterialPaths(paths, (processed, total) => setImportCount(`${processed}/${total}`))
-      if (skipped) notify(`资料包中 ${skipped} 个不支持条目已跳过`)
-      // 154#8：失败反馈改单条汇总（summarizeMaterialImport，对齐 Library/
-      // 全局拖放入口）——原先逐错误 notify，大批量损坏文件时 30+ 条 toast
-      // 滚动覆盖只留最后几条
+      // 154#8：统一摘要与页面内首个错误分别承载计数和修正依据。
       const addedIds = new Set(outcomes.flatMap(outcome => outcome.material && mediaBackend.isText(outcome.material.kind) && !selectedIds.includes(outcome.material.id) ? [outcome.material.id] : []))
       if (addedIds.size > 8 - selectedIds.length) notify('新增资料超过方案选择上限；仅选择前 8 份，其余资料保留在暂存列表')
-      let failed = 0
       for (const outcome of outcomes) {
         if (outcome.material && mediaBackend.isText(outcome.material.kind)) selectImported(outcome.material.id, false)
-        if (outcome.error) { failed += 1; console.error(outcome.error) }
       }
-      if (failed) notify(`本次导入 ${failed} 个文件失败，明细见控制台；可修正后重试`)
+      const failures = outcomes.filter(outcome => outcome.error)
+      const firstFailure = failures[0]
+      notify(summarizeMaterialImport({ outcomes, skipped }))
+      if (firstFailure?.error) {
+        setError(`${firstFailure.fileName}：${firstFailure.error.code}：${firstFailure.error.message}${failures.length > 1 ? `；另有 ${failures.length - 1} 份失败，可在统一摘要中确认总数` : ''}`)
+      }
       await refreshMaterials()
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy(''); setImportCount('') }
   }
