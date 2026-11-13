@@ -184,7 +184,6 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     void backend.exportProviderConfig().then(config => { if (current) setConfigPreview(config) }).catch(error => { if (current) setPageError(backendErrorMessage(error)) })
     return () => { current = false }
   }, [configKey, view])
-  useEffect(() => { setRequestModel('') }, [activeId, routing.mode])
 
   const filtered = useMemo(() => profiles.filter(profile => (filter === '全部' || profile.kind === filter) && `${profile.name}${profile.baseUrl}${profile.models.join(' ')}`.toLowerCase().includes(query.toLowerCase())), [profiles, filter, query])
   const activeProfile = profiles.find(profile => profile.id === activeId)
@@ -193,6 +192,7 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     const provider = profiles.find(profile => profile.id === routing.routes.agent?.providerId && profile.enabled) ?? activeProfile
     return provider?.models ?? []
   }, [profiles, routing, activeProfile])
+  useEffect(() => { setRequestModel(current => current && !requestModels.includes(current) ? '' : current) }, [requestModels])
   const canSend = routing.mode === 'aggregate'
     ? routing.aggregateProviderIds.length > 0
     : routing.mode === 'routing'
