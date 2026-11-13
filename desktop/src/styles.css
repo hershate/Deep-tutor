@@ -459,7 +459,7 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .lesson-list small { color: var(--muted); font-size: 12px; }
 .course-rail-bottom { display: none; }
 .reading-pane { min-width: 0; background: var(--surface-raised); }
-.reading-toolbar { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 12px; border-bottom: 1px solid var(--border); }
+.reading-toolbar { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 5px 12px; border-bottom: 1px solid var(--border); }
 .content-tabs { display: flex; gap: 4px; }
 .content-tabs button { min-height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; }
 .content-tabs button.active { background: var(--surface-soft); color: var(--text); font-weight: 700; }

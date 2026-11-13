@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, Share2, SlidersHorizontal, Sparkles, Target } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, Share2, SlidersHorizontal, Sparkles, Target, Trash2 } from 'lucide-react'
 import type { PageId, Task } from '../data'
 import { Badge, Button, ConfirmDialog, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import ExportCenter from '../components/ExportCenter'
@@ -40,6 +40,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
   const [alternatives, setAlternatives] = useState<PlanAlternative[]>([])
   const [selectedTask, setSelectedTask] = useState<ScheduleEvent | null>(null)
   const [taskDate, setTaskDate] = useState('')
+  const [deleteTaskOpen, setDeleteTaskOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [subject, setSubject] = useState('')
   const [duration, setDuration] = useState(30)
@@ -173,6 +174,23 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
       setSelectedTask(null); await refresh()
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
+  const deleteTask = async () => {
+    const id = selectedTask?.taskId
+    if (!id || busy) return
+    setBusy('delete')
+    try {
+      let removed = false
+      await setTasks(current => current.filter(task => {
+        if (task.id !== id) return true
+        removed = true
+        return false
+      }))
+      setSelectedTask(null)
+      setDeleteTaskOpen(false)
+      notify(removed ? '任务已删除，关联排期已同步清理' : '任务已在其他窗口移除')
+      await refresh()
+    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+  }
   const openTask = (event: ScheduleEvent) => {
     setSelectedTask(event); setTaskDate(event.date ?? weekStart); setError('')
   }
@@ -213,9 +231,10 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     </div>
 
     <Modal open={addOpen} onClose={() => setAddOpen(false)} title="添加学习任务"><div className="form-stack"><label>任务名称<input autoFocus value={title} onChange={event => setTitle(clampToBytes(event.target.value, 500))} placeholder="输入要实际完成的学习任务" /></label><label>科目或方向<input value={subject} onChange={event => setSubject(clampToBytes(event.target.value, 100))} placeholder="例如：当前方案主题" /></label><div className="form-grid"><label>预计时长（分钟）<input type="number" min={1} max={10080} value={duration} onChange={event => setDuration(Number(event.target.value))} /></label><label>安排日期<input type="date" value={newTaskDate} onChange={event => setNewTaskDate(event.target.value)} disabled={!plan} /></label></div>{!plan && <p className="form-help">尚无方案，任务会保存在待排期列表中。</p>}{error && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}<Button onClick={() => void addTask()} disabled={!title.trim() || busy === 'task'}>{busy === 'task' ? '正在保存…' : '保存任务并排期'}</Button></div></Modal>
-    <Modal open={Boolean(selectedTask)} onClose={() => setSelectedTask(null)} title="任务与排期"><div className="form-stack"><h3>{selectedTask?.title}</h3><p>{selectedTask?.kind} · {selectedTask?.minutes} 分钟 · {selectedTask?.done ? '已完成' : '未完成'}</p><label>实际安排日期<input type="date" value={taskDate} onChange={event => setTaskDate(event.target.value)} /></label>{error && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}<Button disabled={!taskDate || busy === 'schedule'} onClick={() => void saveTaskDate()}>{busy === 'schedule' ? '正在保存…' : '保存日期'}</Button><Button variant="secondary" disabled={busy === 'toggle'} onClick={() => void toggleTask()}>{selectedTask?.done ? '标记为未完成' : '标记为已完成'}</Button></div></Modal>
+    <Modal open={Boolean(selectedTask)} onClose={() => setSelectedTask(null)} title="任务与排期"><div className="form-stack"><h3>{selectedTask?.title}</h3><p>{selectedTask?.kind} · {selectedTask?.minutes} 分钟 · {selectedTask?.done ? '已完成' : '未完成'}</p><label>实际安排日期<input type="date" value={taskDate} onChange={event => setTaskDate(event.target.value)} /></label>{error && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}<Button disabled={!taskDate || busy === 'schedule'} onClick={() => void saveTaskDate()}>{busy === 'schedule' ? '正在保存…' : '保存日期'}</Button><Button variant="secondary" disabled={busy === 'toggle'} onClick={() => void toggleTask()}>{selectedTask?.done ? '标记为未完成' : '标记为已完成'}</Button><Button variant="ghost" disabled={!selectedTask?.taskId || busy === 'delete'} onClick={() => setDeleteTaskOpen(true)}><Trash2 size={16} />删除任务</Button></div></Modal>
     <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="调整学习目标"><div className="form-stack">{plan?.adoptedProjectId !== null ? <div className="modal-callout"><AlertTriangle size={18} /><span>已采用方案的学习记录必须保留，不能直接重跑。请通过 AI 方案生成创建新版本，采用新版本不会修改旧方案的完成记录。</span><Button variant="secondary" onClick={() => { setGoalOpen(false); onNavigate('generator') }}>创建新方案</Button></div> : <><label>目标名称<input value={goal} onChange={event => setGoal(clampToBytes(event.target.value, 200))} maxLength={200} /></label><div className="form-grid"><label>目标日期<input type="date" value={deadline} min={localDate(new Date())} onChange={event => setDeadline(event.target.value)} /></label>{/* 126#9：min 不早于今天（后端同口径拒绝过去日期） */}<label>每周可投入（小时）<input type="number" value={weeklyHours} onChange={event => { const parsed = Number(event.target.value); setWeeklyHours(Number.isFinite(parsed) ? Math.round(parsed) : 0) }} min={1} max={80} /></label></div><label>当前掌握情况<textarea rows={3} value={level} onChange={event => setLevel(clampToBytes(event.target.value, 1000))} /></label><div className="modal-callout"><CalendarRange size={18} /><span>保存后会真正从知识图谱步骤重新生成。现有版本先进入历史，真实生成完成后才能采用；失败会保留错误，不会显示虚假成功。</span></div>{error && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}</div>}<Button onClick={() => void saveGoal()} disabled={busy === 'goal' || !goal.trim() || !deadline || !level.trim() || weeklyHours < 1 || weeklyHours > 80}>{busy === 'goal' ? '正在保存并启动…' : '保存并重新规划'}</Button></>}</div></Modal>
     <Modal open={alternativesOpen} onClose={() => setAlternativesOpen(false)} title="本周替代安排"><div className="form-stack">{alternatives.map(item => <button className="milestone-row" key={item.intensity} disabled={busy === 'intensity'} onClick={() => { setAlternativesOpen(false); setIntensityTarget(item.intensity) }}><span className="milestone-marker"><Clock3 size={15} /></span><div><strong>{item.intensity} · {item.weeklyMinutes} 分钟</strong><small>占每周可投入时间的 {item.loadPercent}%，保留当前任务日期</small></div><Badge tone={overview?.intensity === item.intensity ? 'green' : 'neutral'}>{overview?.intensity === item.intensity ? '当前方案' : '采用此强度'}</Badge></button>)}</div></Modal>
+    <ConfirmDialog open={deleteTaskOpen} onClose={() => { if (busy !== 'delete') setDeleteTaskOpen(false) }} onConfirm={() => void deleteTask()} title="删除这个任务？" description={`将删除「${selectedTask?.title ?? ''}」及其排期关联；专注历史保留，但不再关联此任务。此操作不可恢复。`} confirmLabel="确认删除" busy={busy === 'delete'} />
     <ConfirmDialog open={intensityTarget !== null} onClose={() => setIntensityTarget(null)} onConfirm={() => { const next = intensityTarget; setIntensityTarget(null); if (next) void changeIntensity(next) }} title={`按「${intensityTarget ?? ''}」重排全部任务？`} description="会以该强度重新保存全部方案任务的时长与日期，手动调整过的排期也会被覆盖；此操作不可撤销。想先看各强度的工作量，可点「查看替代安排」预览。" confirmLabel="确认重排" busy={busy === 'intensity'} />
     <ExportCenter open={exportOpen} onClose={() => setExportOpen(false)} notify={notify} initialPlanId={ready ? plan?.id : undefined} />
     <SharePlanDialog open={shareOpen} onClose={() => setShareOpen(false)} notify={notify} initialPlanId={ready ? plan?.id : undefined} onPreview={token => { window.history.replaceState(null, '', localShareUrl(token)); setShareOpen(false); onNavigate('shared') }} />
