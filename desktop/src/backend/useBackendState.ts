@@ -281,7 +281,7 @@ export function useBackendState() {
       if (coalesceTimer !== undefined) window.clearTimeout(coalesceTimer)
       coalesceTimer = window.setTimeout(() => {
         coalesceTimer = undefined
-        requestSync()
+        requestSync(event)
       }, 120)
     }
     // 92 号事件契约：六类事件（application.reset、backup.exported/imported、

@@ -364,3 +364,19 @@ fn concurrent_imports_during_user_switches_stay_isolated() {
         "原件文件同样按用户隔离"
     );
 }
+
+#[test]
+fn frontend_session_event_survives_snapshot_coalescing() {
+    let source = include_str!("../../../../src/backend/useBackendState.ts");
+    let coalesced = source
+        .split("const requestSyncCoalesced")
+        .nth(1)
+        .unwrap()
+        .split("void onBackendEvent")
+        .next()
+        .unwrap();
+    assert!(
+        coalesced.contains("requestSync(event)"),
+        "去抖回调必须保留会话事件并触发工作区代际切换"
+    );
+}
