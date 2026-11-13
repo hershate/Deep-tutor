@@ -41,6 +41,8 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, LearningState) {
             commands::get_security_overview,
             crate::backend::providers::commands::list_provider_profiles,
             crate::backend::providers::commands::upsert_provider_profile,
+            crate::backend::community::commands::get_community_overview,
+            crate::backend::community::commands::create_community_post,
             commands::create_local_user,
             commands::login_local_user,
             commands::set_security_quota,
@@ -221,6 +223,13 @@ fn async_commands_derive_principal_from_session_not_thread_local() {
     // 设置的 thread-local principal 到不了那里——命令必须从会话派生当前
     // 用户；曾 fail-open 落回 user1 工作区把 user2 的档案写进别人的库
     let (app, learning) = setup();
+    ipc(&app, "bootstrap", json!({})).unwrap();
+    ipc(
+        &app,
+        "create_community_post",
+        json!({"input":{"title":"user1 私有讨论","body":"仅 user1 可见","kind":"discussion","projectId":null}}),
+    )
+    .unwrap();
     let created = ipc(
         &app,
         "create_local_user",
@@ -278,6 +287,24 @@ fn async_commands_derive_principal_from_session_not_thread_local() {
             .iter()
             .any(|item| item["id"].as_str() == Some(&profile_id)),
         "user2 视角的列表必须包含其档案"
+    );
+    let worker_app = app.handle().clone();
+    let community = std::thread::spawn(move || {
+        let command_app = worker_app.clone();
+        let state = worker_app.state::<BackendState>();
+        tauri::async_runtime::block_on(crate::backend::community::commands::get_community_overview(
+            command_app,
+            state,
+            None,
+            None,
+        ))
+        .unwrap()
+    })
+    .join()
+    .unwrap();
+    assert!(
+        community.posts.is_empty(),
+        "无 IPC 线程 principal 的 async 工作线程必须仍从会话打开 user2 工作区"
     );
 }
 

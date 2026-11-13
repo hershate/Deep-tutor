@@ -9,18 +9,21 @@ use super::{
 use tauri::{AppHandle, Runtime, State};
 
 // 124#3：社区概览是重读命令（500 帖 + 回复 + 100 组 + 100 房间），原先
-// 主线程同步执行——帖子量增长后窗口冻结面线性放大（engagement/sync/
-// sharing 均已移后台，此处是最后缺口）；数据为单机本地（作者恒「本机
-// 用户」），无 principal 依赖
+// 主线程同步执行——帖子量增长后窗口冻结面线性放大。185：Tokio worker
+// 不继承 IPC 线程 principal，必须从会话重新派生，不能回退根库。
 #[tauri::command(async)]
-pub async fn get_community_overview(
+pub async fn get_community_overview<R: Runtime + 'static>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
     kind: Option<String>,
     query: Option<String>,
 ) -> Result<CommunityOverview> {
+    let principal = super::super::security::session_principal_existing(&app)?;
     let community = state.community.shared();
     tauri::async_runtime::spawn_blocking(move || {
-        super::overview(&community, kind.as_deref(), query.as_deref())
+        super::super::security::with_principal(principal, || {
+            super::overview(&community, kind.as_deref(), query.as_deref())
+        })
     })
     .await
     .map_err(|_| BackendError::new("internal_error", "社区概览读取异常终止"))?
