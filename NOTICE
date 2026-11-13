@@ -28,4 +28,4 @@
 
 ## Skill 资产的存档地位
 
-`desktop/src-tauri/assets/skills/` 下 8 个资产目录（deep-tutor-intent / deep-tutor-knowledge-map / deep-tutor-quiz / deep-tutor-resources / deep-tutor-stages / deep-tutor-validate / ppt-slide-builder / self-study-guide）中，构建链只把各目录的 `SKILL.md` 经 `include_str!` 嵌入二进制；各目录的 `README.md`（及 ppt-slide-builder 的 templates/references 文件）不嵌入、不打包、无代码引用，仅作仓库内历史存档——更新它们不影响安装产物（146#14；ppt-slide-builder 的 SKILL.md 头部另有存档标注，146#5）。
+`desktop/src-tauri/assets/skills/` 下 8 个资产目录（deep-tutor-intent / deep-tutor-knowledge-map / deep-tutor-quiz / deep-tutor-resources / deep-tutor-stages / deep-tutor-validate / ppt-slide-builder / self-study-guide）中，构建链只把各目录的 `SKILL.md` 经 `include_str!` 嵌入二进制；各目录的 `README.md`（及 ppt-slide-builder 的 templates/references 文件）不嵌入、不打包、无代码引用，仅作仓库内历史存档——更新它们不影响安装产物；各 `SKILL.md` 均标注历史资产状态和当前执行边界。
