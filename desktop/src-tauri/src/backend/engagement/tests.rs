@@ -268,3 +268,25 @@ fn equal_quiet_times_save_for_allday_and_disabled() {
     let restarted = ipc(&app, "restart_learning_diagnostic", json!({})).unwrap();
     assert!(restarted["diagnosticStartedAt"].is_string());
 }
+
+#[test]
+fn frontend_upcoming_dates_use_compact_day_month_parts() {
+    let source = include_str!("../../../../src/pages/Dashboard.tsx");
+    assert!(!source.contains("<span className=\"upcoming-date\">{formatDate(item.date)}</span>"));
+    assert!(source.contains("<small>{month}</small>"));
+}
+
+#[test]
+fn frontend_narrow_page_headings_stack_actions() {
+    let source = include_str!("../../../../src/styles.css");
+    let narrow = source
+        .split("@media (max-width: 639px) {\n  .ask-agent")
+        .nth(1)
+        .unwrap()
+        .split(".mobile-bottom-nav")
+        .next()
+        .unwrap();
+    assert!(narrow
+        .contains(".page-heading { flex-direction: column; align-items: stretch; gap: 14px; }"));
+    assert!(narrow.contains(".page-heading p:not(.date-line) { max-width: none; }"));
+}

@@ -328,7 +328,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .insight-panel > p { margin: 18px 0; font-size: 14px; }
 .insight-evidence { display: flex; gap: 7px; color: var(--text-secondary); font-size: 12px; margin-bottom: 18px; }
 .upcoming-item { display: flex; gap: 12px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
-.upcoming-date { width: 44px; display: grid; text-align: center; font-size: 21px; font-weight: 700; line-height: 1.1; color: var(--accent); }
+.upcoming-date { width: 44px; flex-shrink: 0; display: grid; text-align: center; font-size: 21px; font-weight: 700; line-height: 1.1; color: var(--accent); }
 .upcoming-date small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
 .upcoming-item strong { font-size: 13px; }
 .upcoming-item p { font-size: 12px; margin: 3px 0 0; }
@@ -364,9 +364,10 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 @media (max-width: 639px) {
   .ask-agent { padding-inline: 10px; }
   .bottom-search { display: flex; }
-  .page-heading { align-items: flex-start; }
-  .page-heading > .btn, .page-heading > div:last-child:not(:first-child) { flex-shrink: 0; }
-  .page-heading p:not(.date-line) { max-width: 280px; }
+  .page-heading { flex-direction: column; align-items: stretch; gap: 14px; }
+  .page-heading > .btn, .page-heading > div:last-child:not(:first-child) { flex-shrink: 1; }
+  .page-heading p:not(.date-line) { max-width: none; }
+  .page-heading .heading-actions { width: 100%; justify-content: flex-start; }
   .section-header { flex-wrap: wrap; }
 }
 .mobile-bottom-nav { position: fixed; inset: auto 0 0; z-index: 30; min-height: 66px; display: flex; align-items: center; justify-content: space-around; padding: 5px 8px calc(5px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); }
