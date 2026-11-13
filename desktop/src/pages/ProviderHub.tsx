@@ -248,7 +248,6 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     setBusy('save')
     setFormError('')
     const apiKey = clearKey ? '' : form.key || undefined
-    setForm(current => ({ ...current, key: '' }))
     try {
       const saved = await backend.upsertProviderProfile({ id: editingId || undefined, name: form.name, preset: form.preset || 'custom', kind: form.kind, protocol: form.protocol, baseUrl: form.baseUrl, models: form.models, defaultModel: form.defaultModel, enabled: profiles.find(profile => profile.id === editingId)?.enabled ?? true, note: form.note || null, apiKey })
       setEditingId(saved.id)

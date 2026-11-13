@@ -1892,3 +1892,21 @@ fn route_cancellation_wins_a_late_success_terminal() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].kind, "provider.route_cancelled");
 }
+
+#[test]
+fn frontend_provider_secret_is_cleared_only_after_successful_save() {
+    let source = include_str!("../../../../src/pages/ProviderHub.tsx");
+    let save = source
+        .split("const saveProfile = async")
+        .nth(1)
+        .unwrap()
+        .split("const testProfile = async")
+        .next()
+        .unwrap();
+    let invoked = save.find("await backend.upsertProviderProfile").unwrap();
+    assert!(
+        !save[..invoked].contains("setForm(current => ({ ...current, key: '' }))"),
+        "保存结果未知时不得清空用户刚输入的密钥"
+    );
+    assert!(save[invoked..].contains("key: ''"));
+}
