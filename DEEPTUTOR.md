@@ -12,8 +12,8 @@
   `desktop/src/backend/`. Do not reintroduce a standalone HTTP service.
 - Create the default application data directory automatically. Keep the main window visible and
   put startup recovery and directory management inside it. A custom absolute local directory is
-  persisted independently, validated before saving and used on the next launch; never move or
-  delete the old workspace implicitly. `--verify-native` is non-interactive and uses only its
+  persisted independently, validated before saving and retained on the next launch; retry uses
+  the updated in-memory root immediately. Never move or delete the old workspace implicitly. `--verify-native` is non-interactive and uses only its
   separate absolute verification directory and configuration.
 - Project status is recorded in git commit descriptions, never in a progress log.
 
@@ -33,7 +33,8 @@
   snapshot's `lastEventId`; no per-page incremental fetch). Persist a
   terminal result before emitting it. Reconnecting must not repeat execution or billing.
 - Cancellation and failure paths retain all tokens and costs already consumed.
-- Recovery updates only rows still in an active state; skip child updates and terminal events when the guarded main row did not change. Sync progress cannot revive a cancelled job.
+- Recovery and late failure paths update only rows still in an active state; skip child updates and terminal events when the guarded main row did not change. Sync progress cannot revive a cancelled job.
+- Sync terminal commits precede active-registration release and terminal event emission. Route cancellation wins over a late completion; existing output and usage remain recorded.
 - Plan materials are optional (0–8). Empty-source plans, lectures and practice use empty citations and never invent sources; material-backed output keeps strict quote validation.
 - Agent sessions may be plan-independent. Workspace and artifact tools are registered only for sessions bound to an adopted plan. The first enabled provider becomes active; later additions do not replace an existing selection.
 - API keys enter the OS keyring through one-time forms. They never enter WebView storage,

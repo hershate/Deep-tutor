@@ -49,7 +49,7 @@
   `RUSTUP_HOME=F:/DevCache/rustup`（Git Bash 里用正斜杠）；rustfmt 已装于该工具链。
 - 后端：`cd desktop/src-tauri && cargo test --release --locked -- --test-threads=1`。
 - 门禁：`make check`（含 dev server 冒烟 `scripts/dev-smoke.sh`，改 vite 配置/依赖后无需手动验证 dev 工作流）；安装包：`make build`。不要并行启动多个重型测试套件。
-- 临时文件使用 `F:\TEMP\deeptutor`，完成后按仓库规约分批清理。
+- 临时测试环境使用仓库 `TEMP/` 子目录，不使用 C 盘 TEMP；完成后清理本次残留。工作区外删除仍遵守上述回收站规则。
 - 禁止前台 UI 自动化、打开原生窗口或对话框、模拟键鼠及读取屏幕。
   使用 MockRuntime、真实 SQLite、无界面 IPC、临时文件和本机回环服务。
 - 前端功能须实际调用后端命令，实时功能须验证事件持久化、续接与终态顺序。

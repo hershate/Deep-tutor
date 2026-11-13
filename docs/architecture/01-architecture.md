@@ -49,28 +49,28 @@ graph TD
 | backend（根） | 6 / 3303 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:115`：store Mutex + 10 个域 State） |
 | startup | 1 / 1005 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
 | store | 1 / 1824 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:180`） |
-| security | 6 / 3078 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:247`） |
-| providers | 15 / 10991 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:203`） |
-| web | 4 / 1212 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 3519 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
-| notes | 4 / 1257 | 笔记归档导入、知识库体检 | 无 |
-| learning | 9 / 5331 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
-| planning | 3 / 1067 | 周视图、强度、目标、排期 | 复用 LearningState |
-| knowledge | 3 / 1398 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:29`） |
-| practice | 9 / 5288 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:30`） |
-| review | 2 / 959 | SM-2 式间隔复习 | 复用 SQLite 事务 |
-| projects | 3 / 1151 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 4299 | 通用/方案会话、工具循环、审批/记忆/产物 | `AgentState`（`mod.rs:91`） |
-| engagement | 3 / 1389 | 全局搜索、通知、档案、首页 | 复用 |
-| reports | 3 / 1913 | 专注会话、学习报告、日历 | 复用 |
-| community | 3 / 1795 | 本机讨论/小组/预约/提醒 | 复用 |
-| plugins | 3 / 1285 | 声明式事件插件 | `PluginState`（`mod.rs:51`） |
-| backup | 5 / 3716 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:152`） |
-| sharing | 3 / 1072 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
-| sync | 7 / 2621 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:27-28`） |
-| maintenance | 3 / 1613 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:10`） |
-| export | 7 / 2337 | 8 格式导出（含自研 PDF/Anki） | 无 |
-| 前端 | 64 / 8822 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:18`） |
+| security | 6 / 3084 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:247`） |
+| providers | 15 / 11087 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:203`） |
+| web | 4 / 1216 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
+| materials | 5 / 3524 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
+| notes | 4 / 1261 | 笔记归档导入、知识库体检 | 无 |
+| learning | 9 / 5453 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
+| planning | 3 / 1070 | 周视图、强度、目标、排期 | 复用 LearningState |
+| knowledge | 3 / 1401 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:29`） |
+| practice | 9 / 5297 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:30`） |
+| review | 2 / 961 | SM-2 式间隔复习 | 复用 SQLite 事务 |
+| projects | 3 / 1154 | 项目成果版本与量规反馈 | 复用 |
+| agent | 4 / 4303 | 通用/方案会话、工具循环、审批/记忆/产物 | `AgentState`（`mod.rs:91`） |
+| engagement | 3 / 1392 | 全局搜索、通知、档案、首页 | 复用 |
+| reports | 3 / 1916 | 专注会话、学习报告、日历 | 复用 |
+| community | 3 / 1798 | 本机讨论/小组/预约/提醒 | 复用 |
+| plugins | 3 / 1288 | 声明式事件插件 | `PluginState`（`mod.rs:51`） |
+| backup | 5 / 3721 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:152`） |
+| sharing | 3 / 1075 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
+| sync | 7 / 2649 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:27-28`） |
+| maintenance | 3 / 1616 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:10`） |
+| export | 7 / 2344 | 8 格式导出（含自研 PDF/Anki） | 无 |
+| 前端 | 64 / 8911 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:18`） |
 
 ## 4. 横切层
 

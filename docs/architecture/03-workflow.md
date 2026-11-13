@@ -31,11 +31,11 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test + dev-smoke]
 ```
 
-发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.12，check-versions.mjs 校验）。
+发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.13，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。252 个后端测试串行执行。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。256 个后端测试串行执行。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:812/868 `mock_app/ipc` 辅助函数）。
@@ -44,7 +44,7 @@ flowchart LR
   - `defer` 布尔使流水线测试同步化，三域形态各异：learning 跳过 spawn（直接内联执行）、materials 自旋等待任务完成、sync 暂停调度线程。
   - MIGRATION_RUNS 计数器验证迁移幂等与版本门禁补列（store.rs:77；store.rs:22-27 现为 107#5 的 STORE_OPEN_LOCK 打开锁——勿混淆；幂等/版本门禁测试见 store.rs 测试区）。
 - 事件契约（38 轮字段级全量复核结论）：前端按 kind/prefix 触发一次 IPC 全量重拉，payload 仅消费标识类字段（requestId/runId/sessionId/materialId/planId/stageId/namespace），其余为审计死字段；字段级零失配，除非事件发射点或前端消费点增改，后续无需再做字段级复核（决策文档第 29 条）。
-- 覆盖重点（抽样断言）：恢复不重复调上游（learning/tests.rs、subjective_tests.rs server 计数不变）；事件 outbox 分页与重启续接（store.rs:1252 测试）；备份 ID 映射、追加导入子表随父重写与重复导入按复合键跳过（backup/tests.rs）；同步回读校验与保留恰 10 个（sync/tests.rs、versions_tests.rs）；并发 grade 仅一次生效（review/mod.rs 测试）；两用户文件隔离（security/workspace_tests.rs）；异步命令从会话派生 principal——user2 登录后档案必须落在 user2 工作区（security/guard_tests.rs）。
+- 覆盖重点（抽样断言）：恢复不重复调上游（learning/tests.rs、subjective_tests.rs server 计数不变）；事件 outbox 分页与重启续接（store.rs:1252 测试）；备份 ID 映射、追加导入子表随父重写与重复导入按复合键跳过（backup/tests.rs）；同步回读校验与保留恰 10 个（sync/tests.rs、versions_tests.rs）；同步终态回调直接启动下一任务；学习主行与子行的迟到失败守卫；路由取消与迟到完成交叠；并发 grade 仅一次生效（review/mod.rs 测试）；两用户文件隔离（security/workspace_tests.rs）；异步命令从会话派生 principal——user2 登录后档案必须落在 user2 工作区（security/guard_tests.rs）。
 - 环境边界：真实供应商、真实媒体编解码播放、交互安装为独立验收项，协议夹具不替代（plan/README.md 约定；无界面安装验证走 `--verify-native` + `DEEPTUTOR_VERIFY_DATA_DIR`，main.rs:14-72）。
 
 ## 3. 业务工作流：学习闭环
