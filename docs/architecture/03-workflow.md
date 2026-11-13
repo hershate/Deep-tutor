@@ -17,7 +17,7 @@
 
 `npm run tauri build -- -- --locked` 与 `make build` 使用相同的 `beforeBuildCommand` 和许可收集链。`--locked` 传递给 Cargo，锁文件不一致时构建失败。
 
-六处版本为 `desktop/package.json`、`desktop/package-lock.json`、`desktop/src-tauri/tauri.conf.json`、`desktop/src-tauri/Cargo.toml`、Cargo.lock 工作区包条目和根 README。当前版本为 1.1.14。
+六处版本为 `desktop/package.json`、`desktop/package-lock.json`、`desktop/src-tauri/tauri.conf.json`、`desktop/src-tauri/Cargo.toml`、Cargo.lock 工作区包条目和根 README。当前版本为 1.1.15。
 
 本地使用 Rust 1.99.1 GNU host、winlibs 的 dlltool 和 F 盘 Cargo/Rustup 缓存；CI 使用同版本默认 MSVC host。两种 host ABI 的构建问题不能互相替代验证。
 
