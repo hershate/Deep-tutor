@@ -204,7 +204,7 @@ flowchart LR
     F[重置 / 删除档案] --> G[删除对应凭据]
 ```
 
-JWT 使用 HS256 和 7 天有效期；单活动会话在签发时撤销旧会话。PAT 使用系统随机数，数据库只保存 SHA-256。停用或移除用户会撤销会话和 PAT。登出后保留已撤销会话记录，重启不得静默自动登录。
+JWT 使用 HS256 和 7 天有效期；单活动会话在签发时撤销旧会话。PAT 使用系统随机数，数据库只保存 SHA-256。停用或移除用户会撤销会话和 PAT。登出后保留已撤销会话记录，重启不得自动登录。
 
 默认配额为 Agent 会话 200、笔记 500、材料 200、社区帖子与回复合计 500、Agent 记忆 500。提交前在写事务内复查，一个用户的拒绝不影响其他用户。
 
@@ -246,4 +246,4 @@ JWT 使用 HS256 和 7 天有效期；单活动会话在签发时撤销旧会话
 - `events_since`、`stream_provider_chat`、`get_agent_run` 不在生产注册表；`fetch_webpage` IPC 壳已删除。
 - 所有后端事件使用 `{id,kind,payload,createdAt}` 和唯一 `backend://event` 通道。
 - 前端通常只消费事件 kind/prefix 及 materialId、planId、sessionId、runId、requestId、stageId、namespace 等标识，再执行命令读取权威状态；其他 payload 字段用于审计。
-- `isCancelRace` 统一处理任务已结束、另一操作已登记、审批已解决和预约已变化等竞态错误。普通写错误不得因该机制静默。
+- `isCancelRace` 统一处理任务已结束、另一操作已登记、审批已解决和预约已变化等竞态错误。普通写错误必须显示。

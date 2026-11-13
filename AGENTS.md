@@ -18,7 +18,7 @@
   commands 提供请求/响应，events 提供实时输出。
 - SQLite、事件 outbox 和异步任务必须真实持久化；终态先落盘再发送，续接不重复执行或计费。
 - API Key 只能进入系统密钥库，不得进入 WebView 长期存储、日志、导出或同步载荷。
-- 模型只处理文字。媒体预览不冒充 OCR、字幕或内容识别；不可用能力返回类型化错误。
+- 模型只处理文字。媒体预览不代表已完成 OCR、字幕或内容识别；不可用能力返回类型化错误。
 - `stage.md` 已删除。项目现状只通过 **git commit description** 记录，不新建进度日志。
 
 ## 工作方式
@@ -43,7 +43,7 @@
   146#20：生产 CSP 保留 `style-src 'unsafe-inline'`——收紧前须安装包实测
   KaTeX/mark 是否走 `setAttribute('style', …)` 内联属性路径（该路径会被
   去掉 unsafe-inline 的 CSP 拦截，CSSOM 设置不受限）；实测前不动，避免
-  公式渲染静默失效。
+  公式渲染失效且没有错误提示。
   跑 cargo 一律带：`export PATH="/f/DevCache/toolchains/winlibs-16.2.0-ucrt/mingw64/bin:$PATH"`
   （gnu 工具链链接需要 dlltool）与 `CARGO_HOME=F:/DevCache/cargo`、
   `RUSTUP_HOME=F:/DevCache/rustup`（Git Bash 里用正斜杠）；rustfmt 已装于该工具链。
