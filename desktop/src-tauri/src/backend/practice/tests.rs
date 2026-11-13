@@ -824,3 +824,25 @@ fn node_scope_is_validated_persisted_and_enforced_in_real_generation() {
         .iter()
         .any(|set| set["id"] == started["set"]["id"] && set["nodeId"] == "prob"));
 }
+
+#[test]
+fn frontend_mixed_objective_questions_share_one_index_domain() {
+    let source = include_str!("../../../../src/pages/Practice.tsx");
+    assert!(!source.contains("const question = detail.questions[index]"));
+    assert!(!source.contains("const question = detail?.questions[index]"));
+    assert!(
+        source.matches("objectiveQuestions[index]").count() >= 3,
+        "显示、提交与收藏必须使用同一道过滤后的客观题"
+    );
+}
+
+#[test]
+fn frontend_objective_answers_restore_saved_responses() {
+    let source = include_str!("../../../../src/pages/Practice.tsx");
+    assert!(source.contains(
+        "const selectedValue = selected ?? (typeof answer?.response === 'number' ? answer.response : null)"
+    ));
+    assert!(source.contains(
+        "value={answered && typeof answer?.response === 'string' ? answer.response : textAnswer}"
+    ));
+}

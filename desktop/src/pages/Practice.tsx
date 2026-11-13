@@ -160,7 +160,7 @@ export default function Practice({ notify, target, onTargetConsumed, onNavigate 
   }
   const submit = async () => {
     if (!detail || busy) return
-    const question = detail.questions[index]
+    const question = objectiveQuestions[index]
     if (!question || detail.answeredQuestionIds.includes(question.id)) return
     const answer = question.kind === 'choice' ? selected : textAnswer.trim()
     if (answer === null || answer === '') return
@@ -172,7 +172,7 @@ export default function Practice({ notify, target, onTargetConsumed, onNavigate 
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const bookmark = async () => {
-    const question = detail?.questions[index]
+    const question = objectiveQuestions[index]
     // 20#7：busy 守卫——快速双击会触发两次 toggle 相互抵消、两次详情拉取，
     // 且提示文案基于请求前闭包值与最终状态相反
     if (!question || busy) return
@@ -237,6 +237,7 @@ export default function Practice({ notify, target, onTargetConsumed, onNavigate 
   const question = objectiveQuestions[index]
   const answered = question ? detail?.answeredQuestionIds.includes(question.id) ?? false : false
   const answer = question ? detail?.answers.find(item => item.questionId === question.id) : undefined
+  const selectedValue = selected ?? (typeof answer?.response === 'number' ? answer.response : null)
   const plan = detail ? plans.find(item => item.id === detail.set.planId) : undefined
   const nodes = question?.nodeIds.map(id => plan?.result?.graph.nodes.find(node => node.id === id)?.title ?? id) ?? []
   const correctOption = typeof answer?.feedback.answer === 'number' ? answer.feedback.answer : null
@@ -258,9 +259,9 @@ export default function Practice({ notify, target, onTargetConsumed, onNavigate 
           <ProgressBar value={detail.set.answeredQuestions / detail.set.totalQuestions * 100} srLabel={`作答进度 ${detail.set.answeredQuestions} / ${detail.set.totalQuestions} 题`} />
           <div className="question-body"><h2>{question.prompt}</h2>{question.kind === 'choice' ? <div className="option-list">{question.options.map((option, optionIndex) => {
             const isCorrect = correctOption === optionIndex
-            const isWrong = answered && selected === optionIndex && answer?.correct === false
-            return <button key={`${optionIndex}-${option}`} disabled={answered || busy} className={`${selected === optionIndex ? 'selected' : ''} ${isCorrect ? 'correct' : ''} ${isWrong ? 'wrong' : ''}`} onClick={() => setSelected(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span><strong>{option}</strong>{isCorrect && <CheckCircle2 size={20} aria-label="正确选项" />}{isWrong && <XCircle size={20} aria-label="你的错误选择" />}</button>
-          })}</div> : <input className="practice-fill-input" aria-label={`填空作答：${question.prompt}`} value={textAnswer} disabled={answered || busy} onChange={event => setTextAnswer(clampToBytes(event.target.value, 30000))} placeholder="填写资料中的准确术语" />}
+            const isWrong = answered && selectedValue === optionIndex && answer?.correct === false
+            return <button key={`${optionIndex}-${option}`} disabled={answered || busy} className={`${selectedValue === optionIndex ? 'selected' : ''} ${isCorrect ? 'correct' : ''} ${isWrong ? 'wrong' : ''}`} onClick={() => setSelected(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span><strong>{option}</strong>{isCorrect && <CheckCircle2 size={20} aria-label="正确选项" />}{isWrong && <XCircle size={20} aria-label="你的错误选择" />}</button>
+          })}</div> : <input className="practice-fill-input" aria-label={`填空作答：${question.prompt}`} value={answered && typeof answer?.response === 'string' ? answer.response : textAnswer} disabled={answered || busy} onChange={event => setTextAnswer(clampToBytes(event.target.value, 30000))} placeholder="填写资料中的准确术语" />}
           {hint && !answered && <div className="hint-box"><Lightbulb size={18} /><p>{question.hint}</p></div>}
           {answered && answer && <div className={`answer-feedback ${answer.correct === true ? 'is-correct' : answer.correct === false ? 'is-wrong' : ''}`}><div>{answer.correct === true ? <CheckCircle2 size={21} /> : <CircleAlert size={21} />}<h3>{answer.correct === true ? '回答正确' : answer.correct === false ? '回答错误，解析与资料依据如下' : '答案已保存'}</h3></div><p>{answer.feedback.explanation ?? answer.feedback.hint ?? (detail.set.feedbackMode === 'deferred' ? '全部题目提交后统一显示答案与解析。' : '本组只提供提示，不显示标准答案。')}</p></div>}
           {answered && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>全部题目提交后统一显示答案与解析。</p></div>}
