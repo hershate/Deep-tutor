@@ -1396,3 +1396,9 @@ fn frontend_material_import_errors_are_visible_in_plan_generator() {
     assert!(source.contains("summarizeMaterialImport"));
     assert!(!source.contains("明细见控制台"));
 }
+
+#[test]
+fn frontend_auxiliary_font_sizes_respect_design_floor() {
+    let source = include_str!("../../../../src/styles.css");
+    assert!(!source.contains("font-size: 11px"));
+}

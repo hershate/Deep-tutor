@@ -592,7 +592,7 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .node-agent h3 { margin: 0; font-size: 13px; }
 .node-agent button { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; }
 .node-agent button p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
-.node-agent button small { color: var(--muted); font-size: 11px; }
+.node-agent button small { color: var(--muted); font-size: 12px; }
 .knowledge-list { display: grid; }
 .knowledge-list > button { display: flex; align-items: center; gap: 16px; min-height: 80px; padding: 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; text-align: left; }
 .knowledge-list > button.active { background: var(--accent-soft); }
