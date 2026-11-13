@@ -1,287 +1,249 @@
 # 03 · 工作流分析
 
-> 基准：main 分支滚动演进（不钉单一 commit，引用以撰写时 HEAD 为准，随开发可能移位）。引用形如 `文件:行号`，相对仓库根（`desktop/` 内引用会显式标注）。
+> 本文说明构建、验证、业务决策和数据生命周期。命令与模块见 [01 架构分析](01-architecture.md)，算法与状态机见 [02 运行原理](02-operation-principles.md)。
 
-## 1. 开发与构建工作流
+## 1. 构建、发布与 CI
 
-| 入口 | 命令 | 实际动作 |
-|---|---|---|
-| Makefile:31 | `make lint` | `cargo fmt --all -- --check`（desktop/src-tauri）+ `check-versions.mjs` 六处版本校验 + `npm run build`（tsc -b && vite build）+ `npm audit --omit=dev && npm audit`（runtime + dev 双口径，110#1） |
-| Makefile:39 | `make test` | `cargo test --release --locked -- --test-threads=1`（desktop/src-tauri） |
-| Makefile:43 | `make check` | lint + test + dev-smoke（dev server 冒烟，1.1.9 并入） |
-| Makefile:25 | `make build` | lint 前置（131#3）→ `collect-licenses.mjs` 收集第三方许可 → `npm run tauri build -- -- --locked`（`--locked` 透传 cargo，Cargo.lock 不一致即失败）→ tauri.mjs 复制唯一 `*_{version}_*-setup.exe` 到根 `dist/` 并双向 SHA-256 校验（`desktop/scripts/tauri.mjs:24-38`） |
-| Makefile:52 | `make hooks` | `git config core.hooksPath .githooks`；pre-push 执行 `make check`（.githooks/pre-push:3） |
+### 1.1 本地入口
 
-本地 Rust 工具链按 `rust-toolchain.toml` 钉 1.99.1（本机解析为 gnu 目标，经 winlibs 的 dlltool 链接，`RUSTUP_HOME=F:\DevCache\rustup`）；CI 为同版本 msvc（windows-latest）；crate 缓存复用 `CARGO_HOME=F:\DevCache\cargo`（AGENTS.md 约定）。
+| 命令 | 实际动作 |
+|---|---|
+| `make lint` | Rust 格式检查、六处版本一致性、TypeScript/Vite 生产构建、npm runtime 与 dev 双口径审计 |
+| `make test` | 在 `desktop/src-tauri` 执行 `cargo test --release --locked -- --test-threads=1` |
+| `make dev-smoke` | 检查 43198 端口，启动 strictPort Vite，断言应用挂载标记，终止自身进程树并清理该端口残留监听 |
+| `make check` | `lint + test + dev-smoke` |
+| `make build` | 先执行 lint，再收集第三方许可、构建 NSIS，将安装包复制到根 `dist/` 并双向校验 SHA-256 |
+| `make hooks` | 将 Git hooks 路径设为 `.githooks`；pre-push 执行 `make check` |
 
-CI（.github/workflows/ci.yml）：push:main + PR + 手动触发；windows-latest；Node 24（npm cache 以 desktop/package-lock.json 为键）→ `npm ci` → 前端类型检查（`npx tsc --noEmit`，先于数十分钟 Rust 测试暴露类型错误）→ dev server 冒烟（117#5，scripts/dev-smoke.sh：起 vite 于 43198 断言应用标记后树杀）→ 依赖审计（110#1，`npm audit --omit=dev && npm audit` 双口径）→ `cargo fmt --check` → 原生测试（同 --test-threads=1）→ check-versions → collect-licenses → NSIS 安装包（完整前端构建在该步骤的 beforeBuildCommand 内执行）→ 对产物实跑 `--verify-native` 契约自检 → 上传构件（含 .sha256） `deep-tutor-windows-nsis`（`if-no-files-found: error`）。无部署阶段。
+`npm run tauri build -- -- --locked` 与 `make build` 使用相同的 `beforeBuildCommand` 和许可收集链。`--locked` 传递给 Cargo，锁文件不一致时构建失败。
+
+六处版本为 `desktop/package.json`、`desktop/package-lock.json`、`desktop/src-tauri/tauri.conf.json`、`desktop/src-tauri/Cargo.toml`、Cargo.lock 工作区包条目和根 README。当前版本为 1.1.14。
+
+本地使用 Rust 1.99.1 GNU host、winlibs 的 dlltool 和 F 盘 Cargo/Rustup 缓存；CI 使用同版本默认 MSVC host。两种 host ABI 的构建问题不能互相替代验证。
+
+### 1.2 CI 顺序
 
 ```mermaid
 flowchart LR
-    A[push:main / PR / 手动触发] --> B[npm ci Node 24]
-    B --> T[npx tsc --noEmit 前端类型检查]
-    T --> S[dev server 冒烟 43198]
-    S --> AU[npm audit 双口径]
-    AU --> C[cargo fmt --check]
-    C --> D[cargo test --release --locked 串行]
-    D --> E[check-versions + collect-licenses]
-    E --> F[npm run tauri build NSIS 内含前端构建]
-    F --> V[产物实跑 --verify-native 契约自检]
-    V --> G[上传安装包与 .sha256 缺失即失败]
-    H[pre-push hook] --> I[make check = lint + test + dev-smoke]
+    A[push main / PR / 手动] --> B[Windows + Node 24 + Rust 1.99.1]
+    B --> C[npm ci]
+    C --> D[tsc --noEmit]
+    D --> E[dev server smoke]
+    E --> F[npm audit 双口径]
+    F --> G[cargo fmt --check]
+    G --> H[cargo test release locked 串行]
+    H --> I[版本校验]
+    I --> J[许可收集 + NSIS build]
+    J --> K[--verify-native]
+    K --> L[上传 exe 与 sha256]
 ```
 
-发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.14，check-versions.mjs 校验）。
+CI 不部署应用，也不创建 GitHub Release。`dist/` 只保留当前安装包及摘要；推送和发布由用户决定。
 
-## 2. 测试策略
+## 2. 验证策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。265 个后端测试串行执行。
-- 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
-- 测试基建：
-  - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:812/868 `mock_app/ipc` 辅助函数）。
-  - 本机回环 TestServer 线程模拟 LLM/WebDAV/S3 协议（providers/test_support.rs:35-70），断言真实 HTTP 行为而非 mock 返回值。
-  - `MemoryCredentials`（providers/mod.rs:151）替代系统密钥库。
-  - `defer` 布尔使流水线测试同步化，三域形态各异：learning 跳过 spawn（直接内联执行）、materials 自旋等待任务完成、sync 暂停调度线程。
-  - MIGRATION_RUNS 计数器验证迁移幂等与版本门禁补列（store.rs:77；store.rs:22-27 现为 107#5 的 STORE_OPEN_LOCK 打开锁——勿混淆；幂等/版本门禁测试见 store.rs 测试区）。
-- 事件契约（38 轮字段级全量复核结论）：前端按 kind/prefix 触发一次 IPC 全量重拉，payload 仅消费标识类字段（requestId/runId/sessionId/materialId/planId/stageId/namespace），其余为审计死字段；字段级零失配，除非事件发射点或前端消费点增改，后续无需再做字段级复核（决策文档第 29 条）。
-- 覆盖重点（抽样断言）：恢复不重复调上游（learning/tests.rs、subjective_tests.rs server 计数不变）；事件 outbox 分页与重启续接（store.rs:1252 测试）；备份 ID 映射、追加导入子表随父重写与重复导入按复合键跳过（backup/tests.rs）；同步回读校验与保留恰 10 个（sync/tests.rs、versions_tests.rs）；同步终态回调直接启动下一任务；学习主行与子行的迟到失败守卫；路由取消与迟到完成交叠；并发 grade 仅一次生效（review/mod.rs 测试）；两用户文件隔离（security/workspace_tests.rs）；异步命令从会话派生 principal——user2 登录后档案必须落在 user2 工作区（security/guard_tests.rs）。
-- 环境边界：真实供应商、真实媒体编解码播放、交互安装为独立验收项，协议夹具不替代（plan/README.md 约定；无界面安装验证走 `--verify-native` + `DEEPTUTOR_VERIFY_DATA_DIR`，main.rs:14-72）。
+### 2.1 测试组织
 
-## 3. 业务工作流：学习闭环
+- 当前有 265 个 Rust `#[test]`，使用 release、锁定依赖和 `--test-threads=1` 串行执行。共享进程状态包括检索端点、迁移计数和同步测试开关。
+- 每域测试与实现同目录；providers、security、practice、sync 等按协议、守卫、考试、主观题、变式或版本拆分。
+- `tauri::test::MockRuntime` 驱动真实命令 IPC；SQLite 使用真实临时数据库；系统密钥库在测试中使用内存实现。
+- 本机回环 `TestServer` 验证 LLM、WebDAV、S3 和网页的实际 HTTP 请求、状态码、用量与错误映射，不把协议夹具称为真实供应商验收。
+- learning 使用 defer 内联执行流水线，materials 在测试中等待任务完成，sync 可暂停调度线程。
+- 事件测试覆盖持久化、快照游标、终态顺序、取消恢复和结果重放；恢复测试断言上游请求计数不增加。
+- 备份测试覆盖 ID 映射、外键重写、缺件警告和重复导入；同步测试覆盖回读和保留 10 份；安全测试覆盖用户工作区与异步 principal。
+
+### 2.2 独立验收
+
+真实供应商、真实媒体编解码播放、交互安装/运行/卸载、真实拖放和系统对话框必须分别验收。编译、协议夹具和无界面测试不能替代这些环境证据。
+
+原生安装契约使用：
+
+```bash
+DEEPTUTOR_VERIFY_DATA_DIR=F:/Github/repo/Deep-tutor/TEMP/<独立目录> <可执行文件> --verify-native
+```
+
+该入口只访问指定目录，完成真实装配和 SQLite 初始化后退出，不打开窗口。自动化不得驱动前台窗口、模拟键鼠或截屏。临时文件使用仓库 `TEMP/`，结束后清理。
+
+## 3. 学习业务工作流
 
 ```mermaid
 flowchart TD
-    A[目标 当前基础 时间 日期] --> C{可选资料 0 到 8 份}
-    B[导入材料/网页/ZIP] --> Q[解析队列单线程]
+    A[目标 / 基础 / 时间 / 日期] --> C{0–8 份可选资料}
+    B[文件 / 文本 / 网页 / ZIP] --> Q[单线程解析队列]
     Q --> C
-    C -->|无资料 使用通用框架| D[八步流水线生成]
-    C -->|有资料 校验原文引用| D
-    D --> E[采纳 adopt 生成任务与项目]
-    E --> F[讲义逐单元生成]
-    F --> G[节点针对练习/模拟考]
-    G --> H[错题变式]
-    H --> I[间隔复习卡片]
-    I --> J[学习报告与专注记录]
-    J --> K[项目成果与量规反馈]
-    K --> L[备份/分享/同步]
+    C --> D[八步方案流水线]
+    D --> E[采纳并生成项目与任务]
+    E --> F[讲义与阅读进度]
+    F --> G[练习 / 考试 / 错题变式]
+    G --> H[间隔复习]
+    H --> I[项目成果与量规]
+    I --> J[专注 / 打卡 / 报告]
+    J --> K[备份 / 分享 / 配置同步]
 ```
 
-### 3.1 材料进入（Materials）
-决策链（materials/mod.rs:408-544）：
+### 3.1 材料进入
+
+材料必须依次通过路径、类型、签名、大小和哈希检查。SHA-256 去重发生在配额写入前；新原件先安全落盘，再创建数据库记录。文本解析由单工作线程执行，媒体只读取原件。
 
 ```mermaid
 flowchart TD
-    A[导入文件 网页文本 ZIP 包] --> B{路径 canonicalize 成功且为普通文件?}
-    B -->|否| C[invalid_material]
-    B -->|是| D{非空 50MB 内 文件名 500B 内 扩展名 19 种白名单?}
-    D -->|否| C
-    D -->|是| E{魔数匹配? PDF office zip txt md 媒体签名}
-    E -->|否| C
-    E -->|是| F{sha256 已存在?}
-    F -->|是| G[deduplicated true 不占配额]
-    F -->|否| H{materials 配额内?}
-    H -->|否| I[quota_exceeded 未写入]
-    H -->|是| J[原件 originals 哈希命名 + staged + 事件]
-    J --> K[进入解析队列]
+    A[导入] --> B{路径与类型有效?}
+    B -->|否| C[typed error]
+    B -->|是| D{哈希已存在?}
+    D -->|是| E[复用记录 / 回补原件]
+    D -->|否| F{配额允许?}
+    F -->|否| G[quota_exceeded]
+    F -->|是| H[原件落盘 + staged]
+    H --> I[解析队列]
 ```
 
-### 3.2 方案生成与采纳（Learning/Planning）
-- 启动前置：目标与当前基础有效、资料为 0–8 份可选、已选资料已解析、daily_minutes 10–600、`provider_for_task("plan")` 能解析档案与模型（learning/mod.rs `validate_input`）。无资料时使用通用知识框架，图谱、讲义与练习引用为空；有资料时继续逐字校验原文引用。
-- 采纳 `adopt_learning_plan`（learning/actions.rs:19）：幂等（已有 adoptions 直接返回）；创建 project + 每 `learning_plan_schedule_tasks` 一条 tasks 集合任务 + `plan.adopted`。
-- 目标修改 `update_learning_goal`（planning/commands.rs:38）：事务内预检方案状态与 `regeneration_limit=2` 再进入再生成；**已采纳方案不原地重跑**——`regenerate`（actions.rs:121）scope 2..=6 局部重跑，旧版本存 `learning_plan_versions`，version+1。
-- 强度调整 `apply_plan_intensity`（planning/mod.rs:348）：factor 稳妥 0.8/标准 1.0/冲刺 1.2；条目/任务/阶段分钟按 `round(m×target/current)` 纯比例取整、不套 10..=600 钳制（52#1：排期装填合法产出 1–9 分钟尾条目，旧 clamp(10,600) 使 2 分钟尾条目切「冲刺」被抬到 10 再切回时单调卡死）；每日分钟是排期步硬校验 10..=600 的唯一对象，缩放后钳回界内（scaled_daily）；基准取首次采纳方案（`adopted_first_plan` planning/mod.rs:116），不随展示中的方案切换漂移；乐观锁 preferences/tasks revision；事务内复查方案状态，防与并发 regenerate 穿插（34#21）。缩放同步写五处：schedule entries、stages[].minutes（31#15）、覆盖前 `learning_plan_versions` 快照（31#16；34#3 起同版本重复切换用 OR REPLACE 以最近一次为准）、artifacts_json `$.step5` 与 `learning_plan_steps.output_json` 双写（34#4——run() 重建读 step 表，单写 artifacts 会静默回退缩放）。强度调整不再重算 within_deadline/within_milestone——逾期判定只由排期与截止日推导。
+### 3.2 方案采纳、再生成与强度
 
-方案生命周期：
+- `adopt_learning_plan` 只接受 done/degraded 方案；重复采用直接返回现有快照。首次采用在一个事务中创建项目、按阶段创建里程碑、按排期创建任务和采用关联。
+- `regenerate_learning_plan` 支持从步骤 2–6 开始局部重跑，保存覆盖前版本并递增 version。已采用方案返回 `plan_adopted`，必须另建新方案；重生成次数受 `regeneration_limit` 约束，默认上限为 2。
+- `update_learning_goal` 在同一流程中校验状态、次数、目标和每周 1–80 小时，再更新输入并局部重跑，避免只保存目标而未执行再生成。
+- 强度因子为稳妥 0.8、标准 1.0、冲刺 1.2。按 `round(当前分钟 × 目标因子 / 当前因子)` 缩放排期、任务和阶段；每日分钟额外钳制到 10–600。
+- 往返强度切换使用当次存储值计算，独立取整可能产生每项 ±1 分钟漂移。替代方案按实际分钟计算。
+- 强度调整保存覆盖前快照，同步写排期表、任务集合、方案结果、artifacts.step5 和步骤 5 输出；preferences/tasks 使用 revision 乐观锁，事务内复查方案状态。
+- 强度调整不改变日期，因此不重算 `within_deadline` 和 `within_milestone`。
 
-```mermaid
-flowchart TD
-    A[start_learning_plan 基础输入加可选资料] --> B[八步流水线]
-    B --> C{status done 或 degraded?}
-    C -->|是| D[adopt_learning_plan 幂等]
-    D --> E[建 project + 每排期一条任务 + adoptions]
-    E --> F[讲义逐单元生成 版本递增]
-    F --> G{目标修改?}
-    G -->|是| H[regenerate 局部重跑 存旧版本 version 加 1 受上限 2 约束]
-    G -->|否| I{强度调整?}
-    H --> I
-    I -->|是| J[比例缩放 round m 乘 target 除 current 保留尾条目 存版本快照]
-    I -->|否| K[保持既有排期]
-    J --> L[同步 schedule entries stages 与 tasks duration 乐观锁 revision 双写 step5]
-```
+### 3.3 练习、错题与复习
 
-错题变式闭环：
+- 练习可按方案、阶段和知识节点限定范围；nodeId 必须属于该方案和阶段，恢复任务不得扩大范围。
+- 错题变式只能引用同方案、同题型且非考试的真实错题；生成结果不得复制原题干。
+- 变式答对沿链更新中间错题和原错题的掌握状态；未作答考试题不进入错题或变式链。
+- 复习按 due_at 选择最旧到期卡片，评分公式、并发守卫和挂起语义见运行原理。
 
-```mermaid
-flowchart TD
-    A[答错 正常反馈模式] --> B[practice_mistakes upsert wrong_count 加一]
-    A2[未答 落 0 分与证据 不进错题本 不进闭环]
-    B --> C[以错题为源生成变式]
-    C --> D{源是真实错题 同 plan 同题型 且非 exam?}
-    D -->|否| E[拒绝]
-    D -->|是| F[prompt 追加改变情境不得复制]
-    F --> G[校验拒绝与原题相同 prompt]
-    G --> H{变式作答}
-    H -->|答对| I[原子置原错题 mastered 1 并记录变式题号]
-    H -->|答错| J[原错题 mastered 回 0 可再变式]
-```
+### 3.4 项目成果
 
-### 3.3 练习与复习（Practice/Review）
-- 出题范围约束：nodeId 必须属于方案图谱、所选阶段且属变式 node_ids（practice/mod.rs:591-614）；生成 prompt 与题目校验均受该范围约束（:816-844）；恢复任务不扩大范围。
-- 错题变式：`variant_of` 只接受真实错题且同 plan 同题型（variants.rs:65-78）；prompt 追加"改变情境不得复制"（mod.rs:424）；生成校验拒绝与原题同 prompt（:797-799）；答对后原子置原错题 mastered（variants.rs:106-133）。
-- 复习到期：`next_review_card` 取 `due_at<=now` 最旧（review/mod.rs:366）；grade 公式见 02 §10。
+`submit_project_version` 接受 1–100000 字节且不含 NUL 的正文、可选里程碑和已解析资料。每项目只允许一个活动反馈任务。
 
-### 3.4 项目成果（Projects）
-提交 `submit_project_version`（projects/mod.rs:303）：content 1-100000B 无 NUL；可选材料须已解析；每项目单反馈任务（事务内复查 :313）；INSERT 'running' + **commit 后才 emit** `project.feedback_started`（:329-335）；量规由模型按概念应用/实现质量/验证与反思 0-100 评分（:443-448），`validate_feedback`（:351）限分≤100、summary≤6000、建议 1-5 条；不声称执行代码。恢复：completed_chat 为真直接重放 evaluate，否则 interrupted（:571-602）。迭代笔记写入真实 notes 集合（:607-648）。
+版本和 running 状态在 IMMEDIATE 事务中提交后才发送开始事件。模型按概念应用、实现质量、验证与反思三个 0–100 分字段评分，返回不超过 6000 字节的总结和 1–5 条建议；不声称执行代码。无效输出进入 failed，不生成替代评价。取消与结果同时到达时保留反馈，但终态为 cancelled 并发送取消终态事件。迭代想法写入真实 notes 集合。
 
-```mermaid
-flowchart TD
-    A[submit_project_version] --> B[content 1 到 100000B 无 NUL 可选材料已解析]
-    B --> C{该项目已有反馈任务?}
-    C -->|是| D[拒绝]
-    C -->|否| E[INSERT running 事务 commit 后才 emit started]
-    E --> F[线程 project-feedback-id]
-    F --> G[量规三分 0 到 100 prompt 2048 tokens]
-    G --> H{validate_feedback 分数与建议有效?}
-    H -->|是| I[done + feedback_json + completed 事件]
-    H -->|否| J[failed 不伪造评价]
-    I --> K[迭代想法写入真实 notes]
-    J --> L[用户 resume 或修改后重提]
-```
+### 3.5 报告与统计口径
 
-### 3.5 报告（Reports）
-只聚合真实记录：专注实际秒数（running 时实时推导 `now-started_at`，pause 冻结，resume 改写 started_at=now-actual 保持时钟连续，reports/mod.rs:241-255,394,439,465）；完成任务保留计划分钟并区分；掌握度来自 `learning_node_evidence` AVG；无证据不填示例趋势；建议采纳一次提交（:1092）；CSV/报告导出经后端（:1162）。
+报告周期为 4w、8w、semester。秋季学期从 9 月 1 日到次年 2 月末，春季学期从 3 月 1 日到 8 月末；寒暑假月归入刚结束的学期。
 
-专注会话时钟语义：
+- 首页和周报使用任务级口径：同一已完成任务的计划分钟与关联专注秒取较大者；任务未勾选或完成时间不在窗口内时，关联专注仍按实际秒计入。未关联任务的专注按实际秒计入。
+- 84 天学习日历使用日级口径：每日自报分钟与专注分钟取较大者，任务勾选分钟不进入日历，自报打卡不进入周报。来源标签取实际提供较大值的来源。
+- 连续记录允许今天尚无记录的一天宽限，从昨天继续计算；打卡率分母为窗口内首个活跃日起的天数，无记录时为 0。
+- 主动练习只统计实际作答；掌握度来自有效学习证据，无证据时返回空值，不生成示例趋势。
+- 专注计划时长为 60–14400 秒，保存实际秒数与暂停恢复；完成任务保留计划分钟，二者在展示和聚合中明确区分。
+- 学习报告和用量 CSV 由后端导出；用量 CSV 对公式前缀转义，避免表格软件执行单元格内容。
 
-```mermaid
-stateDiagram-v2
-    [*] --> running: start 60 到 14400 秒 单活跃
-    running --> paused: pause 冻结 actual_seconds 写 paused_at
-    paused --> running: resume started_at 改写为 now 减 actual
-    running --> completed: complete 落盘实际秒数
-    running --> cancelled: cancel
-```
+### 3.6 Wiki 与知识库
 
-### 3.6 知识库与 Wiki（Knowledge/Notes）
-- 问答 `ask_knowledge`（knowledge/mod.rs:512）：1-8 份已解析资料为 scope；每份截 16000 字符（MAX_SOURCE_CHARS :24）标记 truncated；系统提示强约束只用提供资料；answer≤30000B；**引用剔除式校验（10#24）**：material_id 不在 scope 或 quote（1..=1000 字）无法经 `find_ignoring_case`（大小写不敏感字符窗口匹配，knowledge/mod.rs:319）在原文定位（locate knowledge/mod.rs:175）的引用被剔除并计入 dropped（重复引用去重），dropped>0 仅产生 warning；仅当 sufficient 且剔除后 citations 为空才报 `citation_mismatch`（:654-658）；`UPDATE ... WHERE status='running'` 防取消后写入。
+Wiki 问答要求 1–8 份已解析资料，问题为 1–8000 字节。每份资料最多 16000 字符，合计最多 64000 字符，超出部分标记截断；回答不超过 30000 字节。
 
-引用双重校验：
+模型声称资料充分时必须提供引用。范围外或无法在原文定位的引用被剔除并计入警告；重复引用去重。若声称充分但有效引用全部为空，返回 `citation_mismatch`。引用定位使用大小写不敏感的字符窗口，保存起止字符和行号。
 
-```mermaid
-flowchart TD
-    A[ask_knowledge 1 到 8 份已解析资料] --> B[每份截 16000 字符 标记 truncated]
-    B --> C[系统提示强约束只用提供资料]
-    C --> D[stream_chat 4096]
-    D --> E{answer 30000B 内? sufficient 则 citations 非空?}
-    E -->|否| F[校验失败]
-    E -->|是| G{material_id 在 scope 白名单?}
-    G -->|否| H2[剔除引用 dropped 加一]
-    G -->|是| I{locate 定位 quote 原文}
-    I -->|找不到| H2
-    I -->|找到| K[落 char_start char_end line]
-    K --> L[UPDATE WHERE status running 防取消后写入]
-```
+笔记与知识节点的关联只来自学习阶段批注；删除笔记同步清理关联。知识库检查报告未关联自由笔记、完全相同正文、缺失原件和解析失败，不自动删除内容。
 
-- 知识关联：笔记↔节点映射只来自学习阶段批注（learning_annotations）；删除笔记同步清理（store.rs:608）。
-- 知识库体检 `get_library_overview`（notes/library.rs:67）：未关联自由笔记、完全相同正文、缺失原件、解析失败四类真实项；支持打开对应记录；不自动删除。
+### 3.7 本机社区与提醒
 
-### 3.7 社区与提醒（Community）
-预约 `reserve`（community/mod.rs:939）：房间须 scheduled 未过期、小组须已加入、`remind_at=max(start-15min,now)`、写事务内查重叠（31#35）；`claim_due_reminders`（:1081，IPC `claim_community_reminders` commands.rs:124）提供到期提醒领取——仅领 remind_at≤now、未投递且房间尚未结束（结束时间上界 `start_at+duration > now`，1.1.7/114#7，与 95#4 active 口径同公式）的行，逐条置 delivered_at 并发 `community.reminder_due`；由 `App.tsx` 每 60 秒轮询领取（`community.ts:53` claimDueReminders，免打扰时段只落通知中心不弹 toast，1.1.7/115#4）；取消预约/房间同步删提醒（:921,:951）。
+社区数据只保存在当前工作区，不创建在线成员或音视频房间。创建房间和预约都在写事务内检查时段重叠；关联小组的房间要求预约者已加入。
 
-```mermaid
-sequenceDiagram
-    participant U as 用户
-    participant R as reserve 预约
-    participant RM as community_reminders
-    U->>R: 预约房间 scheduled 未过期 已入组
-    R->>RM: remind_at 为开始前 15 分钟与现在的较大值
-    Note over RM: App.tsx 每 60 秒轮询 claim_community_reminders<br/>到期提醒逐条置 delivered_at 并发 community.reminder_due
-    Note over RM: 取消预约或房间同步删除提醒
-```
+预约提醒时间为 `max(开始前 15 分钟, 当前时间)`。前端每 60 秒领取到期提醒，窗口恢复可见时补领；后端在 IMMEDIATE 事务中通过 `delivered_at IS NULL` 条件更新防止重复投递。房间结束时刻使用 `>= 当前时间` 的可领取边界，结束后不再领取。取消预约或房间会删除提醒和对应通知。
 
-### 3.8 通用 AI 与方案工具
+免打扰启用且 start==end 表示全天静默；disabled 表示关闭免打扰。静默时段提醒仍进入通知中心，但不主动弹出。
 
-- 全局导师经 `TutorPanel → useAgent → create_agent_session/send_agent_message` 使用 Agent 会话，支持 `planId: null` 的通用问答，不默认绑定首个方案；会话、run、消息、工具结果和取消状态由原生后端持久化，模型请求在 Rust Agent 工具循环内进入路由。模型接入中心的手动测试面板才由前端直接调用 `route_provider_chat`。
-- 通用 Agent 仅注册网络、记忆、历史七项工具；绑定已采用方案的会话增加四项 workspace 工具与 artifact.promote。工具执行层独立校验方案范围，避免绕过目录直接调用。
-- Wiki 保留 1–8 份已解析资料的引用范围；它与通用问答是两条独立调用链。
+### 3.8 全局导师与 Agent
 
-## 4. 数据生命周期工作流
+全局导师通过 `TutorPanel → useAgent → create_agent_session/send_agent_message` 使用 Agent 会话，支持 `planId: null`，不默认绑定首个方案。模型中心的手动测试面板才由前端直接调用 `route_provider_chat`。
+
+通用 Agent 只开放网络、记忆和历史工具；绑定已采用方案后开放 workspace 和 artifact 工具。Wiki 引用问答要求资料范围，通用问答与 Wiki 是两条独立调用链。
+
+## 4. 数据生命周期
 
 ```mermaid
 flowchart LR
-    I[导入原件 originals] --> P[解析文本 material_text]
-    P --> U[方案/讲义/练习/问答消费]
-    U --> E[事件 events 表]
-    B[备份 .dtbackup] --> R[追加导入 ID 映射]
-    S[同步 versions 远端] --> V[恢复选真实历史对象]
-    M[运维清理白名单孤儿]
+    I[材料原件] --> P[解析文本]
+    P --> U[方案 / 讲义 / 练习 / Wiki]
+    U --> E[events outbox]
+    E --> B[.dtbackup]
+    B --> R[预演 + 追加导入]
+    C[脱敏供应商配置] --> S[WebDAV / S3 versions]
+    S --> V[选择真实版本恢复]
+    M[白名单运维清理] --> I
 ```
 
-- 备份排除项：auth_sessions、access_tokens、share_index（EXCLUDED_AUTH_TABLES archive.rs:95；secure_delete 后 VACUUM）；系统凭据本就不在库中（keyring）。原件恢复扩展名复用 `materials::SUPPORTED`，仅对旧备份保留 zip 兼容。
-- 导入追加语义：冲突 ID 保留双方（materials 按 sha256 复用）；已有 preferences/routing 不覆盖（transfer.rs:866,:1013-1021）；agent_memory 重名加"· 导入 n"后缀。导入恢复仅更新仍处于活跃状态的任务主行；主行未变时不修改子行或发送终态事件。
-- 同步只含脱敏供应商档案与任务路由，不含学习备份（sync/mod.rs:525-554）；恢复必须选择真实历史对象（versions.rs:60 校验路径属本配置 versions/ 目录）。`stage` 仅从 running 追加进度；cancelling 的完成路径固定落 cancelled 并保留已取得结果。
-- 数据目录切换：不搬移不删除旧数据；目录配置不作为备份中的绝对路径恢复（startup.rs:194-243；plan/README.md 约定）。
+- 全量备份包含学习数据、材料、插件和 Agent scratch，不包含系统凭据、JWT 会话、PAT 摘要或分享索引。
+- 导入采用追加语义。材料按 SHA-256 复用，冲突 ID 重映射并保留双方，已有 preferences 和 routing 不覆盖；已知旧版悬挂引用按表降级并警告。
+- 同步只包含脱敏供应商档案和任务路由，不包含学习备份。上传必须回读校验，恢复必须选择真实历史对象。
+- 数据目录切换不自动迁移；目录绝对路径不随备份恢复。
+- 清理只删除无数据库引用的白名单文件和可识别临时项；仍被方案、Wiki、项目或 Agent 产物引用的材料拒绝删除。
+- 应用重置在同一数据库事务中删除业务数据和旧事件并写入新的 `application.reset`，数据库成功后再删除文件证据，事件序列保持递增。
 
 ## 5. 异常恢复矩阵
 
-| 失败点 | 处理 | 恢复路径 | 证据 |
-|---|---|---|---|
-| 启动目录配置损坏 | typed error storage_config_invalid，不开错工作区 | 主窗口内恢复默认/重选/重试 | startup.rs:557-569,724-747 |
-| 数据库损坏 | Store::root 拒绝打开（storage_failed） | 用户指定目录级恢复；维护页 integrity_check | startup.rs:571-601 |
-| 数据库降级 | max(user_version, meta.schema_version)>SCHEMA_VERSION 拒绝（unsupported_schema） | 升级应用 | store.rs:216-231 |
-| 写锁竞争 | busy_timeout 10s → database_busy（前端瞬态自动重试至多 5 次） | 前端提示重试 | store.rs:172；error.rs |
-| 模型步骤中断 | 步骤 interrupted + request_id 持久化 | resume 复用 completed_chat，不重调上游 | learning/mod.rs:655-668 |
-| 提供商连续失败 | 熔断 open 60s | half_open 试探恢复 | routing.rs:676-846 |
-| 全部候选失败 | all_providers_unavailable | 换供应商/调路由 | routing.rs:1290 |
-| 预算超限 | ensure_budget 拒绝（session/daily USD，`budget_spend` SQL 聚合 usage.rs:443） | 用户调预算设置 | usage.rs:480 |
-| 解析线程崩溃 | catch_unwind → failed + internal_error | 重新 enqueue | materials/mod.rs:862,897 |
-| 同步回读不一致 | sync_verify_failed，任务失败 | 重试上传 | versions.rs:226-231 |
-| 备份导入中途失败 | IMMEDIATE 事务回滚 + 删除已装文件 | 修正后重新导入 | transfer.rs:1295-1314（install_files）、:1366 起（回滚删已装） |
-| 应用重置 | 先停任务；同一事务删除业务数据与旧事件后写入 application.reset，再删原件/凭据；sqlite_sequence 保持递增，失败保留备份 | reset_application | backend/commands.rs::reset_application、store.rs::reset |
-| 用户切换工作区 | 写锁停 7 子系统 → 换库 → 失败回滚 | 守卫 switch | security/guard.rs:188 |
+| 失败点 | 错误与处理 | 恢复方式 |
+|---|---|---|
+| 目录配置损坏 | `storage_config_invalid`，不打开其他工作区 | 恢复默认、重选目录或重试 |
+| 数据库损坏或非数据库文件 | `database_corrupt` | 使用空目录启动并导入全量备份 |
+| 数据库版本过高 | `unsupported_schema`，拒绝降级修改 | 升级应用 |
+| SQLite 写锁竞争 | 10 秒等待后 `database_busy`；前端读路径有限重试 | 稍后重试；写路径必须明确提示 |
+| 模型步骤中断 | 保存 interrupted 和请求标识 | 显式 resume，复用已完成请求 |
+| 路由全部失败 | `all_providers_unavailable` | 修改档案或故障转移队列 |
+| 预算超限 | 会话或每日预算拒绝执行 | 调整预算或供应商 |
+| 材料解析崩溃 | panic 转 failed | 重新入队；重启后可自动重跑本地解析 |
+| 同步回读不一致 | `sync_verify_failed` | 修复远端或网络后重试 |
+| 备份导入失败 | 事务回滚并删除本次安装文件 | 修正备份后重新导入 |
+| 用户切换失败 | 停止失败或换库失败时回滚旧工作区并恢复后台 | 消除错误后重试 |
+| 应用重置失败 | 数据库未成功前不删除原件与凭据 | 重试或从备份恢复 |
 
 ## 6. 安全工作流
 
-密钥生命周期：
+### 6.1 密钥与身份
 
 ```mermaid
 flowchart LR
-    A[一次性表单输入] --> B[keyring set 系统密钥库]
-    B --> C[库与日志仅出现 has_key 布尔]
-    C --> D[导出配置 reject_sensitive 拒绝凭据字段]
-    C --> E[同步上传载荷不含 apiKey 测试断言]
-    C --> F[重置时 purge_credentials 全量清除]
+    A[一次性 API Key 表单] --> B[系统密钥库]
+    B --> C[数据库与界面仅 hasKey]
+    C --> D[导出拒绝敏感字段]
+    D --> E[同步载荷无 apiKey]
+    F[重置 / 删除档案] --> G[删除对应凭据]
 ```
 
-- 密钥流：一次性表单 → `CredentialBackend.set`（keyring）→ 库/日志/导出/同步只出现 `has_key` 布尔；导出配置 `reject_sensitive`（providers/sync_config.rs:30）拒绝凭据字段；上传载荷测试断言无 apiKey。
-- 鉴权流：guard 五层（02 §1；security/guard.rs:132-183）；单活动会话——登录签发即撤销全部旧会话，登出撤销该用户全部会话，重启自动签发仅限 `auth_sessions` 全表为空的真首启（1.1.8/119#1）；停用/删除用户即吊销全部会话与 PAT 并删 keyring 条目。
-- 配额流：五资源（notes 500/materials 200/sessions 200/threads 500/agent_memory 500 默认，security/mod.rs:150）提交前强制、配额检查在写事务内复查；拒绝写入不影响其他用户（store.rs:359-400）。
-- 分享流：令牌只存哈希；哈希索引仅暴露给只读定位；分享快照本体不含工作区 ID 与事件代次（事件代次口径已移除，13#21/22），用户标识在定位索引、工作区 ID 在 app_state 快照（sharing/mod.rs）。
-- 网络流：全部出站经 `public_address`/DNS pin/禁代理绕过/重定向逐跳校验（providers/openai.rs:103,243-254；web/mod.rs:71-181）。
+JWT 使用 HS256 和 7 天有效期；单活动会话在签发时撤销旧会话。PAT 使用系统随机数，数据库只保存 SHA-256。停用或移除用户会撤销会话和 PAT。登出后保留已撤销会话记录，重启不得静默自动登录。
 
-## 7. 前端页面 × 命令矩阵（摘要）
+默认配额为 Agent 会话 200、笔记 500、材料 200、社区帖子与回复合计 500、Agent 记忆 500。提交前在写事务内复查，一个用户的拒绝不影响其他用户。
 
-| 页面 | 主命令 | 监听事件前缀 |
+### 6.2 网络、分享与文件
+
+- 远程模型和网页请求执行公网地址检查、DNS 钉扎、禁代理和重定向约束；本地模型使用独立端点规则。
+- 网页 URL 拒绝凭据和密钥参数；网页内容限制类型、大小和编码，不执行脚本。
+- 分享令牌只存哈希，快照不包含工作区 ID；离线包不证明来源且不能撤销。
+- 材料、归档和 Agent 产物检查路径、签名、大小、数量和哈希；导出使用原子写和目的地遏制。
+- API Key、同步凭据、JWT 和 PAT 不得进入日志、导出、备份、同步载荷或测试夹具。
+- 前端只能打开 `https://**` 外链；资源管理器定位只接受数据根或本进程登记的导出回执。
+
+## 7. 页面与命令
+
+| 页面 | 主要命令 | 主要事件或刷新来源 |
 |---|---|---|
-| Dashboard | get_dashboard（App.tsx 调用经 props 下发，Dashboard 自身无 invoke/订阅） | state.changed/focus./plan./practice./review.（App 级快照与 30s 轮询驱动） |
-| PlanGenerator | start/cancel/resume/regenerate/adopt、import_material_*、import_webpage | material./plan./provider.chat_delta |
-| Plan | get_plan_overview、apply_plan_intensity、update_learning_goal、replace_collection(tasks) | plan./state.changed/security.session_started |
-| StudyRoom | get_lecture、generate_lecture、set_reading_progress、save_study_note | lecture./study.progress_changed/agent.artifact_promoted |
-| KnowledgeMap | get_knowledge_overview/path、add_knowledge_task | plan.adopted/study.progress_changed |
-| AgentCenter | send_agent_message、approve_agent_request（useAgent） | agent./provider.chat_delta/route_attempt |
-| Practice | generate/submit_practice_answer/submit_exam | practice./provider.chat_delta |
-| Review | next/grade_review_card | review./plan. |
-| Library | saveDraft（防抖）、import_notes、get_library_overview | material./study.note_saved/state.changed |
-| Projects | submit_project_version、cancel/resume_feedback | project./provider.chat_delta |
-| Reports | get_learning_report/calendar、focus 全套 | focus./study.checkin/practice./review./plan. |
-| Community | get_community_overview、post/reply/reserve、claim_community_reminders（App.tsx 轮询） | community. |
-| Integrations | 插件全套 | plugin. |
-| ProviderHub | 供应商/路由/熔断/日志、test_provider、route_provider_chat、cancel_provider_chat | 经 refresh |
-| Settings | 学习档案、setPreferences | security.session_started/state.changed |
-| SharedPlan | read_shared_plan、read_shared_plan_package | 无 |
+| Dashboard | get_dashboard | App 统一下发；state.changed、focus、plan、practice、review |
+| PlanGenerator | start/cancel/resume/regenerate/adopt、材料与网页导入 | material、plan、provider.chat_delta |
+| Plan | get_plan_overview、apply_plan_intensity、update_learning_goal、assign_task_date | plan、state.changed、security.session_started |
+| StudyRoom | get_lecture、generate_lecture、set_reading_progress、save_study_note | lecture、study、agent.artifact_promoted |
+| KnowledgeMap | get_knowledge_overview/path、add_knowledge_task | plan.adopted、study.progress_changed |
+| AgentCenter | create/list/get/send/cancel/resume、approve_agent_request | agent、provider.chat_delta、provider.route_attempt |
+| Practice | generate/submit_practice_answer、submit_exam、变式与错题命令 | practice、provider.chat_delta |
+| Review | list/next/grade_review_card、卡片 CRUD | review、plan |
+| Library | 集合命令、saveDraft、import_notes、get_library_overview | material、study.note_saved、state.changed |
+| Projects | get_project_workspace、submit/cancel/resume、迭代笔记 | project、provider.chat_delta |
+| Reports | get_learning_report/calendar、focus、打卡与建议 | focus、study.checkin、practice、review、plan |
+| Community | get_community_overview、帖子/回复/小组/房间命令 | community；App 每 60 秒领取提醒 |
+| Integrations | 插件安装、启停、重载、卸载、事件与资产 | plugin |
+| ProviderHub | 档案、路由、熔断、日志、test_provider、route_provider_chat | 命令返回与主动刷新 |
+| Settings | 偏好、学习档案、安全、备份、同步、运维和导出 | security.session_started、state.changed |
+| SharedPlan | read_shared_plan、read_shared_plan_package | 只读命令返回 |
 
-组件归属（components/ 共 17 个，含 UI.tsx 原语库）：DataDirectoryPanel/BackupPanel/SecurityPanel/SyncPanel/MaintenancePanel/UsagePanel/ProviderRouting/ExportCenter/SharePlanDialog/MediaPlayer/WikiPanel/ExamWorkspace/SubjectivePractice/TutorPanel/AgentTaskCenter/ReportViews/UI（components/）。
+17 个组件为 DataDirectoryPanel、BackupPanel、SecurityPanel、SyncPanel、MaintenancePanel、UsagePanel、ProviderRouting、ExportCenter、SharePlanDialog、MediaPlayer、WikiPanel、ExamWorkspace、SubjectivePractice、TutorPanel、AgentTaskCenter、ReportViews 和 UI。
 
-## 8. 命令与事件契约一致性
+## 8. 命令与事件一致性
 
-前端 25 个客户端文件调用的命令名与 `main.rs` 的 `generate_handler!` 注册表（188 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 92#1、`stream_provider_chat`/`get_agent_run` 自 138#1 起已从生产注册表移除（前端零调用），仅测试 mock 注册面仍在使用。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:514）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。
+- `main.rs` 注册 188 个命令，25 个前端客户端文件直接调用其中 173 个；命令名和 camelCase 参数由 IPC 测试与 TypeScript 类型共同约束。
+- `events_since`、`stream_provider_chat`、`get_agent_run` 不在生产注册表；`fetch_webpage` IPC 壳已删除。
+- 所有后端事件使用 `{id,kind,payload,createdAt}` 和唯一 `backend://event` 通道。
+- 前端通常只消费事件 kind/prefix 及 materialId、planId、sessionId、runId、requestId、stageId、namespace 等标识，再执行命令读取权威状态；其他 payload 字段用于审计。
+- `isCancelRace` 统一处理任务已结束、另一操作已登记、审批已解决和预约已变化等竞态错误。普通写错误不得因该机制静默。
