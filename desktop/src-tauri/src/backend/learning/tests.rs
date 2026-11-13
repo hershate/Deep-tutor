@@ -1288,3 +1288,42 @@ fn hot_path_indexes_are_used_and_dead_indexes_removed() {
         assert_eq!(exists, 0, "死索引 {name} 必须已被迁移清理");
     }
 }
+
+fn terminal_fixture() -> (tauri::App<tauri::test::MockRuntime>, LearningState, i64) {
+    let (app, state) = setup();
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    store.conn.execute(
+        "INSERT INTO learning_plans (status, provider_id, input_json, created_at, updated_at) VALUES ('done', 'p1', ?1, ?2, ?2)",
+        params![serde_json::to_string(&input(0)).unwrap(), timestamp],
+    ).unwrap();
+    let id = store.conn.last_insert_rowid();
+    store.conn.execute(
+        "INSERT INTO learning_lectures (plan_id, stage_id, version, status, current_unit, updated_at) VALUES (?1, 'stage-1', 1, 'done', 1, ?2)",
+        params![id, timestamp],
+    ).unwrap();
+    (app, state, id)
+}
+
+#[test]
+fn terminal_plan_ignores_late_failure_without_a_new_event() {
+    let (app, state, id) = terminal_fixture();
+    let before = state.store().unwrap().latest_event_id().unwrap();
+    fail_plan(app.handle(), &state, id, BackendError::new("late_failure", "迟到失败")).unwrap();
+    assert_eq!(get(&state, &format!("plan-{id}")).unwrap().status, "done");
+    assert_eq!(state.store().unwrap().latest_event_id().unwrap(), before);
+}
+
+#[test]
+fn terminal_lecture_ignores_late_failure_without_a_new_event() {
+    let (app, state, id) = terminal_fixture();
+    let before = state.store().unwrap().latest_event_id().unwrap();
+    lecture::fail_lecture(app.handle(), &state, id, "stage-1", BackendError::new("late_failure", "迟到失败")).unwrap();
+    let status: String = state.store().unwrap().conn.query_row(
+        "SELECT status FROM learning_lectures WHERE plan_id = ?1 AND stage_id = 'stage-1'",
+        params![id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(status, "done");
+    assert_eq!(state.store().unwrap().latest_event_id().unwrap(), before);
+}

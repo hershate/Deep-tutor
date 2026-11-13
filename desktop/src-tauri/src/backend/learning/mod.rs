@@ -811,7 +811,10 @@ fn fail_plan<R: Runtime>(
     };
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("UPDATE learning_plans SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5", params![status, error.code, error.message, now()?, id])?;
+    let changed = tx.execute("UPDATE learning_plans SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id])?;
+    if changed == 0 {
+        return Ok(());
+    }
     let event = Store::event(
         &tx,
         if status == "cancelled" {

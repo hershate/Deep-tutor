@@ -767,7 +767,7 @@ pub(crate) fn finish_lecture<R: Runtime>(
     Ok(())
 }
 
-fn fail_lecture<R: Runtime>(
+pub(crate) fn fail_lecture<R: Runtime>(
     app: &AppHandle<R>,
     state: &LearningState,
     id: i64,
@@ -782,7 +782,10 @@ fn fail_lecture<R: Runtime>(
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
     // 119#2：fail 路径同补活跃态守卫——防止覆写并发路径已落的终态
-    tx.execute("UPDATE learning_lectures SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id, stage_id])?;
+    let changed = tx.execute("UPDATE learning_lectures SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id, stage_id])?;
+    if changed == 0 {
+        return Ok(());
+    }
     let event = Store::event(
         &tx,
         if status == "cancelled" {
