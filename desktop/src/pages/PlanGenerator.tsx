@@ -212,6 +212,10 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     // 渲染闭包旧快照展开（原先会把刚导入的 id 抹掉、8 份额度被重置）
     setSelectedIds(current => current.includes(id) || current.length >= 8 ? current : [...current, id])
   }
+  const selectImported = (id: number, warn = true) => {
+    if (warn && !selectedIds.includes(id) && selectedIds.length >= 8) notify('方案最多选择 8 份资料；新增资料已保留在暂存列表，可取消部分选择后再选')
+    setSelectedIds(current => current.includes(id) || current.length >= 8 ? current : [...current, id])
+  }
   const importFiles = async () => {
     setBusy('files')
     setError('')
@@ -225,9 +229,11 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
       // 154#8：失败反馈改单条汇总（summarizeMaterialImport，对齐 Library/
       // 全局拖放入口）——原先逐错误 notify，大批量损坏文件时 30+ 条 toast
       // 滚动覆盖只留最后几条
+      const addedIds = new Set(outcomes.flatMap(outcome => outcome.material && mediaBackend.isText(outcome.material.kind) && !selectedIds.includes(outcome.material.id) ? [outcome.material.id] : []))
+      if (addedIds.size > 8 - selectedIds.length) notify('新增资料超过方案选择上限；仅选择前 8 份，其余资料保留在暂存列表')
       let failed = 0
       for (const outcome of outcomes) {
-        if (outcome.material && mediaBackend.isText(outcome.material.kind)) setSelectedIds(current => current.includes(outcome.material!.id) ? current : [...current, outcome.material!.id])
+        if (outcome.material && mediaBackend.isText(outcome.material.kind)) selectImported(outcome.material.id, false)
         if (outcome.error) { failed += 1; console.error(outcome.error) }
       }
       if (failed) notify(`本次导入 ${failed} 个文件失败，明细见控制台；可修正后重试`)
@@ -239,7 +245,7 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     setBusy('text')
     try {
       const result = await backend.importMaterialText(textTitle.trim() || `文本资料_${materials.length + 1}`, text)
-      setSelectedIds(current => current.includes(result.material.id) ? current : [...current, result.material.id])
+      selectImported(result.material.id)
       setText('')
       setTextTitle('')
       await refreshMaterials()
@@ -253,7 +259,7 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     setError('')
     try {
       const result = await webBackend.import(target)
-      setSelectedIds(current => current.includes(result.material.id) ? current : [...current, result.material.id])
+      selectImported(result.material.id)
       setUrl('')
       await refreshMaterials()
       notify(result.deduplicated ? `内容相同，已复用「${result.material.title}」` : `已抓取「${result.material.title}」并保存真实正文与来源`)
