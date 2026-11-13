@@ -877,12 +877,12 @@ fn save_attempt<R: Runtime>(
     Ok(())
 }
 
-fn finish<R: Runtime>(
+pub(crate) fn finish<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
     request_id: &str,
     result: &ProviderRequest,
-) -> Result<()> {
+) -> Result<ProviderRequest> {
     let store = state.store()?;
     let provider_id = if result.provider_id.is_empty() {
         None
@@ -890,10 +890,32 @@ fn finish<R: Runtime>(
         Some(profile_id(&result.provider_id)?)
     };
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE provider_route_runs SET status = ?1, provider_id = ?2, model = ?3, error_code = ?4, error_message = ?5, updated_at = ?6 WHERE request_id = ?7",
-        params![result.status, provider_id, result.model, result.error.as_ref().map(|error| &error.code), result.error.as_ref().map(|error| &error.message), now()?, request_id],
+    let current: Option<String> = tx
+        .query_row(
+            "SELECT status FROM provider_route_runs WHERE request_id = ?1",
+            params![request_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if !matches!(current.as_deref(), Some("running") | Some("cancelling")) {
+        drop(tx);
+        drop(store);
+        return latest_chat(state, request_id);
+    }
+    // 174#1：取消优先于迟到结果；输出与用量仍留在原 provider_requests 中。
+    let cancelled = current.as_deref() == Some("cancelling");
+    let status = if cancelled { "cancelled" } else { result.status.as_str() };
+    let cancelled_error = BackendError::new("cancelled", "路由请求已取消");
+    let error = if cancelled { Some(&cancelled_error) } else { result.error.as_ref() };
+    let changed = tx.execute(
+        "UPDATE provider_route_runs SET status = ?1, provider_id = ?2, model = ?3, error_code = ?4, error_message = ?5, updated_at = ?6 WHERE request_id = ?7 AND status IN ('running', 'cancelling')",
+        params![status, provider_id, result.model, error.map(|error| &error.code), error.map(|error| &error.message), now()?, request_id],
     )?;
+    if changed == 0 {
+        drop(tx);
+        drop(store);
+        return latest_chat(state, request_id);
+    }
     let attempts: i64 = tx.query_row(
         "SELECT COUNT(*) FROM provider_route_attempts WHERE request_id = ?1 AND upstream_request_id IS NOT NULL",
         params![request_id],
@@ -901,12 +923,17 @@ fn finish<R: Runtime>(
     )?;
     let event = Store::event(
         &tx,
-        "provider.route_completed",
-        json!({"requestId": request_id, "providerId": result.provider_id, "model": result.model, "status": result.status, "attempts": attempts}),
+        match status {
+            "done" => "provider.route_completed",
+            "cancelled" => "provider.route_cancelled",
+            _ => "provider.route_failed",
+        },
+        json!({"requestId": request_id, "providerId": result.provider_id, "model": result.model, "status": status, "attempts": attempts, "error": error}),
     )?;
     tx.commit()?;
     emit(app, &event);
-    Ok(())
+    drop(store);
+    latest_chat(state, request_id)
 }
 
 fn finish_error<R: Runtime>(
@@ -1152,8 +1179,7 @@ pub fn stream_chat<R: Runtime>(
             result.status = "cancelled".into();
             result.error = Some(BackendError::new("cancelled", "路由请求已取消"));
             result.request_id = request_id.into();
-            finish(app, state, request_id, &result)?;
-            return Ok(result);
+            return finish(app, state, request_id, &result);
         }
         if mode == "routing" {
             if let Some(error) = circuit_permit(
@@ -1276,8 +1302,7 @@ pub fn stream_chat<R: Runtime>(
                     && result.error.as_ref().is_some_and(can_failover);
                 result.request_id = request_id.into();
                 if result.status == "done" || result.status == "cancelled" || !retry {
-                    finish(app, state, request_id, &result)?;
-                    return Ok(result);
+                    return finish(app, state, request_id, &result);
                 }
                 // 继续尝试下一个候选（跨上游故障转移，无需等待）；同上游的
                 // 逐次重试在协议层循环内完成，已带指数退避（10#2）
@@ -1298,8 +1323,7 @@ pub fn stream_chat<R: Runtime>(
             ),
         )?,
     };
-    finish(app, state, request_id, &result)?;
-    Ok(result)
+    finish(app, state, request_id, &result)
 }
 
 pub fn cancel(state: &ProviderState, request_id: &str) -> Result<bool> {

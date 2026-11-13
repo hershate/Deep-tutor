@@ -1843,3 +1843,29 @@ fn first_enabled_profile_becomes_active_without_an_extra_setup_step() {
     assert_eq!(active(&state).unwrap().as_deref(), Some(first.id.as_str()));
     assert_ne!(first.id, second.id);
 }
+
+#[test]
+fn route_cancellation_wins_a_late_success_terminal() {
+    let (app, state) = setup();
+    let timestamp = now().unwrap();
+    let store = state.store().unwrap();
+    store.conn.execute(
+        "INSERT INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES ('route-late-cancel', 'agent', 'routing', 'cancelling', 1, 'test-model', ?1, ?1)",
+        params![timestamp],
+    ).unwrap();
+    let before = store.latest_event_id().unwrap();
+    drop(store);
+    let returned = routing::finish(app.handle(), &state, "route-late-cancel", &ProviderRequest {
+        request_id: "route-late-cancel".into(), provider_id: "p1".into(), model: "test-model".into(),
+        status: "done".into(), output: "已产生文本".into(), reasoning: String::new(), tool_calls: vec![],
+        usage: None, finish_reason: Some("stop".into()), error: None, attempts: 1, latency_ms: Some(1),
+        created_at: timestamp.clone(), updated_at: timestamp,
+    }).unwrap();
+    assert_eq!(returned.status, "cancelled");
+    let store = state.store().unwrap();
+    let status: String = store.conn.query_row("SELECT status FROM provider_route_runs WHERE request_id = 'route-late-cancel'", [], |row| row.get(0)).unwrap();
+    assert_eq!(status, "cancelled");
+    let events = store.events_since(before).unwrap().events;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, "provider.route_cancelled");
+}
