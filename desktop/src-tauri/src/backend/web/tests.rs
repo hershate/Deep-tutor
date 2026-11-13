@@ -231,8 +231,6 @@ fn webpage_import_preserves_source_parses_real_text_and_deduplicates_through_ipc
     let (app, learning) = ipc_app();
     let server = web_server();
     let url = format!("{}/article", server.url());
-    // 61 号：fetch_webpage IPC 壳已删（前端零调用，import_webpage 内部复用
-    // 同一抓取链），抓取语义改直调内部函数断言
     let page = fetch(&url).unwrap();
     assert_eq!(page.title, "实际文章标题");
     assert_eq!(page.text, "真实正文 & 证据");

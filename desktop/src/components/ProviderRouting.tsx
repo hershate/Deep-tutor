@@ -7,7 +7,7 @@ import { statusName } from '../status'
 // 66#2：路由模式中文映射——原先 mode 原文入界面
 const modeNames: Record<string, string> = { direct: '直连', routing: '任务路由', aggregate: '聚合' }
 
-export const taskRoutes: { id: TaskRouteId; name: string; hint: string }[] = [
+const taskRoutes: { id: TaskRouteId; name: string; hint: string }[] = [
   { id: 'agent', name: 'Agent 会话', hint: '通用问答或可选学习上下文' },
   { id: 'plan', name: '方案生成', hint: '生成与校验学习方案' },
   { id: 'lecture', name: '自学讲义', hint: '按方案生成逐单元讲义' },

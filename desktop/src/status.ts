@@ -1,5 +1,5 @@
 // 任务/集合状态的统一中文名：历史与列表不再与各页映射表混排英文原词
-export const taskStatusNames: Record<string, string> = {
+const taskStatusNames: Record<string, string> = {
   pending: '等待中',
   queued: '排队中',
   staged: '已暂存',

@@ -181,8 +181,6 @@ fn real_usage_rates_cancelled_requests_csv_and_budget_are_consistent() {
     assert_eq!(usage_json["ledger"][0]["task"], "wiki");
     assert_eq!(usage_json["rates"].as_array().unwrap().len(), 1);
     assert_eq!(usage_json["days"].as_array().unwrap().len(), 7);
-    // 61 号：export_usage_csv IPC 壳已删（前端零调用），CSV 语义改为直调
-    // 内部函数断言——_file 版的回执/落盘另由根 blob_export 测试覆盖
     let csv = super::export_csv(&state).unwrap();
     assert!(csv.contains("usage-1"));
     assert!(csv.contains("0.0000780000"));

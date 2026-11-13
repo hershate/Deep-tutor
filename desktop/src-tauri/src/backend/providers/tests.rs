@@ -637,8 +637,6 @@ fn ipc_tool_calls_are_persisted_and_can_be_read_back() {
     let window = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
-    // 21#2：stream_provider_chat_with_tools 已并入 route_provider_chat
-    //（tools 参数化）——经由保留下来的唯一入口验证工具调用的 IPC 持久化
     let result = ipc(
         &window,
         "route_provider_chat",
