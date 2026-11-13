@@ -1,33 +1,16 @@
 # deep-tutor-stages
 
-## 简介
-Deep-tutor「学习阶段设计」工具的方法论指令源。源自已删除的 Python 后端；`SKILL.md` 现作为 legacy-skill 静态资产编译期嵌入二进制、仅经插件面板展示，不再作运行时 system prompt，对应能力由 Rust 原生流水线实现。依据知识图谱与意图设计 3-6 个渐进难度学习阶段。
+## 资产状态
 
-## 目录结构
-```
-deep-tutor-stages/
-├── SKILL.md     # 方法论指令（历史资产，仅静态展示）
-└── README.md    # 本文件
-```
+渐进学习阶段设计的历史方法论资产。`SKILL.md` 由 `plugins/mod.rs` 通过 `include_str!` 嵌入，作为 `legacy-skill` 经 `get_plugin_overview` 和 `get_developer_asset` 展示。当前不执行 Python 或将该文件用作 system prompt；修改后必须重新编译 Rust。
 
-## 运行时集成
+## 当前实现
 
-> 30#1 事实修正：本节原描述的 Python Skill 加载器（`app/skills/loader.py`、
-> `app/agent/loop.py`、pydantic 校验链）属已删除的历史 Python 后端，当前应用
-> 不存在任何 Python 运行时。当前实现见下方「当前资产状态」。
-
-## 当前资产状态
-- **嵌入方式**：`SKILL.md` 由 `desktop/src-tauri/src/backend/plugins/mod.rs` 的
-  `assets()` 以 `include_str!` **编译期嵌入**二进制，作为「legacy-skill（历史
-  Skill 资产）」静态条目经 `get_plugin_overview`（清单）与 `get_developer_asset`（正文）命令展示（`asset` 为 Rust 内部函数，非 IPC 命令）。
-- **生效方式**：修改 `SKILL.md` 后须**重新编译 Rust**（重启应用不生效）。
-- **执行边界**：当前应用不执行 Python；内联技能 `native-operations` 明示
-  「不执行 Python」。
+- `learning/pipeline.rs` 的步骤 3 生成 `Stage { id,title,nodeIds,difficulty }`。
+- `learning/validate.rs` 先执行 1–20 阶段的结构校验，再在五维校验中检查 3–6 阶段、每阶段 3–6 节点和难度梯度。
+- 步骤 5 通过确定性排期增加 minutes、startDate、endDate，不使用模型估计周数。
+- 校验失败不生成默认三阶段。
 
 ## 方法论来源
-移植自 study-planner Step 3（渐进阶段、每阶段目标 / 3-6 知识点 / 里程碑）。
 
-## 注意事项
-- 本 Skill 不是 Claude Code 用户态技能，而是历史 Python 后端的方法论指令，现作为 legacy-skill 静态资产展示。
-- 修改 `SKILL.md` 须重新编译 Rust（`include_str!` 编译期嵌入，重启应用不生效）。
-- 原 `StagesData`/`Stage`/`StageTopic` pydantic 模型已随 Python 后端删除；输出契约现由 Rust 流水线的提示词与 serde 校验承接（backend/learning）。
+历史 study-planner Step 3。旧 Python `StagesData`、`topics`、`estimated_weeks` 和阶段内 milestone 字段已删除。
