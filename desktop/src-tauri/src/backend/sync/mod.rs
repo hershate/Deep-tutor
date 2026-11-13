@@ -11,7 +11,7 @@ use super::commands::emit;
 use super::error::{BackendError, Result};
 use super::learning::LearningState;
 use super::providers::{self, ProviderState};
-use super::store::Store;
+use super::store::{BackendEvent, Store};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -643,12 +643,11 @@ fn run<R: Runtime>(
     }
 }
 
-fn finish<R: Runtime>(
-    app: &AppHandle<R>,
+fn finish(
     service: &SyncService,
     id: &str,
     result: Result<Outcome>,
-) -> Result<()> {
+) -> Result<Option<BackendEvent>> {
     let (mut status, mut code, mut message, result_json, local_path) = match result {
         Ok(outcome) => ("done", None, None, Some(outcome.result), outcome.local_path),
         Err(error) => {
@@ -668,7 +667,7 @@ fn finish<R: Runtime>(
         |row| row.get(0),
     )?;
     if !["running", "cancelling"].contains(&current.as_str()) {
-        return Ok(());
+        return Ok(None);
     }
     if current == "cancelling" {
         status = "cancelled";
@@ -677,7 +676,7 @@ fn finish<R: Runtime>(
     }
     let changed = tx.execute("UPDATE sync_jobs SET status = ?1, result_json = ?2, local_path = ?3, error_code = ?4, error_message = ?5, updated_at = ?6, finished_at = ?6 WHERE id = ?7 AND status IN ('running', 'cancelling')", params![status, result_json.as_ref().map(serde_json::to_string).transpose()?, local_path, code, message, now()?, id])?;
     if changed == 0 {
-        return Ok(());
+        return Ok(None);
     }
     let event = Store::event(
         &tx,
@@ -691,8 +690,7 @@ fn finish<R: Runtime>(
         json!({"jobId": id, "status": status, "result": result_json, "error": code.map(|code| BackendError::new(&code, message.as_deref().unwrap_or("同步任务失败")))}),
     )?;
     tx.commit()?;
-    emit(app, &event);
-    Ok(())
+    Ok(Some(event))
 }
 
 fn start_with_path<R: Runtime>(
@@ -795,12 +793,23 @@ fn start_with_path<R: Runtime>(
                 Ok(result) => result,
                 Err(_) => Err(BackendError::new("task_panicked", "同步任务异常终止")),
             };
-            let _ = finish(&worker_app, &worker_service, &worker_id, outcome);
+            let event = match finish(&worker_service, &worker_id, outcome) {
+                Ok(event) => event,
+                Err(error) => {
+                    eprintln!("sync terminal persistence failed: {}", error.code);
+                    None
+                }
+            };
             let active_jobs = worker_service.active();
             let mut active = active_jobs
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             active.remove(&worker_id);
+            drop(active);
+            // 170#1：终态已落库，先释放执行登记再通知；回调可立即启动下一任务。
+            if let Some(event) = event {
+                emit(&worker_app, &event);
+            }
         });
     if let Err(_spawn_error) = spawn {
         let active_jobs = service.active();
@@ -808,12 +817,13 @@ fn start_with_path<R: Runtime>(
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(&id);
-        let _ = finish(
-            app,
+        if let Ok(Some(event)) = finish(
             service,
             &id,
             Err(BackendError::new("task_start_failed", "无法启动同步线程")),
-        );
+        ) {
+            emit(app, &event);
+        }
         return Err(BackendError::new(
             // 29#3：不把 OS io::Error 原文透给用户界面，技术细节留给日志侧排查
             "task_start_failed",

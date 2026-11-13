@@ -192,6 +192,12 @@ fn webdav_upload_download_import_and_terminal_events_are_real() {
     let committed_event = committed.clone();
     let service = SyncService::new(&learning);
     let service_for_event = service.shared();
+    let service_for_next = service.shared();
+    let app_for_next = app.handle().clone();
+    let download_id = Arc::new(Mutex::new(String::new()));
+    let download_id_for_event = download_id.clone();
+    let follow_up = Arc::new(Mutex::new(None));
+    let follow_up_for_event = follow_up.clone();
     app.listen("backend://event", move |event| {
         let payload: Value = serde_json::from_str(event.payload()).unwrap();
         if payload["kind"] != "sync.completed" {
@@ -200,6 +206,16 @@ fn webdav_upload_download_import_and_terminal_events_are_real() {
         let id = payload["payload"]["jobId"].as_str().unwrap();
         if job(&service_for_event, id).unwrap().status == "done" {
             committed_event.store(true, Ordering::Release);
+        }
+        // 170#1：真实终态回调中立即接续下一任务，覆盖终态事件与 ACTIVE 释放竞态。
+        if *download_id_for_event.lock().unwrap() == id {
+            let next = start(
+                &app_for_next,
+                &service_for_next,
+                "import".into(),
+                None,
+            );
+            *follow_up_for_event.lock().unwrap() = Some(next);
         }
     });
     let checked = ipc(
@@ -231,20 +247,23 @@ fn webdav_upload_download_import_and_terminal_events_are_real() {
         json!({"kind": "download", "destination": destination.to_string_lossy()}),
     )
     .unwrap();
+    *download_id.lock().unwrap() = downloaded["id"].as_str().unwrap().into();
     let downloaded = wait_job(&service, downloaded["id"].as_str().unwrap());
     assert_eq!(downloaded.status, "done");
     assert_eq!(downloaded.result.unwrap()["profiles"], 1);
     assert!(std::fs::read_to_string(destination)
         .unwrap()
         .contains("真实本地模型"));
-    let imported = ipc(
-        &app,
-        "start_sync_job",
-        json!({"kind": "import", "destination": null}),
-    )
-    .unwrap();
+    let event_deadline = Instant::now() + Duration::from_secs(10);
+    let imported = loop {
+        if let Some(next) = follow_up.lock().unwrap().take() {
+            break next.unwrap();
+        }
+        assert!(Instant::now() < event_deadline, "未收到下载终态回调");
+        std::thread::sleep(Duration::from_millis(5));
+    };
     assert_eq!(
-        wait_job(&service, imported["id"].as_str().unwrap()).status,
+        wait_job(&service, &imported.id).status,
         "done"
     );
     assert!(committed.load(Ordering::Acquire));
