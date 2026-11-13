@@ -480,6 +480,44 @@ mod tests {
         assert_eq!(received.lock().unwrap().len(), 2);
     }
 
+    #[test]
+    fn reset_removes_historical_event_payloads_and_keeps_monotonic_ids() {
+        let app = test_app();
+        let state = app.state::<BackendState>();
+        let previous = {
+            let store = state.store.lock().unwrap();
+            Store::event(
+                &store.conn,
+                "provider.chat_delta",
+                json!({"requestId":"private-request","text":"不应保留的模型内容","reasoning":false}),
+            )
+            .unwrap()
+            .id
+        };
+        let reset = ipc(&app, "reset_application", json!({})).unwrap();
+        assert!(reset["lastEventId"].as_i64().unwrap() > previous);
+        let store = state.store.lock().unwrap();
+        let remaining: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 1);
+        let kind: String = store
+            .conn
+            .query_row("SELECT kind FROM events", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(kind, "application.reset");
+        let leaked: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE payload LIKE '%不应保留的模型内容%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(leaked, 0);
+    }
+
     // 65#2：reset 成功后 agent-workspaces 与 sync 目录的文件证据一并清除
     #[test]
     fn reset_application_clears_agent_and_sync_directories() {

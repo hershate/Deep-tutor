@@ -1082,6 +1082,9 @@ impl Store {
                 Value::from(Self::next_revision(&tx, namespace)?),
             );
         }
+        // 182：重置必须清除含模型正文的旧 delta；AUTOINCREMENT 的 sqlite_sequence
+        // 不因 DELETE 回退，新重置事件仍可延续前端 lastEventId 游标。
+        tx.execute("DELETE FROM events", [])?;
         let event = Self::event(
             &tx,
             "application.reset",

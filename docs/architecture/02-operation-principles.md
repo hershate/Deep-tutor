@@ -555,7 +555,7 @@ stateDiagram-v2
 - **SQLite 并发**：WAL + synchronous=NORMAL + busy_timeout 10s；写路径 `unchecked_transaction`；关键防重用 Immediate 事务（agent send、resume、practice generate/resume、主观题 submit/resume、start_focus、备份 prepare_ids、熔断读改写）或条件 UPDATE（review grade）。
 - **停止协议**：各域 `stop` 置取消标志 + 取消上游请求 + 15s 轮询等待 active map 清空（learning L/mod.rs:856、providers P/mod.rs:1292、materials M/mod.rs:120、agent :1172、sync :896）；`security::guard::stop_all` 八域（agent/练习/知识/方案/模型请求/同步/资料解析/专注）scoped threads **并行**独立停并汇总结果（73#9；reports::stop 收尾专注会话为 interrupted），maintenance 与备份导入复用同一入口；重置（reset_application，backend/commands.rs:82）先并行停八域，DB reset 成功后才删原件备份与凭据。
 
-事件表不随重置清除：`store.reset` 清 15 模块表 + kv 六 namespace，`events` 原样保留（`lastEventId` 单调语义与前端游标续接依赖保留；回放可见重置前的 namespace/revision 轨迹，载荷不含正文）——这是有意取舍。
+重置事件清理：`store.reset` 清 15 模块表 + kv 六 namespace，并在同一事务内删除既有 `events`，再写入新的 `application.reset`。旧 `provider.chat_delta` 中的模型正文与推理随之清除；`sqlite_sequence` 不因 DELETE 回退，新事件 id 与快照 `lastEventId` 继续单调递增，前端游标不需要回退。
 
 停止协议：
 
