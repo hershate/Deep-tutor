@@ -34,12 +34,6 @@ pub fn send_agent_message<R: Runtime>(
 }
 
 #[tauri::command]
-#[allow(dead_code)] // 151#2：注册表移除后仅测试面/内部直调使用（main.rs 注释在案）
-pub fn get_agent_run(state: State<'_, BackendState>, id: String) -> Result<AgentRun> {
-    super::get_run(&state.agent, super::numeric_id(&id)?)
-}
-
-#[tauri::command]
 pub fn cancel_agent_run<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,

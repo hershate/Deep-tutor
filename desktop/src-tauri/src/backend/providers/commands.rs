@@ -113,51 +113,6 @@ pub async fn test_provider<R: Runtime>(
     })?
 }
 
-#[tauri::command(async)]
-#[allow(dead_code)] // 151#2：注册表移除后仅协议测试直调使用（main.rs 注释在案）
-pub async fn stream_provider_chat<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, BackendState>,
-    request_id: String,
-    profile_id: String,
-    messages: Vec<ChatMessage>,
-    max_tokens: u32,
-) -> Result<super::ProviderRequest> {
-    let state = state.providers.shared();
-    // 23#7：同 upsert——会话派生 principal 随闭包显式传播到阻塞线程
-    let principal = session_principal(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        with_principal(principal, || {
-            // 106#7：闭包 panic 时把请求行落终态——原先行停留 running，
-            // 本会话内用量页/任务中心永显「运行中」直到重启
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                super::stream_chat(
-                    &app,
-                    &state,
-                    &request_id,
-                    &profile_id,
-                    &messages,
-                    max_tokens,
-                )
-            }));
-            match outcome {
-                Ok(result) => result,
-                Err(_) => {
-                    let _ = super::fail_chat_panicked(&app, &state, &request_id);
-                    Err(super::super::error::BackendError::new(
-                        "task_panicked",
-                        "模型流式任务异常终止",
-                    ))
-                }
-            }
-        })
-    })
-    .await
-    .map_err(|_| {
-        super::super::error::BackendError::new("task_join_failed", "模型流式任务异常终止")
-    })?
-}
-
 #[tauri::command]
 pub fn cancel_provider_chat<R: Runtime>(
     app: AppHandle<R>,
@@ -222,7 +177,7 @@ pub async fn route_provider_chat<R: Runtime>(
     let principal = session_principal(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         with_principal(principal, || {
-            // 106#7：同 stream_provider_chat——panic 时落终态防僵尸 running 行
+            // 106#7：路由请求 panic 时写入终态，避免残留 running 记录
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 super::routing::stream_chat(
                     &app,
@@ -297,8 +252,7 @@ pub fn upsert_usage_rate<R: Runtime>(
     super::usage::upsert_rate(&app, &state.providers, input)
 }
 
-/// 37#5：用量 CSV 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）；
-/// 61 号：内存版 export_usage_csv 命令已删（前端零调用）。
+/// 37#5：用量 CSV 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）。
 /// 90#4：CSV 走同一条五表 JOIN 全量物化，移后台与 get_usage_overview 同族
 #[tauri::command(async)]
 pub async fn export_usage_csv_file<R: Runtime + 'static>(

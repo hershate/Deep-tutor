@@ -34,7 +34,6 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             crate::backend::providers::commands::export_provider_config,
             crate::backend::providers::commands::import_provider_deep_link,
             crate::backend::providers::commands::test_provider,
-            crate::backend::providers::commands::stream_provider_chat,
             crate::backend::providers::commands::cancel_provider_chat,
             crate::backend::providers::commands::get_provider_chat,
             crate::backend::providers::commands::get_routing_settings,
@@ -541,10 +540,11 @@ fn ipc_provider_commands_emit_real_stream_and_reset_credentials() {
         }
     });
     let arguments = json!({
-        "requestId": "ipc-chat-1", "profileId": provider_id,
+        "requestId": "ipc-chat-1", "task": "agent", "profileId": provider_id,
+        "model": null, "tools": null,
         "messages": [{"role": "user", "content": "hello"}], "maxTokens": 64
     });
-    let completed = ipc(&window, "stream_provider_chat", arguments.clone()).unwrap();
+    let completed = ipc(&window, "route_provider_chat", arguments.clone()).unwrap();
     assert_eq!(completed["status"], json!("done"));
     assert_eq!(completed["output"], json!("原生 IPC"));
     assert_eq!(completed["usage"]["inputTokens"], json!(4));
@@ -558,7 +558,7 @@ fn ipc_provider_commands_emit_real_stream_and_reset_credentials() {
     assert_eq!(deltas[0]["payload"]["text"], json!("原生"));
     assert_eq!(deltas[1]["payload"]["text"], json!(" IPC"));
     drop(deltas);
-    let replay = ipc(&window, "stream_provider_chat", arguments).unwrap();
+    let replay = ipc(&window, "route_provider_chat", arguments).unwrap();
     assert_eq!(replay["output"], json!("原生 IPC"));
     assert_eq!(server.request_count(), 2);
     let exported = ipc(&window, "export_provider_config", json!({})).unwrap();

@@ -78,8 +78,7 @@ pub fn list_practice_mistakes<R: Runtime>(
     super::mistakes(&app, &state.practice)
 }
 
-/// 37#5：错题 JSON 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）；
-/// 61 号：内存版 export_practice_mistakes 命令已删（前端零调用）
+/// 37#5：错题 JSON 改为用户选择位置后由原生后端落盘（替代 WebView Blob 下载）。
 // 103#7：错题 JSON 构建+落盘（37#5 导出族，对照 90#4 已移后台的
 // export_usage_csv_file）原先同步命令在主线程执行；移后台
 #[tauri::command(async)]

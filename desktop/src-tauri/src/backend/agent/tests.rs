@@ -28,7 +28,6 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, AgentState) {
             super::commands::list_agent_sessions,
             super::commands::get_agent_session,
             super::commands::send_agent_message,
-            super::commands::get_agent_run,
             super::commands::cancel_agent_run,
             super::commands::resume_agent_run,
             super::commands::delete_agent_session,
@@ -358,7 +357,12 @@ fn ipc_commands_enforce_single_run_and_recover_a_session() {
     .unwrap();
     assert_eq!(fetched["messages"].as_array().unwrap().len(), 4);
     assert_eq!(fetched["messages"][2]["role"], "tool");
-    let run = ipc(&window, "get_agent_run", json!({"id": run_id.to_string()})).unwrap();
+    let run = fetched["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|run| run["id"] == json!(run_id))
+        .unwrap();
     assert_eq!(run["inputTokens"], 24);
     assert_eq!(run["outputTokens"], 66);
     let sessions = ipc(&window, "list_agent_sessions", json!({})).unwrap();

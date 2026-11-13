@@ -7,9 +7,6 @@ use super::super::{
 use super::fetch;
 use tauri::{AppHandle, Manager, Runtime};
 
-// 61 号：fetch_webpage IPC 壳已删（前端零调用）——抓取链仅供 import_webpage
-// 内部复用，测试直调 web::fetch
-
 // 73#5：抓取是网络 IO（connect 5s/总 12s 超时）——原先同步命令在主线程
 // 执行，弱网/挂起站点冻结窗口最长 ~12-17s。移后台（44#1 同款）；
 // 23#7 principal 先派生再传播（ingest 写入当前用户行）

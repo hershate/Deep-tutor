@@ -243,7 +243,7 @@ JWT 使用 HS256 和 7 天有效期；单活动会话在签发时撤销旧会话
 ## 8. 命令与事件一致性
 
 - `main.rs` 注册 188 个命令，25 个前端客户端文件直接调用其中 173 个；命令名和 camelCase 参数由 IPC 测试与 TypeScript 类型共同约束。
-- `events_since`、`stream_provider_chat`、`get_agent_run` 不在生产注册表；`fetch_webpage` IPC 壳已删除。
+- `events_since` 仅在 `cfg(test)` 构建中保留；`stream_provider_chat` 和 `get_agent_run` 已删除，当前读取与执行分别使用 `route_provider_chat` 和 `get_agent_session`。`fetch_webpage` IPC 壳已删除。
 - 所有后端事件使用 `{id,kind,payload,createdAt}` 和唯一 `backend://event` 通道。
 - 前端通常只消费事件 kind/prefix 及 materialId、planId、sessionId、runId、requestId、stageId、namespace 等标识，再执行命令读取权威状态；其他 payload 字段用于审计。
 - `isCancelRace` 统一处理任务已结束、另一操作已登记、审批已解决和预约已变化等竞态错误。普通写错误必须显示。

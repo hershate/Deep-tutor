@@ -105,9 +105,8 @@ pub struct Collection {
     pub revision: i64,
 }
 
+#[cfg(test)]
 #[derive(Debug, Serialize)]
-// 92 号：仅 events_since 使用（生产注册面已移除，测试仍用）
-#[allow(dead_code)]
 pub struct EventPage {
     pub events: Vec<BackendEvent>,
     #[serde(rename = "latestId")]
@@ -1140,8 +1139,7 @@ impl Store {
             })?)
     }
 
-    // 92 号：同 EventPage，测试注册面保留
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn events_since(&self, last_id: i64) -> Result<EventPage> {
         if last_id < 0 {
             return Err(BackendError::new(
@@ -1163,7 +1161,7 @@ impl Store {
         let mut events = Vec::new();
         // 81#5：has_more 按原始行数——75#3 跳过坏 payload 行后 events.len()
         // 可能 < 201，窗口内恰有坏行时误判「无更多」，按 latest_id 推进游标
-        // 会漏页（当前前端零调用，防御未来分页消费方）
+        // 会漏页；损坏行不得改变窗口的推进与翻页判定
         let mut raw_rows = 0usize;
         for row in rows {
             raw_rows += 1;

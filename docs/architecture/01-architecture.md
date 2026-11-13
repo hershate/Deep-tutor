@@ -257,4 +257,4 @@ graph TD
 | 社区、插件、导出、报告与搜索 | 43 | install_plugin、export_content、get_learning_report、search_workspace |
 | **合计** | **188** | 前端直接调用 173 个 |
 
-`events_since`、`stream_provider_chat` 和 `get_agent_run` 不在生产注册表中，仅保留测试或内部调用；`fetch_webpage` IPC 壳已删除，网页导入复用后端内部抓取链。模型中心手动测试由前端调用 `route_provider_chat`；全局导师通过 Agent 命令进入 Rust 工具循环。
+`events_since` 仅在 `cfg(test)` 构建中保留，用于 outbox 分页验证；`stream_provider_chat` 和 `get_agent_run` 已删除，分别由 `route_provider_chat` 和 `get_agent_session` 替代。`fetch_webpage` IPC 壳已删除，网页导入复用后端内部抓取链。模型中心手动测试由前端调用 `route_provider_chat`；全局导师通过 Agent 命令进入 Rust 工具循环。

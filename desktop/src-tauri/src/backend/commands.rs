@@ -1,10 +1,14 @@
 use super::error::Result;
-use super::store::{BackendEvent, Collection, EventPage, Mutation, Store};
+use super::store::{BackendEvent, Collection, Mutation};
+#[cfg(test)]
+use super::store::{EventPage, Store};
 use super::BackendState;
 use serde_json::Value;
+#[cfg(test)]
 use std::sync::MutexGuard;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
+#[cfg(test)]
 fn store<'a>(state: &'a State<'_, BackendState>) -> Result<MutexGuard<'a, Store>> {
     // 73#16：锁中毒（持锁线程 panic unwind）恢复而非永久拒绝——rusqlite
     // 事务在 unwind 时 Drop 回滚，连接保持一致，可安全复用
@@ -299,9 +303,8 @@ pub async fn reset_application<R: Runtime + 'static>(app: AppHandle<R>) -> Resul
     .map_err(|_| super::error::BackendError::new("internal_error", "重置任务执行异常终止"))?
 }
 
+#[cfg(test)]
 #[tauri::command]
-// 92 号：生产注册表已移除（前端零调用），测试 mock 注册面仍在使用
-#[allow(dead_code)]
 pub fn events_since(state: State<'_, BackendState>, last_id: i64) -> Result<EventPage> {
     store(&state)?.events_since(last_id)
 }

@@ -371,7 +371,6 @@ pub(crate) fn streaming_client(url: &reqwest::Url, kind: &str) -> Result<reqwest
     cached_streaming(kind, url, &addresses)
 }
 
-#[allow(dead_code)]
 fn pinned_addresses(url: &reqwest::Url, kind: &str) -> Result<(String, Vec<std::net::SocketAddr>)> {
     let host = url
         .host_str()

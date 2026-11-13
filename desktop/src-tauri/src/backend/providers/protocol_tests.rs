@@ -28,7 +28,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, ProviderState) {
             crate::backend::providers::commands::upsert_provider_profile,
             crate::backend::providers::commands::set_active_provider,
             crate::backend::providers::commands::test_provider,
-            crate::backend::providers::commands::stream_provider_chat,
+            crate::backend::providers::commands::route_provider_chat,
             crate::backend::providers::commands::cancel_provider_chat,
             crate::backend::providers::commands::get_provider_chat,
         ])
@@ -463,8 +463,8 @@ fn ipc_dispatches_each_native_protocol_with_real_persistent_output() {
         let request_id = format!("ipc-protocol-{}", protocol_name.replace(' ', "-"));
         let result = ipc(
             &window,
-            "stream_provider_chat",
-            json!({"requestId": request_id, "profileId": id, "messages": [{"role": "user", "content": "hello"}], "maxTokens": 64}),
+            "route_provider_chat",
+            json!({"requestId": request_id, "task": "agent", "profileId": id, "model": null, "tools": null, "messages": [{"role": "user", "content": "hello"}], "maxTokens": 64}),
         )
         .unwrap();
         assert_eq!(result["status"], "done");
