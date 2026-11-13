@@ -33,6 +33,7 @@
   snapshot's `lastEventId`; no per-page incremental fetch). Persist a
   terminal result before emitting it. Reconnecting must not repeat execution or billing.
 - Cancellation and failure paths retain all tokens and costs already consumed.
+- Application reset deletes prior outbox rows, including model text in delta payloads, then writes a new `application.reset`; SQLite's event sequence remains monotonic.
 - Recovery and late failure paths update only rows still in an active state; skip child updates and terminal events when the guarded main row did not change. Sync progress cannot revive a cancelled job.
 - Sync terminal commits precede active-registration release and terminal event emission. Route cancellation wins over a late completion; existing output and usage remain recorded.
 - Plan materials are optional (0–8). Empty-source plans, lectures and practice use empty citations and never invent sources; material-backed output keeps strict quote validation.

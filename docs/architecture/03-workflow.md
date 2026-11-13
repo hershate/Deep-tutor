@@ -31,11 +31,11 @@ flowchart LR
     H[pre-push hook] --> I[make check = lint + test + dev-smoke]
 ```
 
-发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.13，check-versions.mjs 校验）。
+发布节奏：dist/ 只保留当前版本安装包与 .sha256（历史版本随缓存清理删除，git tag 与 note/release 记录各版本）；版本号六处同步（package.json、package-lock.json、tauri.conf.json、Cargo.toml、Cargo.lock 工作区包与根 README，当前 1.1.14，check-versions.mjs 校验）。
 
 ## 2. 测试策略
 
-- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。256 个后端测试串行执行。
+- 组织：每域 `tests.rs` 与实现同目录；关键域拆分（providers: protocol_tests/test_support、security: guard_tests/workspace_tests、practice: exam_tests/subjective_tests/variant_tests、sync: versions_tests）。265 个后端测试串行执行。
 - 运行方式：`--release --locked -- --test-threads=1` 串行。历史原因包括共享全局的并行污染：`SEARCH_ENDPOINT` 保存/恢复式端点（web/agent/learning 三域测试均须经 `SEARCH_ENDPOINT_LOCK` 互斥，12#20/C-8 已加）与 `MIGRATION_RUNS` 计数器。
 - 测试基建：
   - `tauri::test::MockRuntime` + `mock_builder` 驱动真实命令 IPC（startup.rs:812/868 `mock_app/ipc` 辅助函数）。
@@ -201,7 +201,7 @@ sequenceDiagram
 
 ### 3.8 通用 AI 与方案工具
 
-- 全局导师使用 `route_provider_chat` 直接发送消息，不要求学习方案。Agent 通过 `new_agent_session(planId: null)` 创建通用会话，不默认绑定首个方案。
+- 全局导师经 `TutorPanel → useAgent → create_agent_session/send_agent_message` 使用 Agent 会话，支持 `planId: null` 的通用问答，不默认绑定首个方案；会话、run、消息、工具结果和取消状态由原生后端持久化，模型请求在 Rust Agent 工具循环内进入路由。模型接入中心的手动测试面板才由前端直接调用 `route_provider_chat`。
 - 通用 Agent 仅注册网络、记忆、历史七项工具；绑定已采用方案的会话增加四项 workspace 工具与 artifact.promote。工具执行层独立校验方案范围，避免绕过目录直接调用。
 - Wiki 保留 1–8 份已解析资料的引用范围；它与通用问答是两条独立调用链。
 
@@ -237,7 +237,7 @@ flowchart LR
 | 解析线程崩溃 | catch_unwind → failed + internal_error | 重新 enqueue | materials/mod.rs:862,897 |
 | 同步回读不一致 | sync_verify_failed，任务失败 | 重试上传 | versions.rs:226-231 |
 | 备份导入中途失败 | IMMEDIATE 事务回滚 + 删除已装文件 | 修正后重新导入 | transfer.rs:1295-1314（install_files）、:1366 起（回滚删已装） |
-| 应用重置 | 先停任务；DB 成功后才删原件/凭据，失败保留备份 | reset_application | backend/commands.rs:82-110 |
+| 应用重置 | 先停任务；同一事务删除业务数据与旧事件后写入 application.reset，再删原件/凭据；sqlite_sequence 保持递增，失败保留备份 | reset_application | backend/commands.rs::reset_application、store.rs::reset |
 | 用户切换工作区 | 写锁停 7 子系统 → 换库 → 失败回滚 | 守卫 switch | security/guard.rs:188 |
 
 ## 6. 安全工作流
@@ -284,4 +284,4 @@ flowchart LR
 
 ## 8. 命令与事件契约一致性
 
-前端 25 个客户端文件调用的命令名与 main.rs:250-456 注册表（188 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 92#1、`stream_provider_chat`/`get_agent_run` 自 138#1 起已从生产注册表移除（前端零调用），仅测试 mock 注册面仍在使用。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:514）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。
+前端 25 个客户端文件调用的命令名与 `main.rs` 的 `generate_handler!` 注册表（188 个命令）逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用），`events_since` 自 92#1、`stream_provider_chat`/`get_agent_run` 自 138#1 起已从生产注册表移除（前端零调用），仅测试 mock 注册面仍在使用。事件通道唯一（`backend://event`），事件体 `{id,kind,payload,createdAt}` 双端一致；参数 camelCase 与 Tauri 默认映射一致（backend/commands.rs IPC 测试同形验证）。取消竞态错误码统一经 `isCancelRace`（client.ts:514）静默：含 `*_active` 状态翻转家族、`approval_resolved`、`not_reserved`、`room_not_available`、`no_active_job` 等。

@@ -37,7 +37,7 @@ graph TD
 
 ## 2. 进程与运行时形态
 
-- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 188 个命令（`main.rs` generate_handler 注册块 main.rs:250-456），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:286`）。
+- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 188 个命令（`main.rs` 的 `generate_handler!` 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:286`）。
 - `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:272-274`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:62-80`）。
 - 单实例防护（`main.rs:83-146`，46#1）：`CreateMutexW` 命名互斥体（`DeepTutor-SingleInstance-7f3a9c2e`，句柄泄漏给进程生命周期保管）；`GetLastError()==ERROR_ALREADY_EXISTS` 时 `FindWindowW` 按窗口标题定位既有主窗口，`ShowWindow(SW_RESTORE)`+`SetForegroundWindow` 前置后新进程直接退出，找不到窗口时静默退出。kernel32/user32 纯 FFI，零新依赖；verify 通道无窗口且按目录隔离，不占全局互斥体。
 - 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:362-402`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
@@ -46,31 +46,31 @@ graph TD
 
 | 模块 | 文件/行数 | 职责 | 关键状态结构 |
 |---|---|---|---|
-| backend（根） | 6 / 3303 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs:115`：store Mutex + 10 个域 State） |
-| startup | 1 / 1005 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs:27`） |
-| store | 1 / 1824 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs:180`） |
-| security | 6 / 3084 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`mod.rs:247`） |
-| providers | 15 / 11087 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`mod.rs:203`） |
-| web | 4 / 1216 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 3524 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`mod.rs:32`） |
-| notes | 4 / 1261 | 笔记归档导入、知识库体检 | 无 |
-| learning | 9 / 5453 | 八步方案流水线、讲义、知识进度 | `LearningState`（`mod.rs:30`） |
-| planning | 3 / 1070 | 周视图、强度、目标、排期 | 复用 LearningState |
-| knowledge | 3 / 1401 | Wiki 引用问答 | `KnowledgeState`（`mod.rs:29`） |
-| practice | 9 / 5297 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`mod.rs:30`） |
-| review | 2 / 961 | SM-2 式间隔复习 | 复用 SQLite 事务 |
-| projects | 3 / 1154 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 4303 | 通用/方案会话、工具循环、审批/记忆/产物 | `AgentState`（`mod.rs:91`） |
-| engagement | 3 / 1392 | 全局搜索、通知、档案、首页 | 复用 |
-| reports | 3 / 1916 | 专注会话、学习报告、日历 | 复用 |
+| backend（根） | 6 / 3344 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs`：store Mutex + 10 个域 State） |
+| startup | 1 / 1005 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs`） |
+| store | 1 / 1827 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs`） |
+| security | 6 / 3121 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`security/mod.rs`） |
+| providers | 15 / 11090 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`providers/mod.rs`） |
+| web | 4 / 1212 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
+| materials | 5 / 3519 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`materials/mod.rs`） |
+| notes | 4 / 1257 | 笔记归档导入、知识库体检 | 无 |
+| learning | 9 / 5457 | 八步方案流水线、讲义、知识进度 | `LearningState`（`learning/mod.rs`） |
+| planning | 3 / 1067 | 周视图、强度、目标、排期 | 复用 LearningState |
+| knowledge | 3 / 1398 | Wiki 引用问答 | `KnowledgeState`（`knowledge/mod.rs`） |
+| practice | 9 / 5310 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`practice/mod.rs`） |
+| review | 2 / 959 | SM-2 式间隔复习 | 复用 SQLite 事务 |
+| projects | 3 / 1151 | 项目成果版本与量规反馈 | 复用 |
+| agent | 4 / 4299 | 通用/方案会话、工具循环、审批/记忆/产物 | `AgentState`（`agent/mod.rs`） |
+| engagement | 3 / 1411 | 全局搜索、通知、档案、首页 | 复用 |
+| reports | 3 / 1913 | 专注会话、学习报告、日历 | 复用 |
 | community | 3 / 1798 | 本机讨论/小组/预约/提醒 | 复用 |
-| plugins | 3 / 1288 | 声明式事件插件 | `PluginState`（`mod.rs:51`） |
-| backup | 5 / 3721 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`archive.rs:152`） |
-| sharing | 3 / 1075 | 只读分享令牌与离线包 | `SharingState`（`mod.rs:22`） |
-| sync | 7 / 2649 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`mod.rs:27-28`） |
-| maintenance | 3 / 1616 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`commands.rs:10`） |
-| export | 7 / 2344 | 8 格式导出（含自研 PDF/Anki） | 无 |
-| 前端 | 64 / 8911 | 渲染与命令客户端 | `useBackendState`（`src/backend/useBackendState.ts:18`） |
+| plugins | 3 / 1285 | 声明式事件插件 | `PluginState`（`plugins/mod.rs`） |
+| backup | 5 / 3716 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`backup/archive.rs`） |
+| sharing | 3 / 1072 | 只读分享令牌与离线包 | `SharingState`（`sharing/mod.rs`） |
+| sync | 7 / 2642 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`sync/mod.rs`） |
+| maintenance | 3 / 1613 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`maintenance/commands.rs`） |
+| export | 7 / 2337 | 8 格式导出（含自研 PDF/Anki） | 无 |
+| 前端 | 65 / 10956 | 64 个 TypeScript/TSX 文件与 1 个 CSS 文件 | `useBackendState`（`src/backend/useBackendState.ts`） |
 
 ## 4. 横切层
 
@@ -258,14 +258,14 @@ graph TD
 
 ## 7. 前端架构
 
-- 骨架：`main.tsx:33-37` → `App.tsx`；无 router，`page` 状态 + hash 同步（`App.tsx:54`），`renderPage()` switch 分发（:427）；6 个重页面 React.lazy（:37-42：StudyRoom/Library/PlanGenerator/AgentCenter/Integrations/ProviderHub）；三组导航 + 顶栏（⌘K 搜索/快速记录/主题/通知）+ 移动底栏。
-- 前置守卫顺序：`shared` 分享页独立 → `startupError` → DataDirectoryPanel → `loginRequired` → SecurityPanel → 未 ready Loader（:315-329）。
-- 客户端层 25 个文件：`client.ts` 聚合 invoke 并维护 `isCancelRace` 竞态错误码表（client.ts:514）；领域客户端 practice/review/knowledge/community/… 一一对应命令组；`materialImport.ts` 收敛文件选择器与窗口拖放的共享导入通道（37#3）、`shell.ts` 收敛 opener 定位与外链（37#4/37#8）；事件统一走 `onBackendEvent`（client.ts:500）。
-- 状态：`useBackendState`（:16）持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标（:33-43）；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次不弹错（:96）；`security.session_started` 触发 generation+1 全量重载（:162）；`replaceCollection`（:217）提交更新函数语义并按命名空间排队串行提交（inflight 队列 :27），消除一帧窗口的丢写竞态。
-- 流式：`useAgent.ts:156-166` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId；快照合并带 deltaEpoch 世代号，旧周期快照不得覆盖已拼接增量。
-- 样式：单文件 styles.css 2048 行；Primitive oklch 调色板（:3-20）→ Semantic 变量（:22-41）→ `[data-theme="dark"]` 覆盖（:45-63）；断点 640/700/1024/1080/1100/1180/1240/1280/1320；Esc 经 UI.tsx `MODAL_STACK`（:158）栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 覆盖 smooth scroll，系统偏好经 matchMedia 跟随。动态文本统一 `overflow-wrap:anywhere`，flex/grid 文本列设 min-width:0，代码/公式/表格只在内容容器内滚动。
+- 骨架：`main.tsx` → `App.tsx`；无 router，`page` 状态 + hash 同步，`renderPage()` switch 分发；6 个重页面 React.lazy（StudyRoom/Library/PlanGenerator/AgentCenter/Integrations/ProviderHub）；三组导航 + 顶栏（Ctrl/⌘+K 搜索、快速记录、主题、通知）+ 移动底栏。
+- 前置守卫顺序：`shared` 分享页独立 → `startupError` → DataDirectoryPanel → `loginRequired` → SecurityPanel → 未 ready Loader。
+- 客户端层 25 个文件：`client.ts` 聚合 invoke 并维护 `isCancelRace` 竞态错误码表；领域客户端 practice/review/knowledge/community/… 一一对应命令组；`materialImport.ts` 收敛文件选择器与窗口拖放的共享导入通道，`shell.ts` 收敛 opener 定位与外链；事件统一走 `onBackendEvent`。
+- 状态：`useBackendState` 持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次不弹错；`security.session_started` 经去抖回调保留事件参数，触发 generation+1 全量重载，旧代际响应不得覆盖新工作区；`replaceCollection` 提交更新函数语义并按命名空间排队串行提交，消除一帧窗口的丢写竞态。
+- 流式：`useAgent.ts` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId；快照合并带 deltaEpoch 世代号，旧周期快照不得覆盖已拼接增量。
+- 样式：单文件 styles.css 2049 行；Primitive oklch 调色板 → Semantic 变量 → `[data-theme="dark"]` 覆盖；断点 640/700/1024/1080/1100/1180/1240/1280/1320；Esc 经 UI.tsx `MODAL_STACK` 栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 覆盖 smooth scroll，系统偏好经 matchMedia 跟随。动态文本统一 `overflow-wrap:anywhere`，flex/grid 文本列设 min-width:0，代码/公式/表格只在内容容器内滚动；小于 640px 的页面标题区统一纵向排列。
 
-## 8. 命令注册总览（`main.rs:250-456`，共 188 个）
+## 8. 命令注册总览（`main.rs` 的 `generate_handler!` 注册块，共 188 个）
 
 | 分组 | 数量 | 代表命令 |
 |---|---|---|

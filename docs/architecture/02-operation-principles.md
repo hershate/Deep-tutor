@@ -91,7 +91,7 @@ flowchart TD
 前端双通道（`src/backend/useBackendState.ts`）：
 1. 实时：`listen('backend://event')` 逐条应用。
 2. 校准：`sync()` 直接 `get_app_state()` 取全量快照（38#2：原先先逐页翻 `events_since` 再取快照，事件载荷全程丢弃、纯冗余 IPC，事件爆发后首次 sync 串行数十次往返；快照 `lastEventId` 本身就是最新游标）；`applySnapshot` 丢弃 `lastEventId` 回退的过期事件并在 workspaceId 变化时重置游标（useBackendState.ts:40）；瞬态 `database_busy` 自动重试至多 5 次（:153）。`events_since` 自 92#1 起从生产注册表移除，仅测试 mock 注册面仍在使用。
-3. 触发点：bootstrap 后、窗口 focus/visibilitychange（:308）、`security.session_started` 全量重载（:248）。
+3. 触发点：bootstrap 后、窗口 focus/visibilitychange，以及所有后端事件的去抖刷新。`security.session_started` 在 120ms 去抖回调中保留事件参数，触发工作区代际递增与全量 bootstrap；旧代际响应不得覆盖新用户快照。
 
 断线不重复执行的机制不在事件层，而在任务层：每个模型步骤持久化 `request_id`+`attempt`，恢复时 `providers::completed_chat` 为真则复用原请求结果不再调上游（见 §5）。
 
@@ -374,7 +374,7 @@ flowchart TD
 **客观题**（practice/mod.rs 判分段）：choice——answer 须为合法选项下标且等于期望；fill——`normalize`（去空白+lowercase，practice/mod.rs:1290）后全等；`correct`（:1347）同时决定错题与掌握度写入——hints 模式作答不进错题本、不置掌握（遮蔽承诺）。
 **主观题**（subjective.rs）：INSERT `practice_answers('grading')` + request_id=`practice-grade-{id}-1` → 线程 `grade`：题面+参考答案+rubric+学生作答 prompt → `stream_chat` 4096 → `evaluate`（:372）逐项 `score∈[0,1]×points` 求和并 clamp，`correct = score≥0.8` → 二次 `validate_citations`。rubric 校验 2-6 项、points∈(0,1]、总和=1（`validate_rubric` subjective.rs:54）。
 **共同尾部**：错题 upsert wrong_count+1（hints 模式除外）；逐节点写 `learning_node_evidence`（kind practice、evidence_key=`practice-answer-{answer_id}`）——**hints 模式跳过 evidence 写入**（31#12：evidence 带真实得分会被知识图谱页「0/1」反推对错，与错题本同口径遮蔽）；**进行中的考试同样延迟到交卷时统一补写**（101#4：考试承诺「交卷后统一反馈」，逐题即时写 evidence 会经掌握度在交卷前泄露对错）；变式答对 → 原错题 mastered=1（variants.rs:106-133）；全部作答完 → set completed。
-**模拟考交卷**（exams.rs:74）：幂等；评分中拒收（:119）；未答题逐题落 0 分 practice_answers + evidence(0)（:141-163）——不写错题本（03#13-27 未作答≠做错，避免空题灌满错题与变式来源）。考试计时从首次成功拉卷（生成完成后的第一次 detail 读取）起算：`start_exam_timer` 原子置位幂等（`UPDATE ... WHERE timer_started_at IS NULL`），重启不重置；未拉卷的考试 remaining 为 None（前端显示无时限），deadline 只在有起点的会话计算。deferred 进行期的 detail 逐题回显考生本人已交作答原文，score/correct/feedback 置 null（practice/mod.rs:1272，148#2）——判分遮蔽不隐藏本人输入，交卷后才返回判分字段。
+**模拟考交卷**（exams.rs:74）：幂等；评分中拒收（:119）；未答题逐题落 0 分 practice_answers + evidence(0)（:141-163）——不写错题本（03#13-27 未作答≠做错，避免空题灌满错题与变式来源）。考试计时从首次成功拉卷（生成完成后的第一次 detail 读取）起算：`start_exam_timer` 原子置位幂等（`UPDATE ... WHERE exam_started_at IS NULL AND exam_deadline IS NULL`），重启不重置；未拉卷的考试 remaining 为 None（前端显示无时限），deadline 只在有起点的会话计算。deferred 进行期的 detail 逐题回显考生本人已交作答原文，score/correct/feedback 置 null（practice/mod.rs:1272，148#2）——判分遮蔽不隐藏本人输入，交卷后才返回判分字段。
 **复习调度**（review/mod.rs:403 grade，SM-2 简化、4 档无 q 因子；挂起卡片返回 `card_suspended`）：
 - 间隔（:419-451）：again=10 分钟；首轮 hard=2/good=5/easy=12 天；后续 hard=prev×1.2、good=prev×ease、easy=prev×ease×1.3；结果 `.min(36500.0)` 封顶（对齐 Anki 上限，防越过 time crate 最大年份 9999 使日期加法 panic）；prev/ease 非有限值直接判 invalid 记录。
 - ease（:429-435）：again −0.2 / hard −0.15（下限 1.3）、easy +0.15（上限 3.0）；again 重置 repetitions=0、lapses+1。
