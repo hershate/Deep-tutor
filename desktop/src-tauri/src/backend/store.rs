@@ -143,10 +143,10 @@ pub(crate) fn append_diagnostic(account_path: &Path, line: &str) {
 fn with_accounts<T>(account_path: &Path, read: impl Fn(&Connection) -> Result<T>) -> Result<T> {
     use std::collections::HashMap;
     use std::sync::OnceLock;
-    // 130#15：缓存无主动逐出，正确性依赖三条外部不变式——①换数据目录下次
-    // 启动才生效（缓存随进程消亡）；②重置走 SQL 不动账户库文件；③备份导入
-    // 走行插入不替换文件。未来出现「同路径文件替换」类操作时，下方读失败
-    // 弃连重建是唯一防线
+    // 130#15：缓存按账户库路径区分，无主动逐出，正确性依赖三条外部不变式——
+    // ①目录切换只更新内存 root，不替换同路径账户库文件；②重置走 SQL 不动
+    // 账户库文件；③备份导入走行插入不替换文件。未来出现「同路径文件替换」
+    // 类操作时，下方读失败弃连重建是唯一防线
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, Connection>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache

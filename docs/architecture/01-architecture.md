@@ -1,233 +1,208 @@
 # 01 · 架构分析
 
-> 基准：main 分支滚动演进（不钉单一 commit，引用以撰写时 HEAD 为准，随开发可能移位）。全部引用形如 `文件:行号`，相对 `desktop/` 目录。
+> 路径未特别注明时均相对 `desktop/`。行为细节见 [02 运行原理](02-operation-principles.md)，业务与验证流程见 [03 工作流分析](03-workflow.md)。
 
-## 1. 总览
+## 1. 进程与分层
 
-单一 Tauri 2 进程：Rust 侧承担窗口宿主、全部业务后端、SQLite 持久化与网络访问；WebView 侧 React 18 只做渲染与命令调用，不直接访问文件系统或网络（网页抓取为后端内部函数，仅由 `import_webpage` 使用，前端无对应命令）。
+单一 Tauri 2 进程包含 Rust 原生后端和 WebView。React 不直接访问 SQLite、文件系统、系统密钥库或业务网络接口；对话框和系统浏览器通过受限插件调用。
 
 ```mermaid
 graph TD
     subgraph WebView
-        P[React 页面 16 个] --> CL[backend 客户端层 25 个 ts]
+        P[React 16 个页面] --> CL[25 个后端客户端文件]
         CL --> IP[invoke / listen]
     end
     subgraph Rust 进程
-        IP --> GH[security::guard_handler 命令守卫]
-        GH --> CMD[188 个 tauri::command]
-        CMD --> DOM[21 个域模块 backend/*]
-        DOM --> ST[store.rs SQLite + 事件 outbox]
-        DOM --> FS[应用数据目录文件区]
-        DOM --> NET[providers/web HTTP]
-        ST --> EMIT[emit backend://event]
+        IP --> GH[security::guard_handler]
+        GH --> CMD[188 个注册命令]
+        CMD --> DOM[21 个业务域]
+        DOM --> ST[Store / SQLite / events outbox]
+        DOM --> FS[工作区文件区]
+        DOM --> NET[providers / web / sync HTTP]
+        ST --> EMIT[backend://event]
     end
     EMIT --> CL
 ```
 
-分层判定依据：
-- 表现层：`src/pages/*.tsx`、`src/components/*.tsx`，无业务规则，仅调用客户端函数（`src/pages/Practice.tsx:13`）。
-- 业务逻辑层：`src-tauri/src/backend/*` 21 个域模块（另有 backend 根的 commands/store/error/random/reveal），每个模块 `commands.rs`（IPC 边界）+ `mod.rs`（实现）+ `tests.rs`。
-- 数据访问层：`store.rs`（kv/meta/revisions/events 通用表）与各模块 `migrate()` 建立的领域表，全部经 rusqlite 直连。
-- 横切层：`error.rs`（类型化错误）、`security/guard.rs`（鉴权与用户工作区切换）、`plugins/mod.rs:689`（事件订阅分发）、`random.rs`（安全随机数）。
+- **表现层**：`src/pages/`、`src/components/`；负责展示、交互和请求刷新。
+- **IPC 客户端**：`src/backend/`；封装命令、事件和运行时数据结构校验。
+- **业务层**：`src-tauri/src/backend/`；每个域按命令入口、领域实现和测试组织。
+- **数据层**：`store.rs` 管理通用表、快照和事件；领域模块管理各自表和文件。
+- **横切层**：`error.rs`、`security/`、`plugins/`、`random.rs`、`reveal.rs`。
 
-架构模式：
-- 分层 + 域模块化（module-per-domain，目录即限界）。
-- 事件溯源辅助的 CRUD：领域状态写领域表，同时向 `events` 表追加事件（`store.rs:490-503`），前端靠事件驱动刷新。
-- 每域状态机 + 断点续接：所有长任务（方案/讲义/练习/评分/Agent/同步/项目反馈）有 `running/cancelling/…/interrupted` 状态列与 `recover()` 恢复函数（`startup.rs:451-471` 统一拉起）。
+## 2. 应用装配与模块职责
 
-## 2. 进程与运行时形态
+`main.rs` 注册 dialog、opener 和 188 个命令，所有命令经 `security::guard_handler` 包装。正常启动在后台初始化数据层，主窗口立即显示。`--verify-native` 使用独立绝对目录，清空窗口配置，不占用单实例互斥体，完成真实装配和快照检查后退出。
 
-- 入口 `src-tauri/src/main.rs:13`：单实例互斥体检查（§2）→ `tauri::Builder` + `tauri_plugin_dialog` + `tauri_plugin_opener`（资源管理器定位与 https 外链走系统浏览器，37#4/37#8）+ `setup` 回调注册 188 个命令（`main.rs` 的 `generate_handler!` 注册块），命令清单经 `security::guard_handler` 包裹（`security/guard.rs:286`）。
-- `--verify-native` 分支（`main.rs:14`）：清空窗口配置（`main.rs:272-274`），要求 `DEEPTUTOR_VERIFY_DATA_DIR` 绝对路径（`main.rs:19-24`），同步初始化后 `bootstrap()` 断言 `tasks/preferences` 存在并 `exit(0)`（`main.rs:62-80`）。
-- 单实例防护（`main.rs:83-146`，46#1）：`CreateMutexW` 命名互斥体（`DeepTutor-SingleInstance-7f3a9c2e`，句柄泄漏给进程生命周期保管）；`GetLastError()==ERROR_ALREADY_EXISTS` 时 `FindWindowW` 按窗口标题定位既有主窗口，`ShowWindow(SW_RESTORE)`+`SetForegroundWindow` 前置后新进程直接退出，找不到窗口时静默退出。kernel32/user32 纯 FFI，零新依赖；verify 通道无窗口且按目录隔离，不占全局互斥体。
-- 正常分支：`startup::initialize_background`（`main.rs:50`）在 `backend-startup` 线程初始化（`startup.rs:362-402`），主窗口立即显示，前端轮询 `bootstrap()`（容忍 `startup_not_ready` 重试，`useBackendState.ts`）等待就绪；`get_storage_overview` 仅由设置页目录面板调用。
-
-## 3. 模块清单与规模
-
-| 模块 | 文件/行数 | 职责 | 关键状态结构 |
-|---|---|---|---|
-| backend（根） | 6 / 3344 | 通用存储、命令外壳、错误 | `BackendState`（`mod.rs`：store Mutex + 10 个域 State） |
-| startup | 1 / 1005 | 目录解析/校验、初始化、恢复命令 | `StartupState`（`startup.rs`） |
-| store | 1 / 1827 | kv/meta/revisions/events、校验、配额、事件分页、本地时区缓存 | `Store`（`store.rs`） |
-| security | 6 / 3121 | 用户/会话/PAT/配额/守卫/工作区隔离 | `SecurityState`（`security/mod.rs`） |
-| providers | 15 / 11090 | 供应商档案、四协议流式、路由/熔断、用量 | `ProviderState`（`providers/mod.rs`） |
-| web | 4 / 1212 | DuckDuckGo 检索、安全抓取 | 无（纯函数） |
-| materials | 5 / 3519 | 导入/去重/解析队列/媒体/ZIP | `MaterialState`（`materials/mod.rs`） |
-| notes | 4 / 1257 | 笔记归档导入、知识库体检 | 无 |
-| learning | 9 / 5457 | 八步方案流水线、讲义、知识进度 | `LearningState`（`learning/mod.rs`） |
-| planning | 3 / 1067 | 周视图、强度、目标、排期 | 复用 LearningState |
-| knowledge | 3 / 1398 | Wiki 引用问答 | `KnowledgeState`（`knowledge/mod.rs`） |
-| practice | 9 / 5310 | 出题/判分/错题/变式/模拟考 | `PracticeState`（`practice/mod.rs`） |
-| review | 2 / 959 | SM-2 式间隔复习 | 复用 SQLite 事务 |
-| projects | 3 / 1151 | 项目成果版本与量规反馈 | 复用 |
-| agent | 4 / 4299 | 通用/方案会话、工具循环、审批/记忆/产物 | `AgentState`（`agent/mod.rs`） |
-| engagement | 3 / 1411 | 全局搜索、通知、档案、首页 | 复用 |
-| reports | 3 / 1913 | 专注会话、学习报告、日历 | 复用 |
-| community | 3 / 1798 | 本机讨论/小组/预约/提醒 | 复用 |
-| plugins | 3 / 1285 | 声明式事件插件 | `PluginState`（`plugins/mod.rs`） |
-| backup | 5 / 3716 | .dtbackup 导出/预演/追加导入 | RAII `Workspace`（`backup/archive.rs`） |
-| sharing | 3 / 1072 | 只读分享令牌与离线包 | `SharingState`（`sharing/mod.rs`） |
-| sync | 7 / 2642 | WebDAV/S3 配置同步、24h 调度（失败 1h 短退避）、版本保留 | 全局 `ACTIVE/NEXT_JOB`（`sync/mod.rs`） |
-| maintenance | 3 / 1613 | 完整性检查、孤儿清理、VACUUM | `OPERATION` 互斥（`maintenance/commands.rs`） |
-| export | 7 / 2337 | 8 格式导出（含自研 PDF/Anki） | 无 |
-| 前端 | 65 / 10956 | 64 个 TypeScript/TSX 文件与 1 个 CSS 文件 | `useBackendState`（`src/backend/useBackendState.ts`） |
-
-## 4. 横切层
-
-### 4.1 错误模型（`error.rs`）
-
-`BackendError { code: String, message: String }`（`error.rs:4`）实现 `Serialize`，直接作为 Tauri command 的 reject 载荷。From 转换：rusqlite Busy/Locked → `database_busy`，其余 IO/SQLite → `storage_failed`，serde_json → `invalid_record`，zip → `export_failed`（`error.rs:29-67`）。守卫将 `{invalid_session, session_expired, session_revoked, account_disabled, login_required}` 识别为可重登录集合（`security/mod.rs:41`）。
-
-### 4.2 存储层（`store.rs`）
-
-四张通用表（`store.rs:187-210`，events 附表达式索引 `events_kind_request ON events(kind, json_extract(payload, '$.requestId'))`）：
-- `kv(namespace,id,data,updated_at)` — tasks/notes/resources/projects/preferences/drafts 六个命名空间（`store.rs:15`）。
-- `meta(key,value)` — `seeded`、`schema_fingerprint`、`schema_version`（代码侧 SCHEMA_VERSION=4 的落库记录）。
-- `revisions(namespace,value)` — 乐观锁版本号。
-- `events(id AUTOINCREMENT,kind,payload,created_at)` — 单调递增事件 outbox。
-
-核心函数：
-| 函数 | 位置 | 行为 |
+| 模块 | 职责 | 主要运行状态 |
 |---|---|---|
-| `Store::open(root, owner)` | store.rs:254 | 工作区路径解析、WAL/外键/busy_timeout=10s/synchronous=NORMAL、`max(user_version, meta.schema_version) > SCHEMA_VERSION(4)` 拒绝降级（store.rs 拒绝降级门，约 :470 起；user_version 惯例只写 1、版本实际记录在 meta 表，双取最大防任一通道漏记）、建通用表、指纹不一致 `或` meta.schema_version < SCHEMA_VERSION(4) 双条件决定是否跑全部 `migrate` |
-| `schema_fingerprint(conn)` | store.rs:230 | sqlite_master 全量 SHA-256 |
-| `replace_collection(namespace, expected_revision, value)` | store.rs:854 | 校验→配额（`ensure_quota_in_tx` :608，写事务内复查）→事务内 DELETE+INSERT→revision 乐观锁→events 写 `state.changed` |
-| `event(conn, kind, payload)` | store.rs:768 | INSERT events 后同事务调 `plugins::dispatch` |
-| `events_since(last_id)` | store.rs:1113 | `id > ?1 ORDER BY id LIMIT 201`，截 200 + has_more |
-| `ensure_quota_in_tx(resource, additional)` | store.rs:608 | 事务内查 `security_quotas`，notes/materials/sessions/threads/agent_memory 五类计数 |
-| `validate_collection` / `validate_draft` / `validate_preferences` | store.rs:1228/1476/1371 | 字段白名单、长度上限（记录 1MB、集合 10000 条）、枚举与范围校验 |
-| `bootstrap()` | store.rs:554 | 首次种子默认偏好（`defaults()` :530）后返回 `app_state()` |
+| backend 根 | 通用命令、存储、错误、随机数、定位与写盘遏制 | `BackendState`：`Store` 与 10 个域状态 |
+| startup | 数据目录选择、初始化、重试、恢复与重启 | `StartupState` |
+| security | 用户、JWT、PAT、配额、守卫和工作区隔离 | `SecurityState` |
+| providers | 供应商档案、四种协议、流式请求、路由、熔断和用量 | `ProviderState` |
+| web | DuckDuckGo 检索、安全抓取、HTML/文本提取 | 纯函数 |
+| materials | 文件/文本/ZIP 导入、去重、解析队列和媒体读取 | `MaterialState` |
+| notes | 笔记归档导入、知识库检查 | 使用 `Store` |
+| learning | 八步方案、讲义、阅读进度、批注和知识证据 | `LearningState` |
+| planning | 周视图、强度、目标和排期 | 复用 `LearningState` |
+| knowledge | Wiki 引用问答和历史 | `KnowledgeState` |
+| practice | 出题、判分、错题、变式和模拟考试 | `PracticeState` |
+| review | 记忆卡和间隔复习 | `ReviewState` |
+| projects | 项目版本、里程碑、模型量规和迭代笔记 | `ProjectState` 由 `LearningState` 派生 |
+| agent | 通用/方案会话、工具循环、审批、记忆和产物 | `AgentState` |
+| engagement | 搜索、通知、学习档案和首页摘要 | 使用 `Store` / `LearningState` |
+| reports | 专注、打卡、报告、日历和 CSV | `ReportState` 由 `LearningState` 派生 |
+| community | 本机讨论、小组、房间、预约和提醒 | `CommunityState` |
+| plugins | 声明式事件插件、投递记录和开发者资产 | `PluginState` |
+| backup | `.dtbackup` 导出、预演和追加导入 | 临时工作区与事务 |
+| sharing | 只读分享、撤销、过期和离线包 | `SharingState` |
+| sync | WebDAV/S3 配置同步、版本保留和调度 | `SyncService` 与活动任务表 |
+| maintenance | 完整性检查、孤儿清理和 VACUUM | `OPERATION` 互斥 |
+| export | Markdown、PDF、ICS、Anki、HTML、CSV、TXT、OPML | 无独立状态 |
 
-`app_state()`（:738）输出聚合快照：四集合 + preferences + versions（六命名空间 revision）+ `workspaceId` + `lastEventId`，是前端单一真相源。
+## 3. 横切契约
 
-双库结构：
+### 3.1 错误模型
+
+`BackendError { code, message }` 序列化为 IPC 拒绝载荷。调用方按 `code` 分支，不匹配错误文案。
+
+- SQLite Busy/Locked → `database_busy`；损坏或非数据库文件 → `database_corrupt`；其他 SQLite 错误 → `storage_failed`。
+- 磁盘满 → `disk_full`；其他 I/O → `storage_failed`。
+- JSON → `invalid_record`；ZIP → `export_failed`；时间格式化 → `time_format_failed`。
+- 会话过期、吊销、凭据缺失等错误进入统一重新认证集合。
+
+### 3.2 通用存储
+
+`Store` 建立四张通用表：
+
+| 表 | 用途 |
+|---|---|
+| `kv(namespace,id,data,updated_at)` | tasks、notes、resources、projects、preferences 和 drafts |
+| `meta(key,value)` | 初始化标记、schema 指纹和 schema 版本 |
+| `revisions(namespace,value)` | 集合与草稿乐观锁版本 |
+| `events(id,kind,payload,created_at)` | 单调递增事件 outbox；`events_kind_request` 索引支持按请求读取模型增量 |
+
+打开数据库时启用 WAL、外键、10 秒 `busy_timeout` 和 `synchronous=NORMAL`。`max(PRAGMA user_version, meta.schema_version)` 高于代码侧 `SCHEMA_VERSION=4` 时返回 `unsupported_schema`。指纹不同或记录版本低于代码版本时，依次执行 materials、knowledge、providers、learning、projects、sharing、practice、review、agent、community、plugins、engagement、reports、security、sync 共 15 个模块的幂等迁移。
+
+`app_state()` 返回四个业务集合、preferences、六个命名空间的 revision、`workspaceId` 和 `lastEventId`。普通集合写入返回轻量回执，不重复下载全部集合。`resources` 不允许通过通用集合命令绕过材料命令。
+
+`replace_collection` 在校验后使用 IMMEDIATE 事务检查配额和 revision，再替换集合并写入 `state.changed`。笔记删除同步清理批注关联；项目删除清理版本和采用关联；任务删除保留专注历史但解除任务关联，并清理排期关联。
+
+### 3.3 根库与工作区库
 
 ```mermaid
 graph LR
     subgraph 根库 deep-tutor.db
-        LU[local_users 管理员或成员]
+        LU[local_users]
         SQ[security_quotas]
         AS[auth_sessions]
-        AT[access_tokens 仅 SHA-256]
+        AT[access_tokens]
         SI[share_index]
-        LU --- SQ
-        AS --- LU
-        AT --- LU
     end
-    subgraph 用户工作区库 users 目录每用户一份
-        GEN[kv meta revisions events 通用表]
-        DOM1[materials material_text material_jobs]
-        DOM2[learning_plans steps lectures evidence]
-        DOM3[practice_sets questions answers mistakes]
-        DOM4[agent_sessions runs tool_calls approvals]
-        DOM5[provider_profiles requests route_runs circuits]
-        DOM6[sync_jobs review_cards project_versions 等]
-        GEN --- DOM1
-        GEN --- DOM2
-        GEN --- DOM3
-        GEN --- DOM4
-        GEN --- DOM5
-        GEN --- DOM6
+    subgraph users 目录中的用户工作区库
+        GEN[kv / meta / revisions / events]
+        MAT[materials / material_text / material_jobs]
+        LR[learning_plans / lectures / evidence]
+        PR[practice / review / projects]
+        AG[agent_sessions / runs / tools / approvals]
+        PV[provider_profiles / requests / routes / circuits]
+        SY[sync_jobs / community / notifications]
     end
-    LU -. 首位用户一次性复制 .-> DOM2
+    LU -. 首位用户旧库一次性迁移 .-> GEN
 ```
 
-user-1 旧库一次性复制：`open` 中 `owner==Some(1) && root!=path && root.exists() && !path.exists()` 时对根库 `wal_checkpoint(FULL)` 后复制到 `{db}.migration-tmp` 再原子 rename（:140-156，防复制中断留下截断库），此后根库只存账户表。rename 顺序为 `-wal` 先落位、主文件后落位，迁移前清扫上次失败残留的 staged 临时件（store.rs:329-363，152#1——主文件先落位而 `-wal` 二次 rename 失败时，目标库以旧 WAL 前滚打开会静默丢掉复制进来的提交）。
+账户库路径为应用数据根下的 `deep-tutor.db`；用户库路径为其同级 `users/{user_id}/deep-tutor.db`。首位用户的旧单库数据只迁移一次，复制前执行 WAL checkpoint，并按 WAL 文件、主文件的顺序原子落位。
 
-### 4.3 命令守卫与用户隔离（`security/`）
+### 3.4 命令守卫与身份传播
 
-- `guard_handler`（`guard.rs:286`）分层放行：5 个存储命令直通（:149-157）→ `ensure_ready`（:160）→ `login_local_user` 走 `switch()`（:163）→ 5 个免登录命令（:166-173）→ 其余命令在 `WORKSPACE_SWITCH` 读锁下 `with_user(user, handler)`（:182-196）。
+`guard_handler` 按以下顺序处理：
 
-命令守卫判定顺序：
+1. 5 个存储目录命令直接执行。
+2. 其他命令先检查 `startup::ensure_ready`。
+3. `login_local_user` 进入工作区切换流程。
+4. `get_security_overview`、`authenticate_access_token` 和三个只读分享命令按各自免登录规则执行。
+5. 其余命令持有 `WORKSPACE_SWITCH` 读锁，验证会话，设置用户身份并确认当前 `Store` 属于该用户。
 
 ```mermaid
 flowchart TD
-    A[前端 invoke 命令] --> B{属于 5 个存储命令?}
-    B -->|是| C[直通 Store 免登录]
-    B -->|否| D{ensure_ready 就绪?}
+    A[invoke] --> B{存储目录命令?}
+    B -->|是| C[直接执行]
+    B -->|否| D{后端就绪?}
     D -->|否| E[startup_not_ready]
-    D -->|是| F{命令是 login_local_user?}
-    F -->|是| G[switch 切换用户工作区]
-    F -->|否| H{属于 5 个免登录命令?}
-    H -->|是| I[直接执行 含只读分享]
-    H -->|否| J[取 WORKSPACE_SWITCH 读锁]
-    J --> K[current 验证 JWT 会话]
-    K -->|无效或过期| L[login_required 类错误]
-    K -->|有效| M[with_user 设置 thread-local principal]
-    M --> N[按用户工作区打开 Store]
-    N --> O[执行 handler]
+    D -->|是| F{登录或免登录命令?}
+    F -->|登录| G[停机并切换工作区]
+    F -->|免登录| H[按命令规则执行]
+    F -->|否| I[持有工作区读锁]
+    I --> J[验证会话]
+    J -->|失败| K[返回重新认证错误]
+    J -->|成功| L[设置 principal]
+    L --> M[确认 Store owner]
+    M --> N[执行命令]
 ```
 
-- `switch()`（`guard.rs:188`）：停 7 个子系统（:20-28）→ 写锁内替换 `BackendState.store` 为目标用户库（:98-117）→ 执行 → 必要时回滚 → 重启 sync 调度（:82）。
+- `prepare_store` 使用 owner 镜像提供稳态快路径；镜像未命中时在锁内复核并换库。
+- 用户切换并行停止 Agent、练习、知识问答、学习方案、模型请求、同步、资料解析和专注 8 个域，再替换工作区；失败时恢复旧工作区，结束后执行恢复族并重启同步调度。
+- `with_user` 设置 thread-local principal；`security::thread_builder` 将其继承到后台线程。
+- Tauri async 命令运行于 Tokio worker，不能读取 IPC 线程的 thread-local；命令须通过 `session_principal` 或只读的 `session_principal_existing` 从会话派生身份，再用 `with_principal` 传入 `spawn_blocking`。
+- 生产环境没有 principal 时，`Store::new` 返回 `store_unavailable`，不得回退首位用户。
 
-用户切换时序：
+JWT 使用 HS256 和 7 天有效期，密钥及会话令牌保存在系统密钥库。签发新会话会撤销旧活动会话；登出撤销该用户全部会话。只有 `auth_sessions` 全表为空时才允许首启自动签发，登出后的重启不会自动登录。PAT 使用系统随机数，明文只在创建时返回，数据库保存 SHA-256 摘要；PAT 认证复用会话签发路径。
+
+### 3.5 事件与插件投递
+
+领域代码在事务内调用 `Store::event`，同一事务写入 `events` 和命中的 `plugin_deliveries`；事务提交后，命令层通过 `backend://event` emit。只有事务提交成功后才发送通知。
 
 ```mermaid
 sequenceDiagram
-    participant G as guard switch
-    participant S as 七个子系统
-    participant B as BackendState
-    G->>S: stop 停全部活动任务
-    G->>G: 获取 WORKSPACE_SWITCH 写锁
-    G->>B: with_user 目标用户新建 Store 替换
-    G->>G: 执行 login handler
-    G->>B: 实际用户与目标不同则回滚 store
-    G->>S: 重启 sync 调度线程
+    participant D as 领域命令
+    participant T as SQLite 事务
+    participant E as events / plugin_deliveries
+    participant F as 前端
+    D->>T: 写业务状态
+    T->>E: Store::event
+    T-->>D: commit
+    D->>F: emit backend://event
+    F->>D: get_app_state
+    D-->>F: 全量快照 + lastEventId
 ```
-- 工作区路径：`user_workspace_path(root,user_id) = root.parent()/users/{user_id}/<db名>`（`security/mod.rs:131`）；thread-local `PRINCIPAL`（:34）由 `with_user` 设置，`ScopedBuilder::spawn`（:109）把 principal 继承到后台线程；`Store::new` 读它决定 owner，无 principal 时返回 `store_unavailable`（生产 fail-closed，测试环境回退根库语义，`store.rs:74-88`）。tauri 把 async 命令体 spawn 到 tokio worker（`respond_async`），thread-local 到不了那里——54 个 `#[tauri::command(async)]`（materials 8、根 commands 8、providers 7、engagement 5、backup/maintenance/reports/sharing/startup 各 3、export/notes 各 2、community/knowledge/learning/practice/projects/sync/web 各 1；44#1/2 与 73 号批次重 IO 命令移出主线程，81#3 deep link 导入、124#3 资料 collection 三命令、127#1/#2/#4 agent/providers 批次持续扩充，141#2 草稿三命令 save_draft/get_draft/delete_draft——备份导入/重置持全局 store 锁期间打字自动保存原先冻结主线程）改经 `session_principal`（`security/mod.rs:76`）从会话派生当前用户（与 guard `current()` 同源）再显式传播进 `spawn_blocking`。
-- 会话：JWT HS256 手写实现（签名 `security/mod.rs` signature:544，签发 `jwt()` :583，验证 `verify` :638 常量时间比对），secret 与 session token 存系统密钥库（`session-{id}`）；7 天有效期（`SESSION_SECONDS` :31）。单活动会话：`issue()`（:690）签发前撤销全部仍活跃会话并清理其凭据槽，`logout`（:1049）撤销该用户全部会话——切换用户后登出不会回退到上一位用户的会话；登出后重启不自动恢复（1.1.8/119#1：自动签发仅限 `auth_sessions` 全表为空的真首启，登出留有已撤销行即静默保持登录门）。
-- PAT：`random::token("dtp_")` 47 字符（`random.rs:68`，BCryptGenRandom），库中仅存 SHA-256（`mod.rs:1170`），明文只在创建响应出现一次；`authenticate_access_token` 验证通过后经 `issue()` 建立会话（前端 SecurityPanel 的 PAT 登录入口调用）。
-- 表（根库，`migrate` `mod.rs:392`）：`local_users`(role CHECK 管理员/成员)、`auth_sessions`、`access_tokens(token_hash UNIQUE)`、`security_quotas(PK(user_id,resource))`、`share_index`。
 
-### 4.4 事件系统
+插件可订阅 `EVENT_NAMESPACES` 中的 22 个事件命名空间或 `*`。`state.changed` 是内部快照同步事件，不开放给插件。后端实发事件、白名单和前端 `Integrations.tsx` 数组由源码扫描测试双向约束。
 
-写路径：域函数在事务内 `Store::event`（落 events 表 + 插件投递）→ 事务 commit → 命令层 `emit(app,&event)` 推 `backend://event`（`backend/commands.rs:22`）。终态先落盘再发送由此保证。前端 `onBackendEvent`（`client.ts:500`）统一接收，`useBackendState.sync()` 直接以 `get_app_state()` 全量快照校准（游标取快照 `lastEventId`，38#2 起不再逐页翻 `events_since`）。
+## 4. 领域数据与文件
 
-插件投递：`plugins::dispatch(conn,event_id,kind)` 查 `plugin_subscriptions` 命中即 INSERT `plugin_deliveries`（`plugins/mod.rs:763`），模式为 `*` 或 22 个命名空间前缀 `.*`（`EVENT_NAMESPACES` :26，1.1.8/117#3 补 focus/study/lecture/report/security/notifications/usage/project；`state.changed` 为 replace_collection 高频内部状态同步不开放）。实发 ⊆ 白名单 ∪ {state} 与白名单 ⊆ 实发由源码扫描测试 `event_namespaces_cover_whitelist` 双向固化，并校验 Integrations.tsx 数组同步。
+### 4.1 模型与学习
 
-## 5. 各域数据结构（SQLite 表 + 核心类型）
+- **providers**：`provider_profiles`、`provider_meta`、`provider_requests`、`provider_route_runs`、`provider_route_attempts`、`provider_circuits`、`usage_rates`。支持 OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini Native；凭据只保存在系统密钥库，档案只暴露 `hasKey`。实际任务路由为 agent、plan、lecture、practice、wiki；resources/embedding 仅兼容旧配置和日志。
+- **learning / planning / knowledge**：`learning_plans`、`learning_plan_steps`、`learning_plan_materials`、`learning_plan_adoptions`、`learning_plan_schedule_tasks`、`learning_plan_versions`、`learning_node_evidence`、`learning_reading_progress`、`learning_node_tasks`、`learning_lectures`、`learning_lecture_units`、`learning_lecture_versions`、`learning_annotations`、`knowledge_sessions`、`knowledge_session_materials`。方案包含图谱、阶段、排期、资源、五维校验和警告；资料为 0–8 份，空资料输出不得携带引用。
+- **practice / review / projects**：`practice_sets`、`practice_questions`、`practice_answers`、`practice_mistakes`、`practice_bookmarks`、`review_cards`、`review_history`、`project_versions`。主观答案保存评分请求；错题通过 `variant_of` 形成变式链；复习卡保存到期时间、间隔、ease、重复和遗忘次数；项目反馈保存概念应用、实现质量、验证与反思评分。
 
-### 5.1 providers（`providers/mod.rs:269` 起 migrate、`routing.rs:119` 起 migrate、`usage.rs:121` 起 migrate）
-- 表：`provider_profiles`（models_json、health、latency_ms）、`provider_meta`（active_provider）、`provider_requests`（request_id PK、status/output/usage_json/tool_calls_json、attempts）、`provider_route_runs` + `provider_route_attempts`（PK(request_id,attempt)，upstream_request_id UNIQUE）、`provider_circuits`（state/failures/opened_at）、`usage_rates`（UNIQUE(provider_id,model)）。
-- 类型：`ProviderProfile`（mod.rs:28）、`ChatMessage`（:62）、`TokenUsage/ChatResult/ChatError`（openai.rs:20/28/40）、`StreamPolicy{max_attempts=2,request_timeout=45s,chunk_timeout=120s}`（openai.rs:647-653）、`RoutingSettings{mode,routes,aggregate_*,failover,circuit}`（routing.rs:56）、`CircuitSettings{failures=3,cooldown=60s,timeout=45s,retries=2}`（:36-43）、`UsageSettings{session_usd=1.0,daily_usd=10.0,regeneration_limit=2}`（usage.rs:17-23）。
-- 凭据：trait `CredentialBackend{get,set,delete}`（mod.rs:84），生产 `SystemCredentials`（keyring，:90），测试 `MemoryCredentials`（:151）。API Key 永不入库——`has_key` 是唯一暴露（mod.rs:28）。首个启用档案在 `upsert` 的同一事务内补 active 并记录事件；已有 active 不被新增覆盖。路由编辑器只展示 agent/plan/lecture/practice/wiki 五条真实调用链，旧配置中的 resources/embedding 键仅为兼容读取。
+### 4.2 材料、笔记与导出
 
-### 5.2 learning（`learning/mod.rs:129-267`）/ planning / knowledge
-- 表：`learning_plans`（status、artifacts_json 分步产物、result_json、version）、`learning_plan_steps`（PK(plan_id,step_index)、attempt、request_id）、`learning_plan_materials`（FK RESTRICT）、`learning_plan_adoptions`、`learning_plan_schedule_tasks`、`learning_plan_versions`、`learning_node_evidence`（evidence_key 唯一索引）、`learning_reading_progress`、`learning_node_tasks`、`learning_lectures`、`learning_lecture_units`（PK(plan,stage,version,unit_index)）、`learning_lecture_versions`、`learning_annotations`；knowledge：`knowledge_sessions`、`knowledge_session_materials`。
-- 类型：`PlanInput/Source/Citation/KnowledgeNode/KnowledgeEdge/Graph/Stage/Schedule/ValidationReport/PlanResult/PlanStep/Plan`（`types.rs:19-211`，`STEP_NAMES[8]` :6-15）、`Lecture/LectureUnit/LectureContent`（`lecture.rs:48-79`）、`KnowledgeCitation{quote,char_start,char_end,line}`（knowledge/mod.rs:89-97）。`material_ids` 接受 0–8 项；空资料时图谱与讲义引用为空，有资料时仍逐字校验。
+- **materials**：`materials`、`material_text`、`material_jobs`。原件按 SHA-256 保存到工作区 `materials/originals/`；导入检查扩展名、文件签名、大小和哈希，媒体读取复核路径与哈希。
+- **notes**：Markdown/TXT/ZIP 由 Rust 读取、校验并在事务中追加；知识库检查读取未关联笔记、重复正文、缺失原件和解析失败。
+- **export**：八种格式由 Rust 生成；PDF 使用自写 CIDFontType2，Anki 生成真实 `collection.anki2`。导出和备份目的地由原生对话框选择，后端拒绝写入当前或旧默认应用数据目录。
 
-### 5.3 practice / review / projects
-- 表：`practice_sets`（FK plan CASCADE、mode/status、exam 三列）、`practice_questions`（UNIQUE(set_id,position)、rubric_json）、`practice_answers`（question_id UNIQUE、grader_request_id、索引 practice_answers_set ON set_id）、`practice_mistakes`（variant_of/mastered 链）、`practice_bookmarks`；`review_cards`（due_at/interval_days/ease=2.5/repetitions/lapses、suspended、索引 review_due_cards ON (deleted,suspended,due_at)）、`review_history`（索引 review_history_card）；挂起卡片评分返回 `card_suspended`（`set_review_card_suspended` 命令）；`project_versions`（UNIQUE(project_id,version_number)、feedback_json、cancel_requested）。
-- 类型：`PracticeSetDetail/AnswerResult/Mistake`（practice/mod.rs:128-161）、`ReviewCard/GradeResult`（review/mod.rs:53/101）、`ProjectFeedback{concept,implementation,verification:u8,summary,suggestions}`（projects/mod.rs:60）。
+### 4.3 Agent、社区与报告
 
-### 5.4 materials / notes / export
-- 表：`materials`（sha256 UNIQUE、status、progress、parse_mode、warning 与 warning_source——警示正文与来源分列，重解析成功时按来源决定清除或保留（网页截断类入库警示保留），materials/mod.rs:255/:285）、`material_text`（PK=material_id CASCADE）、`material_jobs`（UNIQUE(material_id,kind,attempt)、cancel_requested）。
-- 文件区：`{数据目录}/materials/originals/{sha256}.{kind}`（materials/mod.rs:369 起）；导出原子替换 `.download-{n}/.previous-{n}`（`atomic_export` :1286）。
-- 解析限制常量（parse.rs:11-15）：文件 50MB、文本 5MB、XML 32MB、ZIP 总量 64MB、PDF 2000 页；ZIP 资料包另有 archive.rs:8-9 的 64 条/200MB。
-- export：`ExportScope{Plan,Lecture,Knowledge,Review,Schedule}` 与 `ExportFormat` 8 值（mod.rs:24-58）；PDF 为手工 TrueType 解析（pdf.rs:126-340）+ CIDFontType2 自写（pdf.rs:377，msyh/simhei ≤64MB :218-220）；Anki 生成真实 collection.anki2（export/anki.rs:55 render 起，:220 入包）。
+- **agent**：`agent_sessions`、`agent_runs`、`agent_messages`、`agent_tool_calls`、`agent_artifacts`、`agent_approvals`、`agent_memory`。通用会话在数据库中使用空 `plan_id`，IPC 输出 `planId: null`；通用会话开放网络、记忆和历史 7 个工具，绑定已采用方案后增加 4 个 workspace 工具和 `artifact.promote`。产物路径、内容、哈希、审批和过期时间均持久化。
+- **community**：`community_posts`、`community_replies`、`community_reactions`、`community_groups`、`community_group_members`、`community_rooms`、`community_reservations`、`community_reminders`。全部为当前工作区的本机记录。
+- **engagement / reports**：`notifications`、`focus_sessions`、`study_checkins`。掌握度读取 `learning_node_evidence`；专注保存实际秒数、暂停和终态；报告不生成无记录的趋势。
 
-### 5.5 agent / community / engagement / reports
-- agent 表（mod.rs:187 起 migrate）：`agent_sessions`(budget_tokens 默认 16000)、`agent_runs`(status/steps/current_request_id)、`agent_messages`、`agent_tool_calls`(id PK 幂等)、`agent_artifacts`(sha256/expires_at)、`agent_approvals`、`agent_memory`；agent_messages/runs/artifacts/approvals 四表各带 session_id 索引（mod.rs:269-272，每个 agent.* 事件不再全表扫描）。通用会话以空字符串存 plan_id、IPC 映射为 null；`tools::catalog(session)` 对通用会话移除 workspace/artifact 工具，执行层仍校验方案范围。
-- community 表（mod.rs:179 起 migrate）：posts/replies/reactions(单用户 PK(post_id,kind))/groups/group_members/rooms/reservations/reminders。
-- engagement：`notifications`（mod.rs:135-143）。
-- reports：`focus_sessions`（paused_at 靠 PRAGMA 检测补列 :201-202）、`study_checkins`；`learning_node_evidence` 带 created_at 索引（reports/mod.rs:193，周报免全表排序）。
+### 4.4 备份、分享、同步与插件
 
-### 5.6 backup / sharing / sync
-- backup：`.dtbackup` = zip{manifest.json + state.db(VACUUM INTO 快照) + files/*}；`TABLES` 67 张白名单（archive.rs:25-93），排除 `auth_sessions/access_tokens/share_index`（:95）；上限包 2GB/库 512MB/单文件 50MB/清单 1MB（:19-22）。原件扩展名复用 `materials::SUPPORTED`，zip 仅作旧档案兼容，避免恢复后文件名与 kind 分叉。
-- sharing：`shared_plans(token_hash UNIQUE,payload_json,expires_at,revoked_at)` + 根库 `share_index(token_hash,user_id)`；离线包 `SharePackage{format,version,token,plan,expires_at,checksum}`（mod.rs:90）。
-- sync：`sync_config`(id=1 单行，凭据在 keyring)、`sync_jobs`(id TEXT PK,status,remote_path)；远端布局 `{base}/versions/{timestamp}-{id}-{sha256}.json` + 当前对象（versions.rs:206），保留最近 10 个（:238-250）。
+- **backup**：`.dtbackup` 是包含 `manifest.json`、一致性 `state.db` 和文件区的 ZIP。67 张表白名单包含通用表和领域表；导出快照剔除 `auth_sessions`、`access_tokens`、`share_index`，系统凭据从不入包。导入采用预演、ID 映射、外键拓扑排序和追加语义。
+- **sharing**：用户库保存 `shared_plans`，根库保存 `share_index`；原始令牌只返回给创建者，数据库保存哈希。在线读取检查撤销和过期；离线包脱离本机数据库，不能接收撤销。
+- **sync**：`sync_config` 和 `sync_jobs` 保存脱敏配置与执行记录，WebDAV/S3 凭据保存在系统密钥库。远端保存当前对象和独立历史对象，只保留最近 10 个版本；同步内容不包含学习备份。
+- **plugins**：`plugins`、`plugin_subscriptions`、`plugin_deliveries`、`plugin_reloads`。清单使用严格 JSON 结构，不执行任意脚本。开发者资产共 9 项：8 个历史 `SKILL.md` 和内置 `native-operations`；README、模板及 references 不嵌入二进制。
 
-### 5.7 plugins
-表（mod.rs:192-203）：`plugins`(enabled 默认 0、generation)、`plugin_subscriptions`、`plugin_deliveries`(PK(plugin_id,event_id))、`plugin_reloads`。清单 `PluginManifest` `deny_unknown_fields`（:60），目录 `plugins/{id}/manifest.json`，原子写（:347）。
-
-## 6. 模块依赖图
+## 5. 模块依赖
 
 ```mermaid
 graph TD
-    STORE[store.rs] --> PLUGINS[plugins]
+    STORE[store] --> PLUGINS[plugins]
     STORE --> SECURITY[security]
     SEC_GUARD[security guard] --> ALL[全部命令]
-    LEARNING[learning] --> PROVIDERS[providers routing]
+    LEARNING[learning] --> PROVIDERS[providers]
     LEARNING --> MATERIALS[materials]
     LEARNING --> WEB[web]
     PRACTICE[practice] --> LEARNING
@@ -246,37 +221,40 @@ graph TD
     SHARING[sharing] --> LEARNING
     SYNC[sync] --> PROVIDERS
     SYNC --> LEARNING
-    BACKUP[backup 编排全部模块 recover] -.-> STORE
-    MAINT[maintenance 停各模块任务并锁 store] -.-> STORE
     WEB --> MATERIALS
     EXPORT[export] --> LEARNING
     EXPORT --> REVIEW
     EXPORT --> MATERIALS
+    BACKUP[backup] -. 编排恢复 .-> STORE
+    MAINT[maintenance] -. 停机与维护 .-> STORE
 ```
 
-方向规律：`providers`/`materials`/`web` 是被依赖的底座；`learning` 是学习域枢纽（被 practice/review/planning/engagement/reports/sharing/export/agent 依赖）；`backup`/`maintenance` 处于最上层，编排全部模块的 stop/recover。无循环依赖：planning→learning 单向；plugins 只被 store 依赖。
+`providers`、`materials` 和 `web` 提供底层外部能力；`learning` 是学习域枢纽；`backup` 和 `maintenance` 编排停机与恢复。`store` 在事件写入时调用 `plugins::dispatch`，插件实现再使用 `Store` 读取自身状态。
 
-## 7. 前端架构
+## 6. 前端结构
 
-- 骨架：`main.tsx` → `App.tsx`；无 router，`page` 状态 + hash 同步，`renderPage()` switch 分发；6 个重页面 React.lazy（StudyRoom/Library/PlanGenerator/AgentCenter/Integrations/ProviderHub）；三组导航 + 顶栏（Ctrl/⌘+K 搜索、快速记录、主题、通知）+ 移动底栏。
-- 前置守卫顺序：`shared` 分享页独立 → `startupError` → DataDirectoryPanel → `loginRequired` → SecurityPanel → 未 ready Loader。
-- 客户端层 25 个文件：`client.ts` 聚合 invoke 并维护 `isCancelRace` 竞态错误码表；领域客户端 practice/review/knowledge/community/… 一一对应命令组；`materialImport.ts` 收敛文件选择器与窗口拖放的共享导入通道，`shell.ts` 收敛 opener 定位与外链；事件统一走 `onBackendEvent`。
-- 状态：`useBackendState` 持有快照 + lastEventId/workspaceId ref；`applySnapshot` 拒绝回退事件并在 workspaceId 变化时重置游标；bootstrap/sync 的瞬态 `database_busy` 自动重试至多 5 次不弹错；`security.session_started` 经去抖回调保留事件参数，触发 generation+1 全量重载，旧代际响应不得覆盖新工作区；`replaceCollection` 提交更新函数语义并按命名空间排队串行提交，消除一帧窗口的丢写竞态。
-- 流式：`useAgent.ts` 按 requestId 匹配 `provider.chat_delta`（payload.reasoning 区分文本/思考），`provider.route_attempt` 切换 upstreamRequestId；快照合并带 deltaEpoch 世代号，旧周期快照不得覆盖已拼接增量。
-- 样式：单文件 styles.css 2049 行；Primitive oklch 调色板 → Semantic 变量 → `[data-theme="dark"]` 覆盖；断点 640/700/1024/1080/1100/1180/1240/1280/1320；Esc 经 UI.tsx `MODAL_STACK` 栈顶仲裁一次只关一层，滚动锁引用计数；`html.reduce-motion` 覆盖 smooth scroll，系统偏好经 matchMedia 跟随。动态文本统一 `overflow-wrap:anywhere`，flex/grid 文本列设 min-width:0，代码/公式/表格只在内容容器内滚动；小于 640px 的页面标题区统一纵向排列。
+- `main.tsx` 挂载 `App.tsx`。无路由库，使用 `page` 状态和 hash 同步；`renderPage()` 分发 16 个页面。
+- StudyRoom、Library、PlanGenerator、AgentCenter、Integrations、ProviderHub 六个页面通过 `React.lazy` 按需加载。
+- 页面守卫顺序为只读分享、启动错误、重新登录、初始化加载、正常工作区。
+- `useBackendState` 保存快照、`lastEventId`、`workspaceId` 和工作区代际。事件经 120ms 去抖后读取全量快照；旧代际或较旧快照不得覆盖新状态。草稿保存事件不触发全量快照。
+- 集合写入接受值或更新函数，并按命名空间串行提交；写回执只携带 revision、事件游标和工作区标识。
+- `useAgent` 按逻辑请求和上游请求映射消费模型增量，支持故障转移；delta 世代号防止旧快照覆盖已接收文本。
+- 主题、大字号、高对比度和减弱动态效果由 preferences 持久化并应用到根元素。弹层通过统一栈管理 Esc、焦点和滚动锁。
+- WebView 权限仅包括事件监听、原生打开/保存对话框和 `https://**` 系统浏览器打开；资源管理器定位由后端白名单命令执行。
 
-## 8. 命令注册总览（`main.rs` 的 `generate_handler!` 注册块，共 188 个）
+## 7. 命令注册
 
 | 分组 | 数量 | 代表命令 |
-|---|---|---|
-| 启动/存储 | 14 | startup 5 + 通用命令 9：bootstrap、replace_collection、reset_application（events_since 已随 92#1 从生产注册表移除） |
+|---|---:|---|
+| 启动与通用 | 14 | bootstrap、replace_collection、reset_application、set_storage_location |
 | 安全 | 10 | login_local_user、create_access_token、set_security_quota |
-| 供应商/路由/用量 | 20 | route_provider_chat（含工具调用）、export_usage_csv_file（对话框版；内存版 export_usage_csv 已随 61 号删除，stream_provider_chat 已随 138#1 收敛移除） |
-| 材料/笔记 | 15 | import_material_archive、read_material_media_chunk（二进制 ipc::Response）、verify_material_media、import_notes |
-| 学习/讲义/知识/排期 | 29 | learning 16 + knowledge 8 + planning 5：start_learning_plan、generate_lecture、ask_knowledge |
-| 练习/复习/项目 | 28 | practice 14 + review 9 + projects 5：submit_practice_answer、grade_review_card、submit_project_version |
-| Agent | 9 | send_agent_message、approve_agent_request（get_agent_run 已随 138#1 收敛移除） |
-| 备份/分享/同步/运维 | 20 | backup 3 + sharing 7 + sync 7 + maintenance 3：import_full_backup、read_shared_plan、restore_sync_version、vacuum_database |
-| 社区/插件/导出/报告/搜索 | 43 | community 12 + plugins 9 + export 2 + reports 11 + engagement 8 + web 1：install_plugin、export_content、export_learning_report、search_workspace（claim_community_reminders 由 App.tsx 每 60 秒轮询领取） |
+| 供应商、路由与用量 | 20 | route_provider_chat、test_provider、export_usage_csv_file |
+| 材料、笔记与网页导入 | 15 | import_material_archive、read_material_media_chunk、import_webpage |
+| 学习、讲义、知识与排期 | 29 | start_learning_plan、generate_lecture、ask_knowledge |
+| 练习、复习与项目 | 28 | submit_practice_answer、grade_review_card、submit_project_version |
+| Agent | 9 | send_agent_message、approve_agent_request |
+| 备份、分享、同步与运维 | 20 | import_full_backup、read_shared_plan、restore_sync_version |
+| 社区、插件、导出、报告与搜索 | 43 | install_plugin、export_content、get_learning_report、search_workspace |
+| **合计** | **188** | 前端直接调用 173 个 |
 
-前端调用的命令名与注册表逐一核对一致；网页抓取链为后端内部函数（`import_webpage` 专用，`fetch_webpage` IPC 壳已随 61 号删除，前端零调用）；`events_since`（92#1）、`stream_provider_chat`/`get_agent_run`（138#1）先后从生产注册表移除（前端零调用），仅测试 mock 注册面仍在使用。五个 `*_file`/`save_plugin_asset` 落盘命令（export_provider_config_file、export_usage_csv_file、export_practice_mistakes_file、read_shared_plan_file、save_plugin_asset；37#5）由原生保存对话框选定目的地后写入。
+`events_since`、`stream_provider_chat` 和 `get_agent_run` 不在生产注册表中，仅保留测试或内部调用；`fetch_webpage` IPC 壳已删除，网页导入复用后端内部抓取链。模型中心手动测试由前端调用 `route_provider_chat`；全局导师通过 Agent 命令进入 Rust 工具循环。

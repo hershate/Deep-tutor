@@ -1,32 +1,32 @@
-# Deep-tutor 架构文档
+# Deep Tutor 架构文档
 
-**分析基准**：main 分支滚动演进（不钉单一 commit；`文件:行号` 引用以撰写时的 HEAD 为准，随开发可能移位）
-**分析范围**：`desktop/`（Tauri 2 应用全量；口径为 src/ 与 src-tauri/src/ 下全部源码文件。规模与命令数等量化口径随开发演进，权威口径以 `note/14-Tauri原生后端覆盖清单.md` 为准）
-**分析模式**：全量静态分析；命令、SQLite、回环协议与无界面原生验证按 `plan/README.md` 执行
+- **适用版本**：1.1.14
+- **分析范围**：`desktop/src/` 与 `desktop/src-tauri/src/`。功能范围以 `note/14-Tauri原生后端覆盖清单.md` 为准，当前产品决策以 `note/产品与技术决策.md` 为准。
+- **定位方式**：使用模块、函数、命令、事件和数据库契约定位，不记录会随源码变更失效的行号。
 
-## 项目快照
+## 当前规模
 
-- **项目**：知舟 Deep Tutor —— 个人学习操作系统桌面应用
-- **技术栈**：Rust（Tauri 2 壳 + 原生后端 + rusqlite）、React 18 + TypeScript 5.6 + Vite 6
-- **持久化**：SQLite（WAL，根库=账户 + 每用户工作区库），文件区存原件/产物
-- **规模**：188 个 Tauri 命令（前端直接调用 173 个）、21 个后端域模块（backend/ 域目录）+ backend 根（commands/store/error/random/reveal/mod）、16 个页面、25 个前端客户端文件（src/backend/*.ts）、265 个后端测试（串行全绿）
-- **CI**：GitHub Actions windows-latest（tsc 类型检查 + dev server 冒烟 + 依赖审计 npm audit 双口径 + fmt + 原生测试串行 + 版本校验 + NSIS 安装包内含前端构建；许可证收集在 NSIS 步骤的 beforeBuildCommand 内执行；push:main / PR / 手动触发）
-- **分支**：main（单线演进，细粒度中文提交）
+- **技术栈**：React 18、TypeScript 5.6、Vite 6、Tauri 2、Rust、rusqlite。
+- **原生命令**：188 个注册命令，前端直接调用其中 173 个。
+- **后端**：21 个业务域，另含通用命令、存储、错误、随机数、资源管理器定位和导出路径遏制。
+- **前端**：64 个 TypeScript/TSX 文件、1 个 CSS 文件；16 个页面、17 个组件、25 个后端客户端文件。
+- **测试**：265 个 Rust `#[test]`，门禁使用 release、锁定依赖和单线程执行。
+- **持久化**：SQLite WAL；根库管理账户，每用户使用独立工作区库；文件区保存材料原件、插件和 Agent 产物。
+- **CI**：Windows、Node.js 24、Rust 1.99.1；执行类型检查、开发服务器冒烟、依赖审计、格式检查、原生测试、版本校验、NSIS 构建和 `--verify-native`。
 
 ## 文档目录
 
-| 文档 | 内容 | 图表 |
-|---|---|---|
-| [01 架构分析](01-architecture.md) | 分层与模块清单、横切层（错误/存储/守卫/事件）、各域数据结构与 SQLite 表、模块依赖图、前端架构、命令注册总览 | 进程总览、双库结构、守卫判定、用户切换时序、模块依赖 共 5 图 |
-| [02 运行原理](02-operation-principles.md) | 启动序列、schema 指纹迁移、事件与快照校准续接、八步方案流水线、提供商流式与路由熔断、材料解析队列、Agent 工具循环、判分与复习算法、状态机汇总、并发模型 | 启动时序与目录决策、Store 打开链、事件写路径、八步流水线、直连流式时序、路由候选循环、熔断状态机、材料导入与解析队列、Agent 工具循环、抓取校验、判分分流、复习调度、备份导出/导入、分享时序、同步保留、通用任务状态机、停止与重置、前端启动与实时流 共 23 图 |
-| [03 工作流分析](03-workflow.md) | 构建/CI/测试策略、学习闭环业务流与决策链、数据生命周期、异常恢复矩阵、安全工作流、页面×命令矩阵 | CI 管线、学习闭环、材料决策、方案生命周期、变式闭环、项目反馈、专注状态机、引用校验、预约提醒时序、数据生命周期、密钥生命周期 共 11 图 |
+| 文档 | 内容 |
+|---|---|
+| [01 架构分析](01-architecture.md) | 进程分层、模块职责、横切契约、领域数据、依赖关系、前端结构、命令注册 |
+| [02 运行原理](02-operation-principles.md) | 启动、迁移、事件续接、方案流水线、模型协议与路由、材料队列、Agent、判分、复习、备份、同步、状态机和并发 |
+| [03 工作流分析](03-workflow.md) | 构建与测试、学习闭环、数据生命周期、异常恢复、安全流程、页面与命令对应关系 |
 
-## 核心发现
+## 核心契约
 
-1. **单进程全原生**：WebView 零业务逻辑，全部 I/O（SQLite/文件/HTTP/密钥库）在 Rust 侧执行；前端唯一事件通道 `backend://event` 与命令名和注册表完全一致。
-2. **统一任务生命周期**：13 类长任务实体共用同一模式——SQLite status 列 + AtomicBool 取消注册表 + `providers::completed_chat` 请求复用 + 重启 `recover`（running→interrupted、cancelling→cancelled、不自动重跑；1.1.7 起主行 UPDATE 带活跃态守卫，SELECT 与 UPDATE 之间已被存活线程写入终态的行 changed==0 跳过翻行与事件；1.1.8 起完成落库统一取消优先口径 98#5——讲义/项目反馈的终态 UPDATE 限 status='running'，cancelling 行映射 cancelled，讲义不落版本行、项目评价结果照存）。
-3. **终态先落盘再发送**：所有事件经 `Store::event` 在写事务内进 outbox 表，commit 后才 emit；断线续接靠 `get_app_state` 全量快照校准（游标取快照 `lastEventId`，38#2 后不再逐页翻 `events_since`）+ 任务层请求复用，不重复执行或计费。
-4. **安全以结构 enforcement**：SSRF/DNS pin/重定向逐跳校验、密钥仅入 keyring、备份 secure_delete 排除凭据、分享令牌只存哈希、配额提交前强制——均可在具体函数定位。
-5. **算法可定位**：八步流水线（learning/pipeline.rs execute_index:527）、SM-2 简化调度（review/mod.rs grade:405 起，again=10 分钟/ease clamp 1.3–3.0/间隔封顶 36500 天）、贪心排期（learning/validate.rs schedule:208）、BFS 补学路径（learning/knowledge.rs shortest_path:122）、熔断状态机（providers/routing.rs circuit_permit:676 / record_circuit:749）。
-
-本次按约定未生成 AI 替代方案与 Skill 蓝图。
+1. **单进程原生后端**：React 负责渲染和调用；SQLite、文件、HTTP、系统密钥库及导出由 Rust 执行。
+2. **持久化任务状态**：长任务保存状态、请求标识和取消意图；恢复复用已完成的模型请求，不重复调用上游。
+3. **终态先提交再通知**：事件在业务事务内写入 outbox，提交后通过 `backend://event` 发送；前端通过全量快照校准。
+4. **按用户隔离**：会话身份决定工作区路径；异步命令和后台线程显式传播身份，无身份时拒绝打开生产数据层。
+5. **结构化安全校验**：密钥只进入系统密钥库；网络、路径、归档、分享、配额和导出均在后端执行约束。
+6. **算法归属明确**：八步方案流水线位于 `learning/pipeline.rs`，确定性排期位于 `learning/validate.rs`，补学路径位于 `learning/knowledge.rs`，复习调度位于 `review/mod.rs`，路由熔断位于 `providers/routing.rs`。

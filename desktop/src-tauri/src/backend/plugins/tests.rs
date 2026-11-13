@@ -241,8 +241,8 @@ fn assets_are_real_files_and_reset_removes_installed_manifest_data() {
 // 117#3：白名单双向一致性——后端实发事件命名空间（Store::event 调用点的
 // 字符串字面量）必须 ⊆ EVENT_NAMESPACES ∪ {state}，反向白名单每项也须有
 // 实发事件（61#1「只含真实 emit」）；state.changed 是 replace_collection 的
-// 高频内部 UI 状态同步（载荷为全量快照），不作为插件面开放。前端
-// Integrations.tsx 的 namespaces 数组须与白名单同步。新增命名空间时同步
+// 高频内部 UI 状态同步（载荷仅含 namespace/revision），不作为插件面开放。
+// 前端 Integrations.tsx 的 namespaces 数组须与白名单同步。新增命名空间时同步
 // 三处：EVENT_NAMESPACES、Integrations.tsx、本测试自动跟随
 #[test]
 fn event_namespaces_cover_whitelist() {

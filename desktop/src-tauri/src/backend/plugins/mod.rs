@@ -21,7 +21,7 @@ static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 // 117#3：可订阅事件命名空间白名单——61#1「只含真实 emit 的命名空间」的
 // 双向口径（实发 ⊆ 白名单 ∪ {state} 且白名单 ⊆ 实发）由一致性回归测试
 // event_namespaces_cover_whitelist 固化；state.changed 是 replace_collection
-// 的高频内部 UI 状态同步（载荷为全量快照），不作为插件面开放。
+// 的高频内部 UI 状态同步（载荷仅含 namespace/revision），不作为插件面开放。
 // 前端 Integrations.tsx 的 namespaces 数组须与本表同步
 pub(crate) const EVENT_NAMESPACES: &[&str] = &[
     "plan",
