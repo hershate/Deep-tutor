@@ -1855,15 +1855,38 @@ fn route_cancellation_wins_a_late_success_terminal() {
     ).unwrap();
     let before = store.latest_event_id().unwrap();
     drop(store);
-    let returned = routing::finish(app.handle(), &state, "route-late-cancel", &ProviderRequest {
-        request_id: "route-late-cancel".into(), provider_id: "p1".into(), model: "test-model".into(),
-        status: "done".into(), output: "已产生文本".into(), reasoning: String::new(), tool_calls: vec![],
-        usage: None, finish_reason: Some("stop".into()), error: None, attempts: 1, latency_ms: Some(1),
-        created_at: timestamp.clone(), updated_at: timestamp,
-    }).unwrap();
+    let returned = routing::finish(
+        app.handle(),
+        &state,
+        "route-late-cancel",
+        &ProviderRequest {
+            request_id: "route-late-cancel".into(),
+            provider_id: "p1".into(),
+            model: "test-model".into(),
+            status: "done".into(),
+            output: "已产生文本".into(),
+            reasoning: String::new(),
+            tool_calls: vec![],
+            usage: None,
+            finish_reason: Some("stop".into()),
+            error: None,
+            attempts: 1,
+            latency_ms: Some(1),
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+        },
+    )
+    .unwrap();
     assert_eq!(returned.status, "cancelled");
     let store = state.store().unwrap();
-    let status: String = store.conn.query_row("SELECT status FROM provider_route_runs WHERE request_id = 'route-late-cancel'", [], |row| row.get(0)).unwrap();
+    let status: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM provider_route_runs WHERE request_id = 'route-late-cancel'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(status, "cancelled");
     let events = store.events_since(before).unwrap().events;
     assert_eq!(events.len(), 1);

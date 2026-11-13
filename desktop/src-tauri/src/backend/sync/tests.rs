@@ -209,12 +209,7 @@ fn webdav_upload_download_import_and_terminal_events_are_real() {
         }
         // 170#1：真实终态回调中立即接续下一任务，覆盖终态事件与 ACTIVE 释放竞态。
         if *download_id_for_event.lock().unwrap() == id {
-            let next = start(
-                &app_for_next,
-                &service_for_next,
-                "import".into(),
-                None,
-            );
+            let next = start(&app_for_next, &service_for_next, "import".into(), None);
             *follow_up_for_event.lock().unwrap() = Some(next);
         }
     });
@@ -262,10 +257,7 @@ fn webdav_upload_download_import_and_terminal_events_are_real() {
         assert!(Instant::now() < event_deadline, "未收到下载终态回调");
         std::thread::sleep(Duration::from_millis(5));
     };
-    assert_eq!(
-        wait_job(&service, &imported.id).status,
-        "done"
-    );
+    assert_eq!(wait_job(&service, &imported.id).status, "done");
     assert!(committed.load(Ordering::Acquire));
     let events = ipc(&app, "events_since", json!({"lastId": 0})).unwrap();
     let kinds = events["events"]

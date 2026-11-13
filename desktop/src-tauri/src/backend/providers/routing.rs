@@ -904,9 +904,17 @@ pub(crate) fn finish<R: Runtime>(
     }
     // 174#1：取消优先于迟到结果；输出与用量仍留在原 provider_requests 中。
     let cancelled = current.as_deref() == Some("cancelling");
-    let status = if cancelled { "cancelled" } else { result.status.as_str() };
+    let status = if cancelled {
+        "cancelled"
+    } else {
+        result.status.as_str()
+    };
     let cancelled_error = BackendError::new("cancelled", "路由请求已取消");
-    let error = if cancelled { Some(&cancelled_error) } else { result.error.as_ref() };
+    let error = if cancelled {
+        Some(&cancelled_error)
+    } else {
+        result.error.as_ref()
+    };
     let changed = tx.execute(
         "UPDATE provider_route_runs SET status = ?1, provider_id = ?2, model = ?3, error_code = ?4, error_message = ?5, updated_at = ?6 WHERE request_id = ?7 AND status IN ('running', 'cancelling')",
         params![status, provider_id, result.model, error.map(|error| &error.code), error.map(|error| &error.message), now()?, request_id],

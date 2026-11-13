@@ -1317,7 +1317,13 @@ fn terminal_fixture() -> (tauri::App<tauri::test::MockRuntime>, LearningState, i
 fn terminal_plan_ignores_late_failure_without_a_new_event() {
     let (app, state, id) = terminal_fixture();
     let before = state.store().unwrap().latest_event_id().unwrap();
-    fail_plan(app.handle(), &state, id, BackendError::new("late_failure", "迟到失败")).unwrap();
+    fail_plan(
+        app.handle(),
+        &state,
+        id,
+        BackendError::new("late_failure", "迟到失败"),
+    )
+    .unwrap();
     assert_eq!(get(&state, &format!("plan-{id}")).unwrap().status, "done");
     assert_eq!(state.store().unwrap().latest_event_id().unwrap(), before);
 }
@@ -1326,12 +1332,24 @@ fn terminal_plan_ignores_late_failure_without_a_new_event() {
 fn terminal_lecture_ignores_late_failure_without_a_new_event() {
     let (app, state, id) = terminal_fixture();
     let before = state.store().unwrap().latest_event_id().unwrap();
-    lecture::fail_lecture(app.handle(), &state, id, "stage-1", BackendError::new("late_failure", "迟到失败")).unwrap();
-    let status: String = state.store().unwrap().conn.query_row(
-        "SELECT status FROM learning_lectures WHERE plan_id = ?1 AND stage_id = 'stage-1'",
-        params![id],
-        |row| row.get(0),
-    ).unwrap();
+    lecture::fail_lecture(
+        app.handle(),
+        &state,
+        id,
+        "stage-1",
+        BackendError::new("late_failure", "迟到失败"),
+    )
+    .unwrap();
+    let status: String = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT status FROM learning_lectures WHERE plan_id = ?1 AND stage_id = 'stage-1'",
+            params![id],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(status, "done");
     assert_eq!(state.store().unwrap().latest_event_id().unwrap(), before);
 }
@@ -1340,10 +1358,33 @@ fn terminal_lecture_ignores_late_failure_without_a_new_event() {
 fn terminal_children_ignore_late_failures_without_new_events() {
     let (app, state, id) = terminal_fixture();
     let before = state.store().unwrap().latest_event_id().unwrap();
-    fail_step(app.handle(), &state, id, 0, &BackendError::new("late_failure", "迟到失败")).unwrap();
-    lecture::fail_unit(app.handle(), &state, id, "stage-1", 1, 0, &BackendError::new("late_failure", "迟到失败")).unwrap();
+    fail_step(
+        app.handle(),
+        &state,
+        id,
+        0,
+        &BackendError::new("late_failure", "迟到失败"),
+    )
+    .unwrap();
+    lecture::fail_unit(
+        app.handle(),
+        &state,
+        id,
+        "stage-1",
+        1,
+        0,
+        &BackendError::new("late_failure", "迟到失败"),
+    )
+    .unwrap();
     let store = state.store().unwrap();
-    let step: String = store.conn.query_row("SELECT status FROM learning_plan_steps WHERE plan_id = ?1 AND step_index = 0", params![id], |row| row.get(0)).unwrap();
+    let step: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM learning_plan_steps WHERE plan_id = ?1 AND step_index = 0",
+            params![id],
+            |row| row.get(0),
+        )
+        .unwrap();
     let unit: String = store.conn.query_row("SELECT status FROM learning_lecture_units WHERE plan_id = ?1 AND stage_id = 'stage-1' AND version = 1 AND unit_index = 0", params![id], |row| row.get(0)).unwrap();
     assert_eq!((step.as_str(), unit.as_str()), ("done", "done"));
     assert_eq!(store.latest_event_id().unwrap(), before);
