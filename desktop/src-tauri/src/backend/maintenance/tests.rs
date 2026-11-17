@@ -573,3 +573,86 @@ fn cleanup_accounts_directory_bytes() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner()) = None;
 }
+
+#[test]
+fn imported_orphan_originals_are_neither_missing_nor_cleanable() {
+    // P-022：备份导入把白名单外扩展名的原件保留为 `{sha}.orphan-{ext}`
+    // （transfer.rs 165#1），运维扫描须认这两种落盘名——否则该原件既被
+    // 误报「缺失原件」，又被当成无引用孤儿在宽限期后物理删除
+    let (app, learning) = setup();
+    let root = learning.database_path().parent().unwrap();
+    let store = learning.store().unwrap();
+    let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+    let sha = "b".repeat(64);
+    store.conn.execute("INSERT INTO materials (title, kind, size, sha256, status, progress, parse_mode, text_length, source_meta, created_at, updated_at) VALUES ('外部原件', 'xyz', 4, ?1, 'metadata_only', 0, '', 0, '', ?2, ?2)", params![sha, timestamp]).unwrap();
+    let orphan = format!("materials/originals/{}.orphan-xyz", sha);
+    write(root, &orphan, "外部格式原件");
+    // 同扩展名的本机原件（{sha}.{kind} 落名）同样受保护——只认 .orphan-
+    // 会把本机原件当成无引用孤儿清掉
+    let local_sha = "c".repeat(64);
+    store.conn.execute("INSERT INTO materials (title, kind, size, sha256, status, progress, parse_mode, text_length, source_meta, created_at, updated_at) VALUES ('本机原件', 'abc', 4, ?1, 'metadata_only', 0, '', 0, '', ?2, ?2)", params![local_sha, timestamp]).unwrap();
+    let local = format!("materials/originals/{}.abc", local_sha);
+    write(root, &local, "本机外部格式原件");
+    let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
+    let missing = report["orphans"]["missingOriginals"]
+        .as_array()
+        .unwrap()
+        .clone();
+    for expected in [&orphan, &local] {
+        assert!(
+            !missing
+                .iter()
+                .any(|item| item.as_str() == Some(expected.as_str())),
+            "白名单外扩展名的原件不得被误报缺失原件：{missing:?}"
+        );
+    }
+    let originals = report["orphans"]["originals"].as_array().unwrap().clone();
+    for expected in [&orphan, &local] {
+        assert!(
+            !originals
+                .iter()
+                .any(|item| item["path"].as_str() == Some(expected.as_str())),
+            "白名单外扩展名的原件不得被列为可清理孤儿：{originals:?}"
+        );
+    }
+    let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
+    assert_eq!(cleanup["failures"], json!([]));
+    assert!(
+        root.join(&orphan).is_file(),
+        "导入的 .orphan- 原件不得被运维清理删除"
+    );
+    assert!(
+        root.join(&local).is_file(),
+        "本机的白名单外原件不得被运维清理删除"
+    );
+}
+
+#[test]
+fn scan_skips_vanished_entries_instead_of_failing_the_report() {
+    // P-023：扫描期间的并发删除（删 Agent 会话目录 remove_dir_all、sync
+    // 自剪枝）不得让整份体检失败——枚举 io 错误按「跳过该项 + 记入
+    // issues」处理，体检页仍要拿到数据库健康与其余孤儿清单
+    let mut issues = Vec::new();
+    let mut files = Vec::new();
+    walk(
+        Path::new("F:/deeptutor-not-existed/agent-workspaces"),
+        0,
+        &mut files,
+        &mut issues,
+    )
+    .unwrap();
+    assert!(files.is_empty(), "已消失的目录不得产出文件项");
+    assert_eq!(issues.len(), 1, "{issues:?}");
+    assert_eq!(issues[0].code, "scan_skipped");
+    let (app, learning) = setup();
+    let root = learning.database_path().parent().unwrap();
+    write(root, "materials/originals/gone.txt", "临时");
+    let gone = root.join("materials/originals/gone.txt");
+    std::fs::remove_file(&gone).unwrap();
+    assert!(
+        file_item(root, &gone).unwrap().is_none(),
+        "枚举后被删除的文件必须跳过而不是报错"
+    );
+    let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
+    assert_eq!(report["database"]["integrity"], "ok");
+}

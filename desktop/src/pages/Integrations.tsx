@@ -1,24 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, AlertTriangle, ArrowDownToLine, Blocks, Code2, FileCode2, Layers3, Plug, RefreshCw, ShieldCheck, Trash2, Upload, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowDownToLine, Blocks, Code2, FileCode2, Layers3, Plug, RefreshCw, ShieldCheck, Trash2, Upload, Zap } from '../components/icons'
 import { Badge, Button, ConfirmDialog, EmptyState, IconButton, RevealExport, SectionHeader, Toggle } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { pluginBackend, type PluginEvent, type PluginOverview, type PluginRecord } from '../backend/plugins'
+import { deliversTo, pluginSetShrunk } from '../pluginEventScope'
 import UsagePanel from '../components/UsagePanel'
 
 // 61#1/117#3：与后端 EVENT_NAMESPACES 白名单同步（后端一致性测试校验两侧一致；
 // state.changed 为高频内部状态同步，不开放订阅）
 const namespaces = ['plan', 'practice', 'review', 'material', 'agent', 'knowledge', 'community', 'provider', 'plugin', 'share', 'content', 'backup', 'sync', 'maintenance', 'focus', 'study', 'lecture', 'report', 'security', 'notifications', 'usage', 'project']
 
-// P-140：投递判定与后端 plugins::matches 同口径（pattern == "*" 或
-// "<命名空间>.*" 命中 "<命名空间>." 前缀）——原先刷新只按 plugin./material./
-// practice./knowledge. 四个前缀过滤，其余 18 个白名单命名空间的插件投递
-// 不刷新记录列表；按插件实际订阅判定既覆盖全部命名空间，又保住 32#22
-// 「无关事件不触发全量刷新」的意图
-function deliversTo(plugins: PluginRecord[], kind: string) {
-  return plugins.some(plugin => plugin.enabled && plugin.subscriptions.some(pattern =>
-    pattern === '*' || (pattern.endsWith('.*') && kind.startsWith(pattern.slice(0, -1)))
-  ))
-}
+// P-140/P-024：投递判定与分页缓存判据下沉到 pluginEventScope.ts——原先内联
+// 在页面里，后端 plugins::matches 已对 state/draft/application 提前返回
+// false，前端却仍把 `*` 视为命中任意 kind，口径分叉使内部事件（state.changed
+// 是打字保存的高频写路径）继续触发全量刷新。现在页面与回归测试共用同一份
+// 实现，判据改动由测试发现。
 
 export default function Integrations({ notify }: { notify: (message: string) => void }) {
   const [tab, setTab] = useState('插件体系')
@@ -48,7 +44,7 @@ export default function Integrations({ notify }: { notify: (message: string) => 
       // 生效，重装同 id 后不可辨。判据为「已安装插件 id 有减少」——
       // 单纯新增插件不使既有历史失效，无需丢弃已翻页的记录
       const nextIds = overview.plugins.map(plugin => plugin.id).sort()
-      if (installedIds.current.some(id => !nextIds.includes(id))) {
+      if (pluginSetShrunk(installedIds.current, nextIds)) {
         setEarlier(current => current.length ? [] : current)
         setEarlierDone(false)
       }

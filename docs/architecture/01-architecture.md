@@ -166,7 +166,7 @@ sequenceDiagram
     D-->>F: 全量快照 + lastEventId
 ```
 
-插件可订阅 `EVENT_NAMESPACES` 中的 22 个事件命名空间或 `*`。`state.changed` 是内部快照同步事件，不开放给插件。后端实发事件、白名单和前端 `Integrations.tsx` 数组由源码扫描测试双向约束。
+插件可订阅 `EVENT_NAMESPACES` 中的 22 个事件命名空间或 `*`（`*` 只覆盖这 22 项）。`state.changed` 是内部快照同步事件，`draft.saved`、`draft.deleted` 与 `application.reset` 是应用内部写入事件，四者均不开放给插件（通配订阅同样不命中）。后端实发事件、白名单和前端 `Integrations.tsx` 数组由源码扫描测试双向约束；前端投递判定与后端 `plugins::matches` 同口径的实现位于 `desktop/src/pluginEventScope.ts`，其内部命名空间清单由后端测试逐条比对。
 
 ## 4. 领域数据与文件
 

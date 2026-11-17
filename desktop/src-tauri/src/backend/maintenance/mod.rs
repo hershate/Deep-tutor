@@ -161,15 +161,50 @@ fn health(service: &MaintenanceService) -> Result<DatabaseHealth> {
     })
 }
 
-fn file_item(root: &Path, path: &Path) -> Result<FileItem> {
-    Ok(FileItem {
-        path: path
-            .strip_prefix(root)
-            .map_err(|_| BackendError::new("unsafe_path", "运维路径超出应用目录"))?
-            .to_string_lossy()
-            .replace('\\', "/"),
-        bytes: fs::metadata(path)?.len(),
-    })
+/// P-023：扫描期 io 错误（并发删除）统一降级为「跳过该项 + 记入 issues」
+/// ——并发侧确有整树删除（删 Agent 会话 remove_dir_all、sync 自剪枝、导入
+/// 临时件 rename），枚举中途的 io 错误原先把整份体检变成 Err，体检页连
+/// 数据库健康部分也拿不到。issues 机制（本就有符号链接、嵌套过深两类）
+/// 正是为此设计
+fn scan_issue(error: &std::io::Error, what: &str) -> BackendError {
+    BackendError::new("scan_skipped", &format!("{what}：{error}"))
+}
+
+/// P-023：目录枚举——枚举期间的 io 错误（并发删除、权限变化）逐项跳过并
+/// 记入 issues，不让整份体检因一个目录读不到而失败
+fn read_dir_tolerant(directory: &Path, issues: &mut Vec<BackendError>) -> Vec<std::fs::DirEntry> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            issues.push(scan_issue(&error, "运维目录枚举失败，已跳过"));
+            return Vec::new();
+        }
+    };
+    let mut collected = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(entry) => collected.push(entry),
+            Err(error) => issues.push(scan_issue(&error, "运维目录条目读取失败，已跳过")),
+        }
+    }
+    collected
+}
+
+/// P-023：文件在扫描期间被并发删除时取不到大小——跳过该项（None），
+/// 不让 io 错误冒泡成整份体检失败
+fn file_item(root: &Path, path: &Path) -> Result<Option<FileItem>> {
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| BackendError::new("unsafe_path", "运维路径超出应用目录"))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let Ok(metadata) = fs::metadata(path) else {
+        return Ok(None);
+    };
+    Ok(Some(FileItem {
+        path: relative,
+        bytes: metadata.len(),
+    }))
 }
 
 fn walk(
@@ -178,7 +213,15 @@ fn walk(
     files: &mut Vec<PathBuf>,
     issues: &mut Vec<BackendError>,
 ) -> Result<()> {
-    if fs::symlink_metadata(directory)?.file_type().is_symlink() {
+    let directory_metadata = match fs::symlink_metadata(directory) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            // P-023：目录在枚举期间被并发删除——跳过并记入 issues
+            issues.push(scan_issue(&error, "运维目录不可访问，已跳过"));
+            return Ok(());
+        }
+    };
+    if directory_metadata.file_type().is_symlink() {
         issues.push(BackendError::new(
             "unsafe_path",
             "运维目录包含符号链接，已跳过",
@@ -189,10 +232,31 @@ fn walk(
         issues.push(BackendError::new("unsafe_path", "运维目录嵌套过深，已跳过"));
         return Ok(());
     }
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            // P-023：目录不可枚举（并发删除或权限变化）——跳过并记入 issues
+            issues.push(scan_issue(&error, "运维目录枚举失败，已跳过"));
+            return Ok(());
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                issues.push(scan_issue(&error, "运维目录条目读取失败，已跳过"));
+                continue;
+            }
+        };
         let path = entry.path();
-        let metadata = fs::symlink_metadata(&path)?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                // P-023：条目在枚举后被并发删除——跳过并记入 issues
+                issues.push(scan_issue(&error, "运维文件不可访问，已跳过"));
+                continue;
+            }
+        };
         if metadata.file_type().is_symlink() {
             issues.push(BackendError::new(
                 "unsafe_path",
@@ -286,19 +350,35 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
             ));
             continue;
         }
-        let relative = format!(
-            "materials/originals/{}.{}",
-            sha256,
-            kind.to_ascii_lowercase()
-        );
-        expected_originals.insert(relative.clone());
-        if !root.join(&relative).is_file() {
-            missing_originals.push(relative);
+        // P-022：白名单外扩展名的原件有两种落盘名——本机与旧数据是
+        // `{sha}.{kind}`，备份导入保留的是 `{sha}.orphan-{ext}`（165#1）。
+        // 两种都算期望存在：只认前者会把导入的原件误报「缺失原件」，
+        // 只认后者会把本机原件当成无引用孤儿物理删除
+        let declared = kind.to_ascii_lowercase();
+        let mut candidates = vec![format!("materials/originals/{}.{}", sha256, declared)];
+        if !super::materials::supported_original_ext(&declared) {
+            candidates.push(format!(
+                "materials/originals/{}.orphan-{}",
+                sha256,
+                super::materials::orphan_original_suffix(&declared)
+            ));
+        }
+        let mut present = false;
+        for relative in &candidates {
+            expected_originals.insert(relative.clone());
+            if root.join(relative).is_file() {
+                present = true;
+            }
+        }
+        if !present {
+            missing_originals.push(candidates[0].clone());
         }
     }
     let mut originals = Vec::new();
     for path in walk_files(&root.join("materials/originals"), &mut issues)? {
-        let item = file_item(&root, &path)?;
+        let Some(item) = file_item(&root, &path)? else {
+            continue;
+        };
         if !expected_originals.contains(&item.path) {
             let name = path
                 .file_name()
@@ -332,7 +412,9 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
     }
     let mut scratch = Vec::new();
     for path in walk_files(&root.join("agent-workspaces"), &mut issues)? {
-        let item = file_item(&root, &path)?;
+        let Some(item) = file_item(&root, &path)? else {
+            continue;
+        };
         if !expected_scratch.contains(&item.path) {
             let name = path
                 .file_name()
@@ -350,8 +432,7 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
     let mut plugins = Vec::new();
     let plugin_root = root.join("plugins");
     if plugin_root.exists() {
-        for entry in fs::read_dir(&plugin_root)? {
-            let entry = entry?;
+        for entry in read_dir_tolerant(&plugin_root, &mut issues) {
             let id = entry.file_name().to_string_lossy().into_owned();
             // 14#19：install 中途失败会遗留“无 manifest.json 的目录”与
             // .manifest-N.tmp——无清单目录不可能是合法插件，一并纳入孤儿。
@@ -360,7 +441,9 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
             // 装好的插件将报 plugin_manifest_missing
             if id.starts_with(".manifest-") && id.ends_with(".tmp") && entry.path().is_file() {
                 if !modified_recently(&entry.path()) {
-                    plugins.push(file_item(&root, &entry.path())?);
+                    if let Some(item) = file_item(&root, &entry.path())? {
+                        plugins.push(item);
+                    }
                 }
                 continue;
             }
@@ -372,7 +455,9 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
             )?;
             if !installed && !entry.path().is_dir() {
                 // 非目录非清单的杂项文件也按孤儿处理
-                plugins.push(file_item(&root, &entry.path())?);
+                if let Some(item) = file_item(&root, &entry.path())? {
+                    plugins.push(item);
+                }
                 continue;
             }
             if !installed && entry.path().is_dir() && !path.exists() {
@@ -402,7 +487,11 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                     .ok()
                     .and_then(|content| super::plugins::validate_manifest_content(&content).ok())
                 {
-                    Some(()) => plugins.push(file_item(&root, &path)?),
+                    Some(()) => {
+                        if let Some(item) = file_item(&root, &path)? {
+                            plugins.push(item);
+                        }
+                    }
                     None => issues.push(BackendError::new(
                         "invalid_plugin_manifest",
                         "过期插件清单无效，未自动删除",
@@ -430,12 +519,14 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
     let mut tempdirs = Vec::new();
     let backup_root = root.join("backup-work");
     if backup_root.exists() {
-        for entry in fs::read_dir(backup_root)? {
-            let entry = entry?;
+        for entry in read_dir_tolerant(&backup_root, &mut issues) {
             let name = entry.file_name().to_string_lossy().into_owned();
             // 31#3：宽限方向修正——backup-work/{pid}-{n} 在宽限期内可能正被
             // 写入，不报告；超过宽限期才视为孤儿目录
-            if entry.file_type()?.is_dir()
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir()
                 && name.split('-').count() == 2
                 && name.split('-').all(|part| part.parse::<u64>().is_ok())
                 && !modified_recently(&entry.path())
@@ -462,11 +553,13 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
     }
     let export_root = root.join("exports");
     if export_root.exists() {
-        for entry in fs::read_dir(export_root)? {
-            let entry = entry?;
+        for entry in read_dir_tolerant(&export_root, &mut issues) {
             let name = entry.file_name().to_string_lossy().into_owned();
             // 31#3：同 backup-work——导出中的 anki 库不报告，宽限期外才算孤儿
-            if entry.file_type()?.is_file()
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_file()
                 && name.starts_with("anki-")
                 && name.ends_with(".db")
                 && name[5..name.len() - 3]
@@ -474,20 +567,24 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                     .all(|part| part.parse::<u64>().is_ok())
                 && !modified_recently(&entry.path())
             {
-                tempdirs.push(file_item(&root, &entry.path())?);
+                if let Some(item) = file_item(&root, &entry.path())? {
+                    tempdirs.push(item);
+                }
             }
         }
     }
     // 65#4：prepare_reset 的中间目录 materials.reset-{n} 在提交后清理失败
     // 或进程于 rename 与 finish 间崩溃时残留于用户目录根层，原先任何扫描
     // 面都看不见——宽限期内可能正处于 reset 进行中，不报告
-    for entry in fs::read_dir(&root)? {
-        let entry = entry?;
+    for entry in read_dir_tolerant(&root, &mut issues) {
         let name = entry.file_name().to_string_lossy().into_owned();
         let Some(suffix) = name.strip_prefix("materials.reset-") else {
             continue;
         };
-        if entry.file_type()?.is_dir()
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir()
             && !suffix.is_empty()
             && suffix.bytes().all(|byte| byte.is_ascii_digit())
             && !modified_recently(&entry.path())
@@ -520,7 +617,9 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
             .unwrap_or("deep-tutor.db")
     ));
     if staged.is_file() && !modified_recently(&staged) {
-        tempdirs.push(file_item(&root, &staged)?);
+        if let Some(item) = file_item(&root, &staged)? {
+            tempdirs.push(item);
+        }
     }
     // 65#3：sync 目录的自剪枝只在新下载任务时触发——下载中途崩溃的临时件
     // 与 reset 后的存量不进任何清理面。对齐 sync 模块自身的保留语义：
@@ -531,9 +630,11 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
     let sync_root = root.join("sync");
     if sync_root.exists() {
         let mut retained: Vec<(std::time::SystemTime, FileItem)> = Vec::new();
-        for entry in fs::read_dir(&sync_root)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_file() {
+        for entry in read_dir_tolerant(&sync_root, &mut issues) {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if !file_type.is_file() {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -546,7 +647,9 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                     && stem.split('-').all(|part| part.parse::<u64>().is_ok())
                 {
                     if let Ok(modified) = fs::metadata(&path).and_then(|meta| meta.modified()) {
-                        retained.push((modified, file_item(&root, &path)?));
+                        if let Some(item) = file_item(&root, &path)? {
+                            retained.push((modified, item));
+                        }
                     }
                 }
                 continue;
@@ -561,7 +664,9 @@ fn scan_orphans(service: &MaintenanceService) -> Result<OrphanReport> {
                     && stem.split('-').all(|part| part.parse::<u64>().is_ok())
                     && !modified_recently(&path)
                 {
-                    sync.push(file_item(&root, &path)?);
+                    if let Some(item) = file_item(&root, &path)? {
+                        sync.push(item);
+                    }
                 }
                 break;
             }
@@ -787,6 +892,12 @@ pub fn cleanup<R: Runtime>(
             // 写入的 mtime，命中宽限即跳过，下一轮扫描再收
             if modified_recently(&root.join(&item.path)) {
                 deferred += 1;
+                continue;
+            }
+            // P-023：扫描后被并发删除的项按「已处理」入账——删除会因
+            // 目标不存在而报错，误报成清理失败
+            if !root.join(&item.path).exists() {
+                batch += 1;
                 continue;
             }
             match remove_file(&root, item) {

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, CloudCog, Download, Eye, LoaderCircle, RefreshCw, ShieldCheck, Square, Upload } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CheckCircle2, CloudCog, Download, Eye, LoaderCircle, RefreshCw, ShieldCheck, Square, Upload } from './icons'
 import { Badge, Button, Modal, RevealExport, SectionHeader, Toggle } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from '../backend/client'
 import { syncBackend } from '../backend/sync'
@@ -32,8 +32,13 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   // 用户点了「恢复并追加」却看不到任何反馈（43#7 同型）
   const [restoreError, setRestoreError] = useState('')
   const [busy, setBusy] = useState('')
-  // 134#10：下载任务的目标路径——reveal 定位最近一次下载配置的落盘位置
-  const [downloadTarget, setDownloadTarget] = useState('')
+  // 134#10 / P-034：reveal 定位最近一次下载配置的落盘位置——只在下载任务
+  // 真实完成后才有落盘文件（sync/mod.rs 的 atomic_export 在后台任务里执行），
+  // 任务终态为 done 且带 localPath 时才成立；原先在选定保存位置后立刻记下
+  // 目的地并渲染按钮，落盘尚未发生、reveal 回执也未登记，点击必然被
+  // reveal 白名单拒绝（提示与事实不符）。此处只记住本进程发起的下载任务
+  // id，按钮目标由该任务的终态推导。
+  const [downloadJobId, setDownloadJobId] = useState('')
   const [error, setError] = useState('')
   const versionsOpenRef = useRef(false)
 
@@ -50,6 +55,16 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   const loadVersions = useCallback(async () => {
     try { setVersions(await syncBackend.versions()); setVersionsError('') } catch (cause) { setVersionsError(backendErrorMessage(cause)) }
   }, [])
+  // P-034：「在资源管理器中显示」的目标路径取自本进程内已完成的下载任务
+  // ——落盘与 reveal 回执登记都发生在任务收尾（sync/mod.rs atomic_export →
+  // verify → reveal::register → 落 local_path），任务未完成时文件还不存在；
+  // 回执是进程内登记（backend/reveal.rs 的静态表，TTL 24 小时），应用重启
+  // 后旧回执不复存在，因此只认本进程发起的任务 id，不认历史任务的落盘路径。
+  const downloadTarget = useMemo(() => {
+    if (!downloadJobId) return ''
+    const job = overview?.jobs.find(item => item.id === downloadJobId && item.status === 'done' && item.localPath)
+    return job?.localPath ?? ''
+  }, [overview, downloadJobId])
   useEffect(() => {
     void refresh()
     let mounted = true
@@ -103,8 +118,11 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
       const destination = kind === 'download' ? await backend.saveMaterialFile('DeepTutor-provider-config', 'json') : null
       if (kind === 'download' && !destination) return
       const accepted = await syncBackend.start(kind, destination)
-      // 134#10：下载任务的目标路径——任务面板之外供「在资源管理器中显示」定位
-      if (kind === 'download' && destination) setDownloadTarget(destination)
+      // 134#10 / P-034：只记住下载任务 id，不在此处记下落盘路径——落盘发生在
+      // 后台任务里（sync/mod.rs atomic_export），任务收尾前文件不存在、reveal
+      // 回执也未登记，此时渲染「在资源管理器中显示」按钮必然被 reveal 白名单
+      // 拒绝。按钮目标改由该任务的终态（status=done 且带 localPath）推导。
+      if (kind === 'download') setDownloadJobId(accepted.id)
       notify(`${jobNames[kind]}任务 ${accepted.id} 已启动，等待真实远端结果`)
       await refresh()
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }

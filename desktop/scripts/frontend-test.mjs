@@ -25,6 +25,7 @@ import { prepareMarkdown } from '../src/markdown/prepare.ts'
 import { applyAccountTheme, cacheTheme, readCachedTheme } from '../src/theme.ts'
 import { readableErrorMessage } from '../src/errors.ts'
 import { EMPTY_RATE_VALUES, editRateDraft, hasSavedRate, rateDisplayValues, rateDraftCommitted, savedRateValues } from '../src/usageRateDraft.ts'
+import { deliversTo, pluginSetShrunk } from '../src/pluginEventScope.ts'
 
 /** 读取前端源文件（用于「行为只能靠源码断言」的场景） */
 function readSource(relative) {
@@ -526,4 +527,188 @@ test('P-164：图标包装层覆盖全部在用图标', () => {
     }
   }
   assert.deepEqual(missing, [], `图标包装层缺少导出：${missing.join('、')}`)
+})
+
+test('P-011：笔记预览经 memo 组件渲染，击键不再触发整篇 Markdown/KaTeX 重解析', () => {
+  const source = readSource('../src/pages/Library.tsx')
+  assert.ok(
+    source.includes('const MemoMarkdown = memo('),
+    '笔记预览必须用 memo 化的 Markdown 组件——未 memo 时每次击键都重建插件数组并整篇重解析',
+  )
+  assert.ok(
+    source.includes('<MemoMarkdown text={previewText'),
+    '预览区必须渲染 memo 组件',
+  )
+  assert.ok(
+    !source.includes('<article className="note-preview"><ReactMarkdown'),
+    '预览区不得直接渲染未 memo 的 ReactMarkdown',
+  )
+})
+
+test('P-013：空标签按「未分类」落库，不再被后端必填校验整批拒收', () => {
+  const source = readSource('../src/pages/Library.tsx')
+  assert.ok(
+    source.includes('const noteTagValue = noteTag.trim() ? noteTag : DEFAULT_NOTE_TAG'),
+    '保存与草稿必须用归一化后的标签——后端要求标签非空',
+  )
+  assert.ok(
+    source.includes("const DEFAULT_NOTE_TAG = '未分类'"),
+    '无标签时的落库值必须与打开笔记时的默认标签同口径',
+  )
+  assert.ok(
+    source.includes('tag: noteTagValue'),
+    '笔记落库必须使用归一化后的标签',
+  )
+})
+
+// P-025：读取历史版本时后端只回传被读版本，前端据此丢失「返回当前版本」
+// 入口，并把旧版的 done 误当当前状态（force 误判重复生成与计费、生成中
+// 取消入口消失）。
+test('P-025：讲义读历史版本时按当前版本判定生成态并保留返回入口', () => {
+  const source = readSource('../src/pages/StudyRoom.tsx')
+  assert.ok(
+    source.includes('const currentStatus = lecture?.currentStatus ?? lecture?.status'),
+    '生成态必须按当前版本状态判定——读历史版本时响应的 status 是被读版本的 done',
+  )
+  assert.ok(
+    source.includes('const running = currentStatus === \'running\' || currentStatus === \'cancelling\''),
+    '取消入口与弹窗可关性必须跟当前版本的生成态走',
+  )
+  assert.ok(
+    source.includes('backend.generateLecture(plan.id, stageId, currentStatus === \'done\')'),
+    'force 必须取当前版本状态——按被读版本判定会重复生成并计费',
+  )
+  assert.ok(
+    source.includes('{readingOldVersion && <Button variant="ghost" size="sm" onClick={() => void refreshLecture()}>返回当前版本'),
+    '读历史版本时必须给出「返回当前版本」入口',
+  )
+  assert.ok(
+    !source.includes("lecture.status === 'done' && lecture.version > 1"),
+    '不得再用被读版本的 version/status 判定是否存在当前版本',
+  )
+})
+
+// P-030：取消交叠保留的评价（终态 cancelled，评价结果照存）此前被后端按
+// status == 'done' 必拒，前端按钮却只看 feedback 是否存在，用户看着完整
+// 量规却存不了笔记。
+test('P-030：迭代笔记按钮的门禁与后端一致（评价结果存在即可保存）', () => {
+  const source = readSource('../src/pages/Projects.tsx')
+  assert.ok(
+    source.includes('disabled={!feedback || evaluating}'),
+    '按钮门禁必须与后端一致：有真实评价结果且不在评价中才可保存',
+  )
+  assert.ok(
+    source.includes("const evaluating = Boolean(currentVersion && ['running', 'cancelling'].includes(currentVersion.status))"),
+    '评价中的版本不得开放迭代笔记',
+  )
+})
+
+// P-033：/models 返回超过 200 个模型的供应商此前整单提交必被后端拒收，
+// 且编辑器没有任何删减模型的手段。
+test('P-033：模型列表超上限时按上限截断并提供删减入口', () => {
+  const source = readSource('../src/pages/ProviderHub.tsx')
+  assert.ok(
+    source.includes('models.length > MAX_PROVIDER_MODELS'),
+    '超过单档案上限时必须截断而非整单提交',
+  )
+  assert.ok(
+    source.includes('trimmed.length < models.length'),
+    '截断后必须如实告知未保存的条数',
+  )
+  assert.ok(
+    source.includes('removeModel(model)'),
+    '模型区必须提供删减入口',
+  )
+  assert.ok(
+    source.includes('aria-label={`删除模型 ${model}`}'),
+    '删减按钮须有可读标签',
+  )
+  const limits = readSource('../src/limits.ts')
+  assert.ok(
+    limits.includes('export const MAX_PROVIDER_MODELS = 200'),
+    '前端上限常量必须与后端档案校验同值',
+  )
+})
+
+// P-024：后端 plugins::matches 已对 state/draft/application 三个内部命名空间
+// 提前返回 false（内部事件不对插件开放），前端原先仍把 `*` 视为命中任意
+// kind——口径分叉使 state.changed（打字保存的高频写路径）继续触发全量刷新，
+// 且页面注释声称「与后端同口径」失真。
+test('P-024：前端投递判定与后端 plugins::matches 同口径（内部事件不命中通配订阅）', () => {
+  const wildcard = [{ enabled: true, subscriptions: ['*'] }]
+  for (const kind of ['state.changed', 'draft.saved', 'draft.deleted', 'application.reset']) {
+    assert.equal(
+      deliversTo(wildcard, kind),
+      false,
+      `通配订阅不得命中内部事件 ${kind}——后端 matches 对 state/draft/application 提前返回 false`,
+    )
+  }
+  assert.equal(deliversTo(wildcard, 'practice.graded'), true, '通配订阅必须命中业务事件')
+  assert.equal(deliversTo(wildcard, 'plan.created'), true, '通配订阅必须命中业务事件')
+  const scoped = [{ enabled: true, subscriptions: ['practice.*'] }]
+  assert.equal(deliversTo(scoped, 'practice.graded'), true, '命名空间订阅必须命中本命名空间事件')
+  assert.equal(deliversTo(scoped, 'plan.created'), false, '命名空间订阅不得命中其他命名空间事件')
+  assert.equal(deliversTo(scoped, 'practice'), false, '命名空间订阅不得命中不带后缀的事件')
+  assert.equal(
+    deliversTo([{ enabled: false, subscriptions: ['*'] }], 'practice.graded'),
+    false,
+    '停用的插件不得被判为命中',
+  )
+  const source = readSource('../src/pages/Integrations.tsx')
+  assert.ok(
+    source.includes("import { deliversTo, pluginSetShrunk } from '../pluginEventScope'"),
+    '集成页必须使用与后端同口径的判据实现',
+  )
+  assert.ok(
+    !/function\s+deliversTo\s*\(/.test(source),
+    '集成页不得再内联一份与后端分叉的投递判定',
+  )
+})
+
+// P-027：任意一次 overview 刷新都无条件清空「加载更早事件」的分页缓存，
+// 用户已翻页的历史投递记录会无故消失。判据是「已安装插件 id 集合减少」，
+// 本轮把判据下沉到纯函数并补上回归测试——原先无任何测试固化，重构把
+// 无条件清空改回去也不会被 CI 发现。
+test('P-027：「更早投递」分页缓存只在插件集减少时清空', () => {
+  assert.equal(pluginSetShrunk(['a', 'b'], ['a', 'b']), false, '插件集不变时不得清空分页缓存')
+  assert.equal(pluginSetShrunk(['a', 'b'], ['a', 'b', 'c']), false, '新增插件不得清空分页缓存')
+  assert.equal(pluginSetShrunk(['a', 'b'], ['a']), true, '插件被卸载时必须清空分页缓存')
+  assert.equal(pluginSetShrunk(['a', 'b'], []), true, '插件全部卸载时必须清空分页缓存')
+  assert.equal(pluginSetShrunk([], ['a']), false, '首次记录快照不算减少')
+  const source = readSource('../src/pages/Integrations.tsx')
+  assert.ok(
+    source.includes('if (pluginSetShrunk(installedIds.current, nextIds)) {'),
+    '刷新成功分支必须以插件集减少为条件清空分页缓存',
+  )
+  assert.ok(
+    source.includes('installedIds.current = nextIds'),
+    '刷新成功后必须记录本次已安装插件 id 快照',
+  )
+  assert.ok(
+    /if \(pluginSetShrunk\(installedIds\.current, nextIds\)\) \{\s*setEarlier\(current => current\.length \? \[\] : current\)\s*setEarlierDone\(false\)\s*\}/.test(source),
+    '清空动作必须落在插件集减少的守卫内，不得无条件执行',
+  )
+})
+
+// P-034：下载配置的实际落盘发生在后台任务里（sync/mod.rs atomic_export），
+// 面板原先在选定保存位置后立刻渲染「在资源管理器中显示」——落盘尚未发生、
+// reveal 回执也未登记，点击必然被 reveal 白名单拒绝。
+test('P-034：「在资源管理器中显示」按钮只在下载任务落盘完成后出现', () => {
+  const source = readSource('../src/components/SyncPanel.tsx')
+  assert.ok(
+    source.includes('if (kind === \'download\') setDownloadJobId(accepted.id)'),
+    '发起下载时只记住任务 id，不得在落盘前记下目标路径',
+  )
+  assert.ok(
+    source.includes("item.id === downloadJobId && item.status === 'done' && item.localPath"),
+    '定位目标必须取自已完成且带落盘路径的下载任务',
+  )
+  assert.ok(
+    !source.includes('setDownloadTarget('),
+    '不得在任务受理时直接登记定位目标',
+  )
+  assert.ok(
+    source.includes('{downloadTarget && <RevealExport path={downloadTarget} />}'),
+    '定位按钮仍需按目标路径渲染',
+  )
 })

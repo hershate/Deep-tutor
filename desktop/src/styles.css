@@ -1899,6 +1899,10 @@ h1, h2, h3 { text-wrap: balance; }
 .model-check-list { display: flex; gap: 7px; flex-wrap: wrap; }
 .model-check-list label { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; }
 .model-check-list input { width: 15px; height: 15px; }
+/* P-033：模型区的删减入口——超上限的供应商需要能手工删减模型 */
+.model-remove { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.model-remove:hover { color: var(--danger); background: var(--surface-soft); }
+.model-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .form-error { display: flex; align-items: center; gap: 7px; padding: 11px; border: 1px solid var(--danger); border-radius: 8px; color: var(--danger); font-size: 12px; }
 .editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; }
 .editor-actions > div { display: flex; gap: 8px; }

@@ -67,6 +67,12 @@ pub struct Lecture {
     pub completed_units: usize,
     pub current_unit: usize,
     pub previous_version: Option<u32>,
+    /// P-025：当前（最新）版本号——读取历史版本时 version 是被读版本，
+    /// 前端据此判断「是否正在读旧版本」并给出「返回当前版本」入口
+    pub current_version: u32,
+    /// P-025：当前版本状态——读取历史版本时 status 是被读版本的 done，
+    /// 前端据此误判「生成已结束」（取消入口消失、force 误判重复生成）
+    pub current_status: String,
     pub units: Vec<LectureUnit>,
     pub error: Option<BackendError>,
     pub updated_at: Option<String>,
@@ -214,15 +220,32 @@ pub fn get(
                 // 生成中/失败/取消的当前版本没有版本行——按版本号读取一律
                 // not_found，生成全程弹错误横幅并把真实失败原因盖成
                 // 「讲义历史版本不存在」。当前版本按其真实状态返回
-                match current {
+                match current.clone() {
                     Some(current) if current.0 == version => current,
                     _ => return Err(BackendError::new("not_found", "讲义历史版本不存在")),
                 }
             }
         }
-        None => current.unwrap_or((0, "empty".into(), 0, None, None, None)),
+        None => current
+            .clone()
+            .unwrap_or((0, "empty".into(), 0, None, None, None)),
     };
     let (selected_version, status, current_unit, error_code, error_message, updated_at) = selected;
+    // P-025：当前（最新）版本号与状态随响应回传——读取历史版本时响应里的
+    // version/status 是被读版本（硬编码 done），前端据此丢失「返回当前
+    // 版本」入口，并把旧版的 done 误当当前状态（force 误判会重复生成与
+    // 重复计费，生成中还会撞 lecture_active）
+    let (current_version, current_status) = match &current {
+        Some((version, status, _, _, _, _)) => (*version, status.clone()),
+        None => (
+            selected_version,
+            if selected_version > 0 {
+                "done".into()
+            } else {
+                "empty".into()
+            },
+        ),
+    };
     let mut units = Vec::new();
     if selected_version > 0 {
         let mut statement = store.conn.prepare(
@@ -295,6 +318,9 @@ pub fn get(
         completed_units,
         current_unit,
         previous_version,
+        // P-025：当前版本号与状态随历史版本读取一并回传
+        current_version,
+        current_status,
         units,
         error: error_code.map(|code| {
             BackendError::new(&code, error_message.as_deref().unwrap_or("讲义生成失败"))

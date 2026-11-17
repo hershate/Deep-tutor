@@ -343,3 +343,104 @@ fn event_namespaces_cover_whitelist() {
         );
     }
 }
+
+#[test]
+fn wildcard_subscriptions_never_receive_internal_events() {
+    // P-024：通配订阅 `*` 只覆盖 EVENT_NAMESPACES 的 22 个命名空间——
+    // state.changed / draft.saved / application.reset 属内部事件，此前被
+    // 写进 plugin_deliveries：插件「真实投递」计数随每次打字保存递增，
+    // 「真实事件记录」首屏被内部事件占据，投递表随高频事件无限增长
+    let (app, state) = setup();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    ipc(
+        &window,
+        "install_plugin",
+        json!({"content": manifest("1.0.0", &["*"])}),
+    )
+    .unwrap();
+    ipc(
+        &window,
+        "set_plugin_enabled",
+        json!({"id": "practice-events", "enabled": true}),
+    )
+    .unwrap();
+    let store = state.store().unwrap();
+    let baseline = plugin_row(&store.conn, "practice-events")
+        .unwrap()
+        .event_count;
+    for kind in [
+        "state.changed",
+        "draft.saved",
+        "draft.deleted",
+        "application.reset",
+    ] {
+        let event = Store::event(&store.conn, kind, json!({"namespace": "notes"})).unwrap();
+        dispatch(&store.conn, event.id, kind).unwrap();
+    }
+    assert_eq!(
+        plugin_row(&store.conn, "practice-events")
+            .unwrap()
+            .event_count,
+        baseline,
+        "内部事件不得计入插件投递"
+    );
+    let real = Store::event(
+        &store.conn,
+        "practice.answer_graded",
+        json!({"answerId": 1}),
+    )
+    .unwrap();
+    dispatch(&store.conn, real.id, "practice.answer_graded").unwrap();
+    assert_eq!(
+        plugin_row(&store.conn, "practice-events")
+            .unwrap()
+            .event_count,
+        baseline + 1,
+        "白名单命名空间的事件仍须照常投递"
+    );
+    // 判定口径直接固化在匹配函数上
+    for kind in [
+        "state.changed",
+        "draft.saved",
+        "draft.deleted",
+        "application.reset",
+    ] {
+        assert!(!matches("*", kind), "{kind} 不得被通配订阅命中");
+    }
+    assert!(matches("*", "practice.answer_graded"));
+    assert!(matches("practice.*", "practice.answer_graded"));
+    assert!(!matches("practice.*", "plan.adopted"));
+}
+
+#[test]
+fn frontend_event_scope_covers_the_same_internal_namespaces() {
+    // P-024：前端 pluginEventScope.ts 的内部事件命名空间清单必须与后端
+    // INTERNAL_EVENT_NAMESPACES 一致——两侧各写一份时曾出现口径分叉：
+    // 后端 matches 已对 state/draft/application 提前返回 false，前端仍把
+    // `*` 视为命中任意 kind，页面注释声称「与后端同口径」却失真，
+    // state.changed（打字保存的高频写路径）继续触发全量刷新。
+    // 前端清单多出后端没有的命名空间同样会分叉（前端判为命中、后端不投递）。
+    let frontend = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/pluginEventScope.ts"),
+    )
+    .unwrap();
+    let array = frontend
+        .split("export const INTERNAL_EVENT_NAMESPACES: readonly string[] = [")
+        .nth(1)
+        .and_then(|rest| rest.split(']').next())
+        .expect("pluginEventScope.ts 的 INTERNAL_EVENT_NAMESPACES 清单缺失");
+    for namespace in INTERNAL_EVENT_NAMESPACES {
+        assert!(
+            array.contains(&format!("'{namespace}'")),
+            "前端内部事件命名空间缺少 {namespace}——与后端 INTERNAL_EVENT_NAMESPACES 同步"
+        );
+    }
+    let listed = array.matches('\'').count() / 2;
+    assert_eq!(
+        listed,
+        INTERNAL_EVENT_NAMESPACES.len(),
+        "前端内部事件命名空间清单与后端数量不一致——两侧必须逐条对应"
+    );
+}

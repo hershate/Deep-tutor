@@ -196,6 +196,10 @@ export type Lecture = {
   completedUnits: number
   currentUnit: number
   previousVersion: number | null
+  /* P-025：当前（最新）版本号与状态——读取历史版本时 version/status 是
+     被读版本，前端据此判断是否在读旧版本、当前是否仍在生成 */
+  currentVersion: number
+  currentStatus: 'empty' | 'running' | 'cancelling' | 'done' | 'failed' | 'cancelled' | 'interrupted'
   units: LectureUnit[]
   error: BackendError | null
   updatedAt: string | null

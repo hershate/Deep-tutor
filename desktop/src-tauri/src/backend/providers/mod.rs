@@ -23,6 +23,11 @@ use zeroize::{Zeroize, Zeroizing};
 
 const SERVICE: &str = "deep-tutor";
 
+/// P-033：单个供应商档案可保存的模型数上限——模型列表存于档案行的
+/// models_json，超限整单拒收。前端 ProviderHub.tsx 的 MAX_PROVIDER_MODELS
+/// 与本值同步
+const MAX_PROFILE_MODELS: usize = 200;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderProfile {
@@ -477,15 +482,30 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
     // 125#9：models 列表项与 name/default_model/note 同过 display_safe
     // （109#11）——原先只查非空+长度，/models 回填或导入可把伪装字符写进
     // 列表项，经 UI 下拉与请求体原样出现
-    if input.models.len() > 200
-        || input
-            .models
-            .iter()
-            .any(|model| model.trim().is_empty() || model.len() > 200 || !display_safe(model))
+    if input
+        .models
+        .iter()
+        .any(|model| model.trim().is_empty() || model.len() > 200 || !display_safe(model))
     {
         return Err(BackendError::new(
             "invalid_model",
-            "模型列表为空项、含不可显示字符、过长或超过 200 项",
+            "模型列表含空项、不可显示字符或超过 200 字符的条目",
+        ));
+    }
+    // P-033：最终列表含默认模型（不在列表时补入，与 upsert 的落库口径
+    // 一致）——上限按最终列表判定，避免存下 201 项后，下次保存被自己
+    // 的上限拒收（写得出、读不回）
+    let default_model = input.default_model.trim().to_string();
+    let mut models = input.models.clone();
+    if !models.contains(&default_model) {
+        models.push(default_model.clone());
+    }
+    if models.len() > MAX_PROFILE_MODELS {
+        return Err(BackendError::new(
+            "invalid_model",
+            &format!(
+                "模型列表超过 {MAX_PROFILE_MODELS} 项上限（单档案最多保存 {MAX_PROFILE_MODELS} 个模型），请在编辑器中删减后再保存"
+            ),
         ));
     }
     if input.note.as_deref().is_some_and(|note| note.len() > 1000) {
@@ -508,8 +528,10 @@ pub(crate) fn validate_input(input: &ProfileInput) -> Result<ProfileInput> {
         kind: input.kind.clone(),
         protocol: input.protocol.clone(),
         base_url: input.base_url.trim().to_string(),
-        default_model: input.default_model.trim().to_string(),
-        models: input.models.clone(),
+        default_model,
+        // P-033：返回的即最终落库列表（含补入的默认模型）——校验与落库
+        // 同一口径，条目数不会在校验后悄悄多出 1 项
+        models,
         enabled: input.enabled,
         note: input.note.clone(),
         api_key: input.api_key.clone(),

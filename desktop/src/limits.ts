@@ -3,6 +3,13 @@
 // 这里提供按字节计数与截断的工具，输入侧与后端保持同一度量。
 const encoder = new TextEncoder()
 
+/**
+ * 单个供应商档案可保存的模型数上限——与后端 providers/mod.rs 的档案校验
+ * 同值（models_json 存于档案行内，超限整单拒收）。
+ * P-033：/models 返回超过该值的供应商（如 OpenRouter）不再整单提交。
+ */
+export const MAX_PROVIDER_MODELS = 200
+
 export function utf8Bytes(text: string): number {
   return encoder.encode(text).length
 }

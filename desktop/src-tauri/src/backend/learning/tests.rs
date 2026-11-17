@@ -1015,6 +1015,30 @@ fn lecture_generation_uses_real_units_and_preserves_versions() {
     let old = lecture::get(&state, &started.id, "stage-1", Some(1)).unwrap();
     assert_eq!(old.status, "done");
     assert_eq!(old.units.len(), 3);
+    // P-025：读历史版本时响应仍须回传当前版本号与状态——前端据此给出
+    // 「返回当前版本」入口，并按当前状态判定生成中（取消入口消失、force
+    // 误判重复生成与计费）
+    assert_eq!(old.version, 1);
+    assert_eq!(old.current_version, 2);
+    assert_eq!(old.current_status, "done");
+    let current = lecture::get(&state, &started.id, "stage-1", None).unwrap();
+    assert_eq!(current.current_version, 2);
+    assert_eq!(current.current_status, "done");
+    // 当前版本生成中时读旧版本——仍须报出「正在生成」，否则前端按旧版的
+    // done 判定，取消入口消失、弹窗可关
+    state
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE learning_lectures SET version = 3, status = 'running' WHERE plan_id = ?1 AND stage_id = ?2",
+            params![1i64, "stage-1"],
+        )
+        .unwrap();
+    let old_while_running = lecture::get(&state, &started.id, "stage-1", Some(1)).unwrap();
+    assert_eq!(old_while_running.version, 1);
+    assert_eq!(old_while_running.current_version, 3);
+    assert_eq!(old_while_running.current_status, "running");
     let versions: i64 = state
         .store()
         .unwrap()
@@ -1294,6 +1318,40 @@ fn resource_pipeline_uses_verified_web_results_and_reports_real_failures() {
         .as_str()
         .unwrap()
         .contains("web_network_error"));
+}
+
+/// P-015：学习目标允许 1000 字节，外部检索的检索词上限 300 字节——
+/// 原样传入必然被拒（invalid_search_query），方案永久降级且警告不指向
+/// 真实原因。检索词按字符边界截断后照常检索，截断事实随理由回传。
+#[test]
+fn resource_pipeline_truncates_overlong_goal_before_external_search() {
+    let server = server(|request, stream| {
+        let body = if request.contains("GET /?q=") {
+            "<a class=\"result__a\" href=\"/verified\">真实候选</a><span class=\"result__snippet\">真实摘要</span>"
+        } else {
+            "<title>真实资源</title><p>实际网页正文</p>"
+        };
+        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        std::io::Write::write_all(stream, response.as_bytes()).unwrap();
+    });
+    let _search_lock = crate::backend::web::SEARCH_ENDPOINT_LOCK.lock().unwrap();
+    let _guard = crate::backend::web::set_search_endpoint_for_tests(Some(server.url()));
+    let mut overlong = input(1);
+    overlong.goal = "超长学习目标".repeat(60);
+    assert!(overlong.goal.len() > 300, "测试前提：目标超过检索词上限");
+    let result = pipeline::resources(&overlong, &[]);
+    assert_eq!(result["externalSearch"]["status"], "done", "{result}");
+    assert_eq!(
+        result["externalSearch"]["results"][0]["url"],
+        format!("{}/verified", server.url())
+    );
+    let reason = result["externalSearch"]["reason"].as_str().unwrap();
+    assert!(reason.contains("截断"), "{reason}");
+    assert!(!reason.contains("invalid_search_query"), "{reason}");
+    // 实际发出的检索词已截断到上限内
+    let queries = result["externalSearch"]["queries"].as_array().unwrap();
+    assert_eq!(queries.len(), 1);
+    assert!(queries[0].as_str().unwrap().len() <= 300);
 }
 
 #[test]

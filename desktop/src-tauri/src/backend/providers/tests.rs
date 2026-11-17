@@ -2124,3 +2124,33 @@ fn frontend_provider_secret_is_cleared_only_after_successful_save() {
     );
     assert!(save[invoked..].contains("key: ''"));
 }
+
+#[test]
+fn provider_model_list_over_the_limit_is_rejected_with_a_dedicated_message() {
+    // P-033：模型数超限单独报错——原先与空项、不可显示字符、过长混在
+    // 一句里，用户看不到真实原因（/models 返回数百个模型的供应商必然命中）
+    let (app, state) = setup();
+    let mut profile = input("http://127.0.0.1:8000/v1");
+    profile.models = (0..201).map(|index| format!("model-{index}")).collect();
+    let error = upsert(app.handle(), &state, profile).unwrap_err();
+    assert_eq!(error.code, "invalid_model");
+    assert!(
+        error.message.contains("200") && error.message.contains("上限"),
+        "错误文案须指向数量上限：{}",
+        error.message
+    );
+    // 入参 200 项但默认模型不在列表内——落库时会补入默认模型，最终 201
+    // 项，原先照样存下，下次保存被自己的上限拒收（写得出、读不回）
+    let mut profile = input("http://127.0.0.1:8000/v1");
+    profile.models = (0..200).map(|index| format!("model-{index}")).collect();
+    let error = upsert(app.handle(), &state, profile).unwrap_err();
+    assert_eq!(error.code, "invalid_model");
+    // 恰好 200 项（含默认模型）仍可保存，且存回同一份列表
+    let mut profile = input("http://127.0.0.1:8000/v1");
+    profile.models = (0..199).map(|index| format!("model-{index}")).collect();
+    profile.models.push("test-model".into());
+    assert_eq!(
+        upsert(app.handle(), &state, profile).unwrap().models.len(),
+        200
+    );
+}
