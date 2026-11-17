@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Folder, FolderOpen, RefreshCw, RotateCcw } from 'lucide-react'
+import { CircleAlert, Folder, FolderOpen, RefreshCw, RotateCcw } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, SectionHeader } from './UI'
 import { backendErrorMessage, reportBackendError } from '../backend/client'
-import { storageBackend } from '../backend/storage'
+import { storageBackend, subscribeStorageOverview } from '../backend/storage'
 import { revealInFileManager } from '../backend/shell'
 import type { StorageOverview } from '../backend/storage'
 
@@ -48,7 +48,17 @@ export default function DataDirectoryPanel() {
   }
   const save = () => run('save', async () => {
     const next = await storageBackend.save(draft.trim())
-    setMessage('新目录已保存，重启后使用；原目录中的学习数据未移动或删除。')
+    // P-044：三条出路必须说清，不能一律承诺「重试即可按新目录重装配」——
+    // ① 应用已在运行：只能下次启动生效；
+    // ② 启动失败但本进程尚未注册绑定状态：重试可按新目录立即重装配；
+    // ③ 启动失败且本进程已绑定旧根：进程内换根会被 storage_root_changed
+    //    拒绝，只能重启应用后在新目录启动（pendingRequiresRestart 由后端
+    //    按 pending 与已绑定根比较得出）。
+    setMessage(next.ready
+      ? '新目录已保存，重启后使用；原目录中的学习数据未移动或删除。'
+      : next.pendingRequiresRestart
+        ? '新目录已保存；当前进程仍绑定原目录，进程内无法换库——请重启应用后在新目录启动。原目录中的学习数据未移动或删除。'
+        : '新目录已保存；可点击「重试初始化」立即按新目录重新装配，或重启后生效。原目录中的学习数据未移动或删除。')
     return next
   })
   const reset = () => run('reset', async () => {
@@ -57,10 +67,13 @@ export default function DataDirectoryPanel() {
     return next
   })
   const retry = () => run('retry', async () => {
+    const previousRoot = overview?.dataRoot
     const next = await storageBackend.retry()
     if (next.error) { throw next.error }
     if (next.ready) {
       if (next.pendingDataRoot) setMessage('初始化已就绪；新目录将在应用重启后生效，可点击「保存并立即重启」。')
+      // P-044：重试按新目录重装配成功后数据根已切换——不得再报「状态正常」
+      else if (previousRoot && next.dataRoot !== previousRoot) setMessage('初始化已就绪；数据目录已切换到新位置。')
       // A-6：ready 且无待切换目录时后端不做任何动作——此前整页 reload
       // 会白屏数秒并丢失全部本地状态，与「重试」的预期不符
       else setMessage('初始化状态正常，无需处理。')
@@ -110,4 +123,26 @@ export default function DataDirectoryPanel() {
     <div className="data-actions"><Button variant="secondary" disabled={Boolean(busy)} onClick={() => void retry()}><RefreshCw size={16} />{busy === 'retry' ? '正在初始化…' : '重试初始化'}</Button>{pending && <Button disabled={Boolean(busy)} onClick={() => setRestartOpen(true)}>保存并立即重启</Button>}</div>
     <ConfirmDialog open={restartOpen} onClose={() => setRestartOpen(false)} onConfirm={() => { setRestartOpen(false); void restart() }} title="现在重启应用？" description="重启后新数据目录生效。打开的弹窗、滚动位置等界面状态会丢失（学习数据均已落盘，不会丢内容）。" confirmLabel="确认重启" />
   </section>
+}
+
+/** P-001：「配置的数据目录不存在，已按该路径新建了空工作区」桥接提示的
+ *  全局横幅——提示原先只有设置页与启动错误页可见，而「目录缺失→重建空
+ *  工作区」是毫秒级正常路径（早于错误页出现），用户面对全空工作区没有
+ *  任何解释。横幅挂主界面，进程内提示存在期间一直可见。 */
+export function DataDirectoryNotice({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const [notice, setNotice] = useState('')
+  useEffect(() => {
+    let active = true
+    const apply = (next: StorageOverview) => { if (active) setNotice(next.notice ?? '') }
+    // P-001：提示会随目录设置变化——后端在 set_storage_location /
+    // reset_storage_location 已清提示，横幅只取一次概览会把旧文案挂到
+    // 重启为止；订阅概览变更，改完目录即刻跟随。
+    const unsubscribe = subscribeStorageOverview(apply)
+    void storageBackend.overview()
+      .then(apply)
+      .catch(() => { /* 概览读取失败不阻塞主界面 */ })
+    return () => { active = false; unsubscribe() }
+  }, [])
+  if (!notice) return null
+  return <div className="data-directory-notice" role="status"><CircleAlert size={17} /><span>{notice}</span><Button variant="ghost" size="sm" onClick={onOpenSettings}>打开数据目录设置</Button></div>
 }

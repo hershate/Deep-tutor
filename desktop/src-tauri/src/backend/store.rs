@@ -21,7 +21,10 @@ pub(crate) const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// v4（129 波补递增，152#2）：索引三补三删进 migrate()（129#2/#3/#4 的
 /// CREATE/DROP INDEX）——当时未递增版本，v3 时代建库的存量库指纹自洽
 /// （索引是迁移产物非前提）导致该批索引修复对升级库永不执行
-const SCHEMA_VERSION: i64 = 4;
+/// v5（P-113）：resources 快照新增 status 字段——快照由 materials 表派生，
+/// 存量库的旧快照缺该字段（前端只能退回 progress===100 判定，把「已取消」
+/// 显示成「已解析」）；递增版本使 materials::migrate 重建一次快照
+const SCHEMA_VERSION: i64 = 5;
 static STORE_OPEN_LOCK: Mutex<()> = Mutex::new(());
 // 107#5：每路径一次性的「schema 已就绪」登记——首开（迁移/schema 建立/
 // user1 整库迁移段）持全局锁，同路径后续打开跳锁；原实现无条件持锁，
@@ -701,6 +704,18 @@ impl Store {
         Ok(())
     }
 
+    /// P-001：工作区是否已有用户数据（任务/笔记/资料/项目任一非空）——
+    /// 「目录缺失→新建空工作区」桥接提示据此判断其前提是否仍成立。
+    /// preferences 是引导默认值、drafts 是临时草稿，都不算用户数据。
+    pub fn has_user_data(&self) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM kv WHERE namespace IN ('tasks','notes','resources','projects')",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     pub fn collection(&self, namespace: &str) -> Result<Collection> {
         if namespace == "drafts" {
             return Err(BackendError::new(
@@ -1343,7 +1358,12 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                 text(object, "content", MAX_RECORD_BYTES, false)?;
             }
             "resources" => {
-                allowed_fields(object, &["id", "title", "type", "meta", "progress"])?;
+                // P-113：快照新增 status（资料真实解析状态）——旧快照与旧备份
+                // 无该字段，故按可选字段校验
+                allowed_fields(
+                    object,
+                    &["id", "title", "type", "meta", "progress", "status"],
+                )?;
                 if !["PDF", "视频", "网页", "音频", "文件"]
                     .contains(&field(object, "type")?.as_str().unwrap_or_default())
                 {
@@ -1351,6 +1371,9 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                 }
                 text(object, "meta", 1_000, true)?;
                 progress(object, "progress")?;
+                if object.contains_key("status") {
+                    text(object, "status", 32, true)?;
+                }
             }
             "projects" => {
                 allowed_fields(
@@ -1820,6 +1843,7 @@ mod tests {
             )
             .unwrap();
         // 152#2：SCHEMA_VERSION 递增至 4（129 波索引迁移补登记）
-        assert_eq!(version, "4");
+        // P-113：递增至 5（resources 快照补 status 字段的迁移补登记）
+        assert_eq!(version, "5");
     }
 }

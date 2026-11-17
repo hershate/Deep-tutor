@@ -182,9 +182,23 @@ where
 
 /// 同上游重试前的指数退避（10#2）：429/瞬断后立即原样重发大概率再撞限流。
 /// 400ms/800ms/1600ms 封顶；等待发生在同步重试循环内（block_on 上下文）。
-pub(crate) fn backoff(failed_attempt: u8) {
+/// P-018：退避期可被取消打断——返回 true 表示等待期间收到取消，调用方须
+/// 放弃本次重试（否则会再向上游发一次用户已确认放弃的请求）
+pub(crate) fn backoff(
+    failed_attempt: u8,
+    cancel: &Arc<AtomicBool>,
+    parent_cancel: &Option<Arc<AtomicBool>>,
+) -> bool {
     let delay = 400u64 << (failed_attempt.saturating_sub(1)).min(3);
-    std::thread::sleep(std::time::Duration::from_millis(delay));
+    let deadline = Instant::now() + Duration::from_millis(delay);
+    while Instant::now() < deadline {
+        if openai::cancelled(cancel, parent_cancel) {
+            return true;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        std::thread::sleep(Duration::from_millis(50).min(remaining));
+    }
+    openai::cancelled(cancel, parent_cancel)
 }
 
 pub(crate) fn retryable(error: &ChatError, attempt: u8, policy: &StreamPolicy) -> bool {
@@ -227,6 +241,41 @@ pub(crate) fn validate_policy(policy: &StreamPolicy) -> std::result::Result<(), 
     }
 }
 
+/// P-018：发送请求与等待响应头期间保持取消可感知——原先一次性
+/// `timeout(request_timeout, request.send())` 固定等满上限（45 秒），
+/// 用户取消后仍要等到超时才生效，且超时后 attempt 循环会再向上游发一次
+/// 请求（取消被吞）。改为按 100ms 切片等待，每片复核取消标志
+pub(crate) async fn send_with_cancel(
+    request: reqwest::RequestBuilder,
+    timeout: Duration,
+    cancel: &Arc<AtomicBool>,
+    parent_cancel: &Option<Arc<AtomicBool>>,
+) -> std::result::Result<reqwest::Response, ChatError> {
+    let send = request.send();
+    tokio::pin!(send);
+    let deadline = Instant::now() + timeout;
+    loop {
+        if openai::cancelled(cancel, parent_cancel) {
+            return Err(ChatError::new("cancelled", "模型请求已取消"));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(ChatError::new("provider_timeout", "供应商响应头等待超时"));
+        }
+        match tokio::time::timeout(remaining.min(Duration::from_millis(100)), &mut send).await {
+            Ok(Ok(response)) => return Ok(response),
+            Ok(Err(error)) if error.is_timeout() => {
+                return Err(ChatError::new("provider_timeout", "供应商响应超时"));
+            }
+            Ok(Err(_)) => {
+                return Err(ChatError::new("endpoint_unreachable", "无法连接供应商端点"));
+            }
+            // 响应头仍在等待——复核取消标志与剩余时间后继续
+            Err(_) => continue,
+        }
+    }
+}
+
 pub(crate) async fn stream_events<F>(
     url: reqwest::Url,
     kind: &str,
@@ -255,16 +304,11 @@ where
     let request = headers.iter().fold(request, |request, (name, value)| {
         request.header(*name, *value)
     });
-    let mut response = match tokio::time::timeout(policy.request_timeout, request.send()).await {
-        Ok(Ok(response)) => response,
-        Ok(Err(error)) if error.is_timeout() => {
-            return Err(ChatError::new("provider_timeout", "供应商响应超时"));
-        }
-        Ok(Err(_)) => {
-            return Err(ChatError::new("endpoint_unreachable", "无法连接供应商端点"));
-        }
-        Err(_) => return Err(ChatError::new("provider_timeout", "供应商响应头等待超时")),
-    };
+    let mut response =
+        match send_with_cancel(request, policy.request_timeout, cancel, parent_cancel).await {
+            Ok(response) => response,
+            Err(error) => return Err(error),
+        };
     let status = response.status().as_u16();
     if status != 200 {
         // 109#1：读 body 前 4KB 提取诊断细节（55#4 同口径）——欠费 402/

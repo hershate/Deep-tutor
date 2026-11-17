@@ -24,12 +24,23 @@ struct StoredLocation {
     data_root: PathBuf,
 }
 
+/// P-001：桥接提示的载体——记录提示描述的是哪个数据根。
+/// 提示断言的是「该路径下是我们新建的空工作区」；装配到别的根、或该
+/// 工作区已有用户数据（用户把原数据恢复到该目录），前提都不再成立，
+/// 提示须重新求值后清除。
+#[derive(Debug, Clone)]
+struct StartupNotice {
+    root: PathBuf,
+    message: String,
+}
+
 pub struct StartupState {
     default_root: PathBuf,
     pointer: PathBuf,
-    // 152#4：root 需在重试成功后回写（外部改指针 + 进程内 retry 时
-    // assemble 用新 root 建库，而 data_root()/overview 仍指旧目录直到
-    // 重启）——改 Mutex 以支持运行中更新
+    // 152#4：root 需在重试成功后回写——改 Mutex 以支持运行中更新。
+    // P-014：进程内换根只在「尚未注册绑定状态」时被放行（此时 assemble
+    // 以新 root 建库，data_root()/overview 不得滞留旧目录）；已注册状态
+    // 绑定旧根时换根被拒（storage_root_changed，要求重启应用）
     root: Mutex<PathBuf>,
     pending_root: Mutex<Option<PathBuf>>,
     failure: Mutex<Option<BackendError>>,
@@ -37,7 +48,15 @@ pub struct StartupState {
     // 106#9：configured 指向的目录在启动时缺失（移走/误删叶子）——按
     // 「目录即真相」语义原样新建空工作区，但须给用户桥接提示而非
     // 让「数据似乎全没了」无解释
-    notice: Mutex<Option<String>>,
+    notice: Mutex<Option<StartupNotice>>,
+    // P-014：已注册状态（安全库 / BackendState 各域）绑定的数据根——
+    // 进程内换根会让域状态与安全库分属两个目录（双目录混装），据此
+    // 拒绝就地换库并要求重启
+    bound_root: Mutex<Option<PathBuf>>,
+    // P-131：106#8 的系统目录解析失败态——此态下重试会以进程当前工作
+    // 目录装配完整工作区（与 106#8 注释「该场景重试也解析不出」矛盾），
+    // 置位后重试直接返回类型化错误
+    paths_unresolved: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,6 +69,11 @@ pub struct StartupOverview {
     initializing: bool,
     error: Option<BackendError>,
     notice: Option<String>,
+    /// P-044/P-014：待生效目录是否只能在重启应用后生效——已注册状态绑定
+    /// 旧根时进程内换根被拒（storage_root_changed，见
+    /// retry_storage_initialization），界面须据此改写文案，不得承诺
+    /// 「点重试即按新目录重装配」
+    pending_requires_restart: bool,
 }
 
 impl StartupState {
@@ -101,7 +125,81 @@ impl StartupState {
             failure: Mutex::new(None),
             running: std::sync::atomic::AtomicBool::new(false),
             notice: Mutex::new(None),
+            bound_root: Mutex::new(None),
+            paths_unresolved: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// P-014：已注册状态绑定的数据根（首次注册时确定，此后不变）
+    fn bound_root(&self) -> Option<PathBuf> {
+        self.bound_root.lock().ok().and_then(|root| root.clone())
+    }
+
+    /// P-014：首次绑定数据根——已绑定后不再改写（换根须重启）
+    fn bind_root(&self, root: PathBuf) {
+        match self.bound_root.lock() {
+            Ok(mut bound) => {
+                if bound.is_none() {
+                    *bound = Some(root);
+                }
+            }
+            Err(poisoned) => {
+                let mut bound = poisoned.into_inner();
+                if bound.is_none() {
+                    *bound = Some(root);
+                }
+            }
+        }
+    }
+
+    /// P-001：清除「已按缺失路径新建空工作区」提示
+    fn clear_notice(&self) {
+        if let Ok(mut notice) = self.notice.lock() {
+            *notice = None;
+        }
+    }
+
+    /// P-001：读取当前桥接提示（供概览输出）
+    fn notice_message(&self) -> Option<String> {
+        self.notice
+            .lock()
+            .ok()
+            .and_then(|notice| notice.as_ref().map(|notice| notice.message.clone()))
+    }
+
+    /// P-001：重估桥接提示的前提——提示断言的是「该路径下是我们新建的空
+    /// 工作区」。两种情况下前提不再成立，提示须失效：
+    /// 1) 装配到了别的根——提示描述的目录已不是当前工作区；
+    /// 2) 当前根下的工作区已有用户数据——用户把原数据恢复回了该目录，
+    ///    「空工作区」的说法已不成立。
+    /// 判据取自工作区本身（是否存在用户数据），不依赖用户是否点过按钮。
+    fn reevaluate_notice(&self, root: &Path, workspace_has_data: bool) {
+        let mut notice = match self.notice.lock() {
+            Ok(notice) => notice,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(current) = notice.as_ref() else {
+            return;
+        };
+        if current.root != root || workspace_has_data {
+            *notice = None;
+        }
+    }
+
+    /// P-001：写入桥接提示（该根下的工作区是新建的空工作区）
+    fn set_notice(&self, root: &Path, message: String) {
+        if let Ok(mut notice) = self.notice.lock() {
+            *notice = Some(StartupNotice {
+                root: root.to_path_buf(),
+                message,
+            });
+        }
+    }
+
+    /// P-131：系统目录解析失败态（106#8）——重试无法解析出真实目录
+    fn paths_unresolved(&self) -> bool {
+        self.paths_unresolved
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     fn set_failure(&self, next: Option<BackendError>) {
@@ -335,13 +433,32 @@ fn prepare<R: Runtime>(app: &AppHandle<R>, root: &Path, default_root: &Path, poi
             failure: Mutex::new(None),
             running: std::sync::atomic::AtomicBool::new(false),
             notice: Mutex::new(None),
+            bound_root: Mutex::new(None),
+            paths_unresolved: std::sync::atomic::AtomicBool::new(false),
         });
     }
-    // 152#4：State 已存在（重试路径）时同步刷新 root——外部改指针后
-    // retry 以新 root 装配，data_root()/overview 不得滞留旧目录
+    // 152#4：State 已存在（重试路径）时同步刷新 root——data_root()/overview
+    // 不得滞留旧目录。
+    // P-014：外部改指针后的进程内换根已被 retry_storage_initialization
+    // 拒绝（storage_root_changed，要求重启）；此处仅在「尚未注册绑定状态」
+    // 的重试路径上以新 root 装配。
     else {
         app.state::<StartupState>().set_root(root.to_path_buf());
     }
+}
+
+/// P-001：装配后的工作区是否已有用户数据——桥接提示断言的是「该路径下是
+/// 我们新建的空工作区」；用户把原数据放回该目录后该前提不再成立，
+/// 提示须随之失效（否则用户被告知「数据全没了」而数据其实就在库里）。
+/// 数据在用户工作区库（users/<id>/），故读该库而非根库。
+fn workspace_has_user_data<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let Some(backend) = app.try_state::<BackendState>() else {
+        return false;
+    };
+    let Ok(store) = backend.store.lock() else {
+        return false;
+    };
+    store.has_user_data().unwrap_or(false)
 }
 
 /// 106#9：配置指向的目录在启动时缺失（移动/误删叶子）——inspect 对
@@ -353,13 +470,11 @@ fn note_missing_directory<R: Runtime>(app: &AppHandle<R>, root: &Path, pointer: 
         return;
     }
     let message = format!(
-        "配置的数据目录不存在，已按该路径新建了空工作区：{}。若你刚移动过数据目录，请在下方重新选择正确位置，避免在新空库中重复建数据。",
+        "配置的数据目录不存在，已按该路径新建了空工作区：{}。若你刚移动过数据目录，请在「设置 → 隐私、备份与数据」中重新选择正确位置，避免在新空库中重复建数据。",
         root.display()
     );
     if let Some(state) = app.try_state::<StartupState>() {
-        if let Ok(mut notice) = state.notice.lock() {
-            *notice = Some(message);
-        }
+        state.set_notice(root, message);
     }
 }
 
@@ -367,6 +482,8 @@ fn note_missing_directory<R: Runtime>(app: &AppHandle<R>, root: &Path, pointer: 
 /// 的 StartupState，窗口打开错误页而非 builder.run().expect 在无控制台的
 /// release 构建下无声闪退；根路径用当前目录占位（该场景重试也解析不出，
 /// 错误页的价值是给出可见错误，真实出路是修复系统已知文件夹配置）
+/// P-131：置位 paths_unresolved——占位根是进程当前工作目录，重试若照常
+/// 装配会在该目录建出完整工作区（与上述注释直接矛盾），须显式拒绝
 pub fn present_startup_failure<R: Runtime>(app: &AppHandle<R>, message: &str) {
     let fallback = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     prepare(
@@ -376,6 +493,9 @@ pub fn present_startup_failure<R: Runtime>(app: &AppHandle<R>, message: &str) {
         &fallback.join("storage-location.json"),
     );
     let state = app.state::<StartupState>();
+    state
+        .paths_unresolved
+        .store(true, std::sync::atomic::Ordering::Release);
     state.set_failure(Some(BackendError::new(
         "storage_config_unavailable",
         message,
@@ -407,13 +527,23 @@ pub fn initialize<R: Runtime>(
     };
     let succeeded = result.is_ok();
     state.set_failure(result.err());
-    // 127#12：目录已重建成功时清除「已按缺失路径新建」提示——原先与新
-    // pending 文案并存矛盾；目录仍缺失（note 重新写入）保持提示
+    // 127#12：清除「已按缺失路径新建」提示的条件是「存在待生效目录」——
+    // 原先无条件清除，使「目录缺失→新建空工作区」这条毫秒级正常路径上的
+    // 桥接提示被抹掉，用户面对全空工作区没有任何解释（P-001）
     if succeeded {
-        if let Some(state) = app.try_state::<StartupState>() {
-            if let Ok(mut notice) = state.notice.lock() {
-                *notice = None;
-            }
+        let pending = state.pending().ok().flatten();
+        if pending.is_some() {
+            state.clear_notice();
+        } else {
+            // P-001：成功重试后重新求值桥接提示——提示断言的是「该路径下是
+            // 我们新建的空工作区」；用户把原数据恢复回该目录后工作区已有数据，
+            // 前提不再成立，旧提示须清除（否则用户被告知「数据全没了」而数据
+            // 其实就在库里）
+            state.reevaluate_notice(root, workspace_has_user_data(app));
+        }
+        // P-044：待生效目录已在本轮装配中生效——不再声称「下次启动使用」
+        if pending.as_deref() == Some(root) {
+            let _ = state.set_pending(None);
         }
     }
     state
@@ -478,12 +608,6 @@ fn assemble<R: Runtime>(app: &AppHandle<R>, root: &Path) -> Result<()> {
     // 命令/线程池上下文，Unix 多线程健全性检查失败时 UTC 被静默缓存
     let _ = crate::backend::store::now_local();
     let path = root.join("deep-tutor.db");
-    // 127#16：retry 重入 assemble 时不再依赖 Tauri2 的二次 manage no-op
-    // 语义——已注册的 State 显式沿用（目录不变由 pending 守卫保证，
-    // 路径一致；store 连接仍在下方闭包内替换）
-    if app.try_state::<security::SecurityState>().is_none() {
-        app.manage(security::SecurityState::new(&path));
-    }
     prepare_directory(root)?;
     // 22#1：装配先于会话初始化、无 principal——显式以 user1 打开引导库
     // （含旧版单库向 user1 工作区的迁移），不再依赖 Store::new 的隐式回退；
@@ -497,8 +621,16 @@ fn assemble<R: Runtime>(app: &AppHandle<R>, root: &Path) -> Result<()> {
     let practice_state = practice::PracticeState::new(&path, &provider_state, &learning_state);
     let review_state = review::ReviewState::new(&path, &learning_state);
     let sharing_state = sharing::SharingState::new(&learning_state);
+    // P-014：安全库与工作区状态绑定同一数据根，且只在库校验通过后才注册
+    // ——原先在开库之前就注册安全库，库损坏/目录不可用时状态已绑死在打不开
+    // 的目录上，进程内换目录重试会留下「安全库在旧目录、工作区在新目录」的
+    // 混装；注册即记录绑定根，供重试换根时拒绝就地换库
+    if app.try_state::<security::SecurityState>().is_none() {
+        app.manage(security::SecurityState::new(&path));
+        app.state::<StartupState>().bind_root(root.to_path_buf());
+    }
     // 127#16：重试路径沿用已注册实例（不再依赖 Tauri2 二次 manage 的
-    // no-op 语义）——目录不变由 pending 守卫保证、路径一致，下方
+    // no-op 语义）——目录不变由 P-014 的绑定根校验保证、路径一致，下方
     // initialize_session 与 recover 族照常对旧实例重跑（首次失败发生在
     // recover 中段时，retry 需要补跑未完成的域）
     if app.try_state::<BackendState>().is_none() {
@@ -515,6 +647,7 @@ fn assemble<R: Runtime>(app: &AppHandle<R>, root: &Path) -> Result<()> {
             plugins: plugins::PluginState::new(&path)?,
             sharing: sharing_state,
         });
+        app.state::<StartupState>().bind_root(root.to_path_buf());
     }
     let principal = match security::initialize_session(app, &app.state::<security::SecurityState>())
     {
@@ -578,11 +711,14 @@ fn overview<R: Runtime>(app: &AppHandle<R>) -> Result<StartupOverview> {
             && app.try_state::<BackendState>().is_some(),
         initializing: state.running(),
         error: state.failure()?,
-        notice: state
-            .notice
-            .lock()
-            .map(|notice| notice.clone())
-            .unwrap_or(None),
+        notice: state.notice_message(),
+        // 待生效目录与已绑定数据根不一致时，进程内换根会被
+        // retry_storage_initialization 拒绝（storage_root_changed），
+        // 只能重启应用后在新目录启动——口径与该守卫一致
+        pending_requires_restart: match (state.pending()?, state.bound_root()) {
+            (Some(pending), Some(bound)) => pending != bound,
+            _ => false,
+        },
     })
 }
 
@@ -605,11 +741,36 @@ pub mod commands {
     ) -> Result<StartupOverview> {
         let (root, default_root, pointer, configuration_error) = {
             let state = app.state::<StartupState>();
+            // P-131：系统目录解析失败态（106#8）下根路径只是进程当前工作
+            // 目录的占位——照常装配会在该目录建出完整工作区，与 106#8 注释
+            // 「该场景重试也解析不出」直接矛盾
+            if state.paths_unresolved() {
+                return Err(BackendError::new(
+                    "storage_path_unresolved",
+                    "无法定位应用的系统目录，重试无法解决；请修复系统的「已知文件夹」配置后重新启动应用",
+                ));
+            }
+            // P-044：pending 不再永久短路重试——保存目录后重试必须按新目录
+            // 真正重装配（决策 20「保存后重试或下次启动使用新目录」）；原先
+            // 该守卫使重试在进程生命周期内恒为 no-op，保存成功后的「稍后
+            // 重试」做不到，还把修复前的旧错误原样抛回
             if state.running()
                 || (state.failure()?.is_none() && app.try_state::<BackendState>().is_some())
-                || state.pending()?.is_some()
             {
                 return overview(&app);
+            }
+            let configured = configured_directory(&state.pointer, &state.default_root);
+            let root = configured.clone().unwrap_or_else(|_| state.current_root());
+            // P-014：已注册状态绑定旧数据根时不能就地换库——各域状态自持
+            // 旧 database_path（materials/learning 等），强行换根会形成双
+            // 目录混装且全程无提示。改为类型化错误要求重启
+            if let Some(bound) = state.bound_root() {
+                if bound != root {
+                    return Err(BackendError::new(
+                        "storage_root_changed",
+                        "数据目录已变更，需要重启应用后在新目录启动；当前进程仍使用原目录",
+                    ));
+                }
             }
             // 152#3：守卫通过即在命令线程同步置位 running——原先在
             // spawn_blocking 闭包内才置位，两次并发 retry 都能通过守卫
@@ -617,8 +778,6 @@ pub mod commands {
             state
                 .running
                 .store(true, std::sync::atomic::Ordering::Release);
-            let configured = configured_directory(&state.pointer, &state.default_root);
-            let root = configured.clone().unwrap_or_else(|_| state.current_root());
             (
                 root,
                 state.default_root.clone(),
@@ -667,7 +826,11 @@ pub mod commands {
                 .map_err(|_| {
                     BackendError::new("startup_unavailable", "数据目录保存任务异常终止")
                 })??;
-        app.state::<StartupState>().set_pending(Some(selected))?;
+        let state = app.state::<StartupState>();
+        state.set_pending(Some(selected))?;
+        // P-001/127#12：用户已重新选择目录——「已按缺失路径新建空工作区」
+        // 的旧提示随之失效（pending 文案取代之，二者并存互相矛盾）
+        state.clear_notice();
         overview(&app)
     }
 
@@ -685,7 +848,12 @@ pub mod commands {
             reset_location(&state.pointer)?;
             let pending =
                 (state.current_root() != state.default_root).then(|| state.default_root.clone());
-            state.set_pending(pending)?;
+            state.set_pending(pending.clone())?;
+            // P-001/127#12：恢复默认目录后旧目录的「已按缺失路径新建」提示
+            // 失效（pending 文案取代之）
+            if pending.is_some() {
+                state.clear_notice();
+            }
             overview(&app)
         })
         .await
@@ -1001,5 +1169,193 @@ mod command_tests {
         assert_eq!(recovered["ready"], true);
         assert!(ipc(&app, "bootstrap", json!({})).is_ok());
         assert!(default_root.join("users/1/deep-tutor.db").is_file());
+    }
+
+    // P-001：目录缺失→按该路径重建空工作区属毫秒级正常路径，桥接提示必须
+    // 活到界面（原先装配成功后无条件清除，用户面对全空工作区无任何解释）
+    #[test]
+    fn a_missing_configured_directory_keeps_its_bridge_notice_after_assembly() {
+        let temporary = tempfile::tempdir().unwrap();
+        let default_root = temporary.path().join("default");
+        let selected = temporary.path().join("selected");
+        let pointer = temporary.path().join("configuration/storage.json");
+        // 指针指向随后被移走的目录——启动时按该路径重建空工作区
+        save_location(&pointer, &selected).unwrap();
+        fs::remove_dir_all(&selected).unwrap();
+        let app = mock_app(&selected, &default_root, &pointer, None);
+        let overview = ipc(&app, "get_storage_overview", json!({})).unwrap();
+        assert_eq!(overview["ready"], true);
+        let notice = overview["notice"].as_str().unwrap_or_default();
+        assert!(
+            notice.contains("已按该路径新建了空工作区"),
+            "目录缺失的桥接提示不得在装配成功后被清除：{notice}"
+        );
+    }
+
+    // P-044：启动失败后保存新目录，「重试初始化」必须按新目录真正重装配
+    // （原先 pending 守卫使重试在进程生命周期内恒为 no-op）
+    #[test]
+    fn a_saved_directory_is_applied_by_the_retry_after_a_failed_startup() {
+        let temporary = tempfile::tempdir().unwrap();
+        let default_root = temporary.path().join("default");
+        let selected = temporary.path().join("selected");
+        let pointer = temporary.path().join("configuration/storage.json");
+        fs::create_dir_all(pointer.parent().unwrap()).unwrap();
+        fs::write(&pointer, b"broken configuration").unwrap();
+        let error = configured_directory(&pointer, &default_root).unwrap_err();
+        // 生产拓扑下安全库随装配目录注册（assemble 内），此处预置到重试目标
+        // 目录以复现同一绑定关系
+        let app = mock_app_with(
+            &default_root,
+            &default_root,
+            &pointer,
+            Some(error),
+            security::SecurityState::for_tests_at(&selected.join("deep-tutor.db")),
+        );
+        assert_eq!(
+            ipc(&app, "bootstrap", json!({})).unwrap_err()["code"],
+            "storage_config_invalid"
+        );
+        let saved = ipc(
+            &app,
+            "set_storage_location",
+            json!({"path": selected.to_string_lossy()}),
+        )
+        .unwrap();
+        assert_eq!(saved["pendingDataRoot"], json!(selected));
+        // 本进程尚未注册绑定状态（失败发生在状态注册之前）——重试可按新目录
+        // 立即重装配，概览不得标记为「只能重启后生效」
+        assert_eq!(saved["pendingRequiresRestart"], false);
+        let recovered = ipc(&app, "retry_storage_initialization", json!({})).unwrap();
+        assert_eq!(recovered["ready"], true);
+        assert_eq!(recovered["dataRoot"], json!(selected));
+        // 新目录已在本轮装配生效——不再声称「下次启动使用」
+        assert_eq!(recovered["pendingDataRoot"], json!(null));
+        assert!(selected.join("users/1/deep-tutor.db").is_file());
+    }
+
+    // P-014：外部改写目录指针后的进程内重试不得就地换库——已注册域状态
+    // 自持旧 database_path，换根会形成双目录混装（用户在新目录看不到旧
+    // 目录的域数据且全程无提示）
+    #[test]
+    fn a_changed_pointer_does_not_switch_the_assembled_workspace_in_process() {
+        let temporary = tempfile::tempdir().unwrap();
+        let default_root = temporary.path().join("default");
+        let other = temporary.path().join("other");
+        let pointer = temporary.path().join("configuration/storage.json");
+        let app = mock_app(&default_root, &default_root, &pointer, None);
+        assert_eq!(
+            ipc(&app, "get_storage_overview", json!({})).unwrap()["ready"],
+            true
+        );
+        // 模拟装配之后的失败（此前装配失败发生在 BackendState 注册之后）
+        app.state::<StartupState>()
+            .set_failure(Some(BackendError::new(
+                "database_corrupt",
+                "本地数据库损坏",
+            )));
+        save_location(&pointer, &other).unwrap();
+        let error = ipc(&app, "retry_storage_initialization", json!({})).unwrap_err();
+        assert_eq!(error["code"], "storage_root_changed");
+        // 新目录不得被就地装配——工作区仍绑定原目录
+        assert!(!other.join("users/1/deep-tutor.db").exists());
+        assert_eq!(
+            ipc(&app, "get_storage_overview", json!({})).unwrap()["dataRoot"],
+            json!(default_root)
+        );
+    }
+
+    // P-131：系统目录解析失败态下重试不得在进程当前工作目录装配完整工作区
+    // （106#8 注释已声明该场景重试也解析不出）
+    #[test]
+    fn a_path_resolution_failure_refuses_to_assemble_in_the_current_directory() {
+        let temporary = tempfile::tempdir().unwrap();
+        let app = tauri::test::mock_builder()
+            .invoke_handler(tauri::generate_handler![
+                commands::get_storage_overview,
+                commands::retry_storage_initialization,
+            ])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        // 占位根取进程当前工作目录——重试若照常装配会在该目录建出工作区；
+        // 切到临时目录避免回归时污染仓库（工程测试串行执行）
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temporary.path()).unwrap();
+        present_startup_failure(app.handle(), "无法定位应用数据目录");
+        let error = ipc(&app, "retry_storage_initialization", json!({})).unwrap_err();
+        std::env::set_current_dir(previous).unwrap();
+        assert_eq!(error["code"], "storage_path_unresolved");
+        assert!(app.try_state::<BackendState>().is_none());
+        assert!(!temporary.path().join("deep-tutor.db").exists());
+    }
+
+    // P-001：提示断言的是「该路径下是我们新建的空工作区」——用户把原数据
+    // 恢复回该目录、重试装配成功后该前提不再成立，旧提示须被清除（否则
+    // 用户被告知「数据全没了」而数据其实就在库里）
+    #[test]
+    fn a_restored_workspace_clears_the_bridge_notice_after_a_successful_retry() {
+        let temporary = tempfile::tempdir().unwrap();
+        let default_root = temporary.path().join("default");
+        let selected = temporary.path().join("selected");
+        let pointer = temporary.path().join("configuration/storage.json");
+        // 指针指向随后被移走的目录——启动时按该路径重建空工作区
+        save_location(&pointer, &selected).unwrap();
+        fs::remove_dir_all(&selected).unwrap();
+        let app = mock_app(&selected, &default_root, &pointer, None);
+        let overview = ipc(&app, "get_storage_overview", json!({})).unwrap();
+        assert_eq!(overview["ready"], true);
+        assert!(overview["notice"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("已按该路径新建了空工作区"));
+        // 用户把原数据恢复回该目录（此处以写入真实学习数据等效）
+        assert!(ipc(&app, "bootstrap", json!({})).is_ok());
+        ipc(
+            &app,
+            "replace_collection",
+            json!({"namespace":"notes","expectedRevision":0,"value":note()}),
+        )
+        .unwrap();
+        // 装配之后的失败——重试走完整装配，并在成功后重新求值提示
+        app.state::<StartupState>()
+            .set_failure(Some(BackendError::new(
+                "database_corrupt",
+                "本地数据库损坏",
+            )));
+        let recovered = ipc(&app, "retry_storage_initialization", json!({})).unwrap();
+        assert_eq!(recovered["ready"], true);
+        assert_eq!(
+            recovered["notice"],
+            json!(null),
+            "工作区已有用户数据时，「已按该路径新建了空工作区」的提示须失效"
+        );
+    }
+
+    // P-044/P-014：待生效目录与本进程已绑定的数据根不一致时，进程内换根
+    // 会被 storage_root_changed 拒绝——概览须如实标记「只能重启后生效」，
+    // 界面据此改写文案，不得一律承诺「点重试即按新目录重装配」
+    #[test]
+    fn the_overview_marks_a_pending_directory_that_only_a_restart_can_apply() {
+        let temporary = tempfile::tempdir().unwrap();
+        let default_root = temporary.path().join("default");
+        let other = temporary.path().join("other");
+        let pointer = temporary.path().join("configuration/storage.json");
+        let app = mock_app(&default_root, &default_root, &pointer, None);
+        // 应用已运行（工作区已绑定 default_root）——待生效目录只能下次启动生效
+        let saved = ipc(
+            &app,
+            "set_storage_location",
+            json!({"path": other.to_string_lossy()}),
+        )
+        .unwrap();
+        assert_eq!(saved["pendingDataRoot"], json!(other));
+        assert_eq!(saved["pendingRequiresRestart"], true);
+        assert_eq!(
+            ipc(&app, "get_storage_overview", json!({})).unwrap()["pendingRequiresRestart"],
+            true
+        );
     }
 }

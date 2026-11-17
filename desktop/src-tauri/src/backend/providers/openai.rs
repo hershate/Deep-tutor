@@ -960,7 +960,11 @@ where
                     return Err(error);
                 }
                 // 10#2：同上游重试前退避，避免限流窗口内原样重发
-                super::protocol::backoff(attempt);
+                // P-018：退避期间收到取消即放弃本次重试——否则会再向上游
+                // 发一次用户已确认放弃的请求
+                if super::protocol::backoff(attempt, &cancel, &parent_cancel) {
+                    return Err(ChatError::new("cancelled", "模型请求已取消"));
+                }
             }
         }
     }
@@ -1287,13 +1291,18 @@ where
         key,
     )
     .json(&body);
-    let mut response = match tokio::time::timeout(policy.request_timeout, request.send()).await {
-        Ok(Ok(response)) => response,
-        Ok(Err(error)) if error.is_timeout() => {
-            return Err(ChatError::new("provider_timeout", "供应商响应超时"))
-        }
-        Ok(Err(_)) => return Err(ChatError::new("endpoint_unreachable", "无法连接供应商端点")),
-        Err(_) => return Err(ChatError::new("provider_timeout", "供应商响应头等待超时")),
+    // P-018：响应头等待期间保持取消可感知——原先一次性等满
+    // request_timeout（45 秒），用户取消后仍要等到超时才生效
+    let mut response = match super::protocol::send_with_cancel(
+        request,
+        policy.request_timeout,
+        cancel,
+        parent_cancel,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => return Err(error),
     };
     let status = response.status().as_u16();
     if status != 200 {

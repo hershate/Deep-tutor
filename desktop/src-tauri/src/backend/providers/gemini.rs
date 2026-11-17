@@ -320,7 +320,11 @@ where
             Ok(result) => return Ok(success(result, started, attempt)),
             Err(mut error) => {
                 if retryable(&error, attempt, &policy) {
-                    backoff(attempt);
+                    // P-018：退避期间收到取消即放弃本次重试——否则会再向上游
+                    // 发一次用户已确认放弃的请求
+                    if backoff(attempt, &cancel, &parent_cancel) {
+                        return Err(ChatError::new("cancelled", "模型请求已取消"));
+                    }
                     continue;
                 }
                 error.attempts = attempt;

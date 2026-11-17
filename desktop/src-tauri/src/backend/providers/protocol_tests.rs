@@ -287,6 +287,31 @@ fn tool_calls_do_not_retry_an_incomplete_response() {
 }
 
 #[test]
+fn responses_done_only_tool_call_keeps_the_local_tool_name() {
+    // 153#6 兜底登记（只发 output_item.done 不发 added）原先直传远端消毒名，
+    // 执行层按本地名精确匹配（agent/tools.rs 的 workspace.read）→ 全部落入
+    // 「未注册」分支；此处锁定兜底路径同样经过 names.local 回译
+    let (app, state) = setup();
+    let endpoint = server(|_request, stream| {
+        let body = [
+            data(json!({"type": "response.output_item.done", "output_index": 0, "item": {"type": "function_call", "call_id": "call-done-only", "name": "workspace_read", "arguments": "{\"reference\":\"current\"}"}})),
+            data(json!({"type": "response.completed", "response": {"model": "test-model", "usage": {"input_tokens": 5, "output_tokens": 3}}})),
+        ]
+        .join("");
+        response(stream, "200 OK", &body);
+    });
+    let profile = make_profile(&app, &state, "OpenAI Responses", &endpoint.url());
+    let result = chat_with_tools(&profile).unwrap();
+    assert_eq!(result.tool_calls.len(), 1);
+    assert_eq!(result.tool_calls[0].id, "call-done-only");
+    assert_eq!(result.tool_calls[0].name, "workspace.read");
+    assert_eq!(
+        result.tool_calls[0].arguments,
+        "{\"reference\":\"current\"}"
+    );
+}
+
+#[test]
 fn anthropic_streams_reasoning_tools_and_usage() {
     let (app, state) = setup();
     let endpoint = server(|request, stream| {
@@ -512,5 +537,116 @@ fn shared_pump_zero_yield_data_stream_hits_idle_budget() {
         error.error.message.contains("无有效事件"),
         "{:?}",
         error.error.message
+    );
+}
+
+// P-018：取消后协议层不得再向上游重发请求——退避期（400ms/800ms/1600ms）
+// 与响应头等待期（最长 45 秒）内取消都须立即生效，否则用户已确认放弃的
+// 请求仍被真实发出并计费
+#[test]
+fn a_cancel_during_the_retry_backoff_stops_the_next_upstream_request() {
+    let (app, state) = setup();
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server_cancel = Arc::clone(&cancel);
+    let endpoint = server(move |_request, stream| {
+        // 第一次尝试以可重试错误（503 → provider_unavailable）失败，并置位
+        // 取消——退避期须被取消打断，不得再发第二次请求
+        server_cancel.store(true, std::sync::atomic::Ordering::Release);
+        response(
+            stream,
+            "503 Service Unavailable",
+            "{\"error\":{\"message\":\"overloaded\"}}",
+        );
+    });
+    let profile = make_profile(&app, &state, "OpenAI Responses", &endpoint.url());
+    let error = protocol::stream_chat_with_policy(
+        &profile,
+        None,
+        &messages(),
+        64,
+        None,
+        Arc::clone(&cancel),
+        None,
+        openai::StreamPolicy::default(),
+        |_| Ok(()),
+        "cancel-during-backoff",
+    )
+    .unwrap_err();
+    assert_eq!(error.error.code, "cancelled");
+    assert_eq!(endpoint.request_count(), 1);
+}
+
+#[test]
+fn a_cancel_while_waiting_for_response_headers_stops_the_request() {
+    let (app, state) = setup();
+    let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server_release = Arc::clone(&release);
+    let endpoint = server(move |_request, stream| {
+        // 不写响应头——客户端停在等待响应头阶段（原先固定等满 45 秒超时）
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !server_release.load(std::sync::atomic::Ordering::Acquire) {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let _ = stream;
+    });
+    let profile = make_profile(&app, &state, "OpenAI Responses", &endpoint.url());
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker_cancel = Arc::clone(&cancel);
+    let worker_profile = profile.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let outcome = protocol::stream_chat_with_policy(
+            &worker_profile,
+            None,
+            &messages(),
+            64,
+            None,
+            worker_cancel,
+            None,
+            openai::StreamPolicy::default(),
+            |_| Ok(()),
+            "cancel-header-wait",
+        );
+        let _ = sender.send(
+            outcome
+                .err()
+                .map(|error| error.error.code)
+                .unwrap_or_default(),
+        );
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    cancel.store(true, std::sync::atomic::Ordering::Release);
+    let code = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .expect("取消后必须立即结束等待响应头的请求");
+    release.store(true, std::sync::atomic::Ordering::Release);
+    let _ = worker.join();
+    assert_eq!(code, "cancelled");
+}
+
+// P-018：退避等待本身须可被取消打断——否则用户取消后仍要空等
+// 400ms/800ms/1600ms 才返回，且上层会再向上游发一次请求
+#[test]
+fn the_retry_backoff_stops_early_when_cancelled() {
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    cancel.store(true, std::sync::atomic::Ordering::Release);
+    let started = Instant::now();
+    assert!(protocol::backoff(3, &cancel, &None));
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "退避期必须立即响应取消"
+    );
+    let parent = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    parent.store(true, std::sync::atomic::Ordering::Release);
+    let started = Instant::now();
+    assert!(protocol::backoff(
+        1,
+        &Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        &Some(parent)
+    ));
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "父级取消同样必须打断退避"
     );
 }
