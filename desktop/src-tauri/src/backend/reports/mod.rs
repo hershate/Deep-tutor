@@ -5,7 +5,7 @@ mod tests;
 use super::commands::emit;
 use super::error::{BackendError, Result};
 use super::learning::LearningState;
-use super::store::Store;
+use super::store::{BackendEvent, Store};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -337,14 +337,26 @@ pub fn start_focus<R: Runtime>(
         }
     }
     let timestamp = timestamp(now()?)?;
-    // 25#1：活跃检查移入 IMMEDIATE 事务——原实现 EXISTS 在 autocommit 态，
-    // 并发两次 start_focus 会双双通过、各插一条 running（finish 只收尾最新
-    // 一条，另一条残 running 直到重启）；持写锁后二次检查关闭窗口，
-    // 对齐 projects::submit 的做法
-    let tx = rusqlite::Transaction::new_unchecked(
-        &store.conn,
-        rusqlite::TransactionBehavior::Immediate,
-    )?;
+    let tx = store.write_transaction()?;
+    let (id, event) = insert_focus_session(&tx, task_id, planned_seconds, &timestamp)?;
+    tx.commit()?;
+    emit(app, &event);
+    focus_by_id(&store.conn, id)
+}
+
+/// 25#1：活跃检查与插入都在调用方写事务内——原实现 EXISTS 在 autocommit 态，
+/// 并发两次 start_focus 会双双通过、各插一条 running（finish 只收尾最新
+/// 一条，另一条残 running 直到重启）；持写锁后二次检查关闭窗口，
+/// 对齐 projects::submit 的做法
+///
+/// P-084：拆出事务内版本供采纳建议复用——专注与任务写入须同属一个事务，
+/// 任一失败都不落库
+fn insert_focus_session(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: Option<i64>,
+    planned_seconds: u64,
+    timestamp: &str,
+) -> Result<(i64, BackendEvent)> {
     let running: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM focus_sessions WHERE status IN ('running', 'paused'))",
         [],
@@ -359,13 +371,11 @@ pub fn start_focus<R: Runtime>(
     tx.execute("INSERT INTO focus_sessions (task_id, status, planned_seconds, started_at, created_at, updated_at) VALUES (?1, 'running', ?2, ?3, ?3, ?3)", params![task_id, planned_seconds as i64, timestamp])?;
     let id = tx.last_insert_rowid();
     let event = Store::event(
-        &tx,
+        tx,
         "focus.started",
         json!({"sessionId":id,"taskId":task_id,"plannedSeconds":planned_seconds}),
     )?;
-    tx.commit()?;
-    emit(app, &event);
-    focus_by_id(&store.conn, id)
+    Ok((id, event))
 }
 
 fn finish_focus<R: Runtime>(
@@ -1222,22 +1232,52 @@ pub fn adopt_recommendations<R: Runtime>(
     }
     let report = get_report(state, period.as_deref())?;
     let store = state.store()?;
-    let mut added = 0;
+    let (added, focus_id, events) = adopt_in_tx(&store, &report.recommendations, &ids)?;
+    for event in &events {
+        emit(app, event);
+    }
+    let focus = match focus_id {
+        Some(id) => Some(focus_by_id(&store.conn, id)?),
+        None => None,
+    };
+    Ok(AdoptionResult { added, focus })
+}
+
+/// P-084：采纳建议的写入核心——专注会话与任务清单在同一个写事务内提交，
+/// 任一失败都不落库。原先先启动专注（独立事务提交并发出 focus.started）、
+/// 后提交任务（另一个事务），任务提交失败时命令整体报错，专注却已真实
+/// 开始并计入专注历史：用户看到「采纳失败」，界面上却多出一个不可见的
+/// 进行中专注，此后开始新专注还会被「已有一个进行中的专注」挡住
+/// （07#4 的顺序只挡住了另一半：报错但清单已出现新任务）
+fn adopt_in_tx(
+    store: &Store,
+    recommendations: &[Recommendation],
+    ids: &[String],
+) -> Result<(u32, Option<i64>, Vec<BackendEvent>)> {
+    let mut added = 0u32;
     let mut wants_focus = false;
-    // 77#3：revision 随任务快照一次取定——原先提交前另读一次新 revision，
-    // 并发采纳持有过期 tasks 数组也能通过守卫，同 id 行互相覆盖静默丢任务；
-    // 改用快照 revision 后并发方收到可重试的 revision_conflict
-    let tasks_collection = store.collection("tasks")?;
+    // 77#3：revision 与任务快照一起取定——原先提交前另读一次新 revision，
+    // 并发采纳持有过期 tasks 数组也能通过守卫，同 id 行互相覆盖静默丢任务
+    // P-084：快照与版本号改在写事务内同读——原先值与版本分两条语句读，
+    // 并发写落在两条读之间会得到「旧值 + 新版本」的错配快照，守卫据此放行
+    // 并把并发写入覆盖掉
+    // P-084 补充：快照同读落在 IMMEDIATE 写事务内后，并发采纳被写锁串行化，
+    // 77#3 记的「并发方收到可重试的 revision_conflict」在本路径不再成立——
+    // 后到者拿到写锁时读到的是最新快照，重复标题按标题去重跳过；集合写入
+    // 里的 revision 守卫对本路径恒不触发（它仍对客户端传入过期 revision 的
+    // 公开 replace_collection 有效）
+    let tx = store.write_transaction()?;
+    let tasks_collection = store.collection_in_tx(&tx, "tasks")?;
     let snapshot_revision = tasks_collection.revision;
-    let mut tasks = tasks_collection.value;
-    let tasks = tasks
-        .as_array_mut()
+    let mut tasks = tasks_collection
+        .value
+        .as_array()
+        .cloned()
         .ok_or_else(|| BackendError::new("invalid_record", "任务集合格式无效"))?;
     for id in ids {
-        let recommendation = report
-            .recommendations
+        let recommendation = recommendations
             .iter()
-            .find(|item| item.id == id)
+            .find(|item| &item.id == id)
             .ok_or_else(|| {
                 BackendError::new("recommendation_stale", "建议已随学习证据变化，请刷新后重试")
             })?;
@@ -1253,33 +1293,33 @@ pub fn adopt_recommendations<R: Runtime>(
         }
         // 34#20：id 分配走 next_free_id 的毫秒基数——max+1 紧贴前端
         // Date.now() 型 localId，同毫秒邻接即撞号（24#4/31#58 同族）
-        let id: i64 = Store::next_free_id(&store.conn, "tasks")?
+        let id: i64 = Store::next_free_id(&tx, "tasks")?
             .parse()
             .map_err(|_| BackendError::new("invalid_id", "任务标识无效"))?;
         tasks.push(json!({"id":id,"title":recommendation.title,"subject":"学习建议","duration":20,"done":false,"kind":"练习"}));
         added += 1;
     }
-    if wants_focus && focus_overview(&store)?.active.is_some() {
-        return Err(BackendError::new(
-            "focus_active",
-            "已有一个进行中的专注，请先完成或取消",
-        ));
+    let mut events = Vec::new();
+    let mut focus_id = None;
+    if wants_focus {
+        // 占用检查与插入都在本事务内——并发 start_focus 由写锁串行化
+        let (id, event) = insert_focus_session(&tx, None, 1500, &timestamp(now()?)?)?;
+        focus_id = Some(id);
+        events.push(event);
     }
-    // 先启动专注、后提交任务：专注启动失败时（如预检查后的竞态）任务不落库，
-    // 避免"报错但清单已出现新任务"的不一致（07#4）
-    let focus = if wants_focus {
-        Some(start_focus(app, state, None, 1500)?)
-    } else {
-        None
-    };
     if added > 0 {
-        let mutation =
-            store.replace_collection("tasks", snapshot_revision, &Value::Array(tasks.clone()))?;
-        if let Some(event) = mutation.event {
-            emit(app, &event);
-        }
+        // 归一化复用本事务内已读到的 tasks 快照——不在写锁内再全量扫描一遍
+        // tasks 集合（扫描量随集合上限增长，写锁持有期随之变长）
+        let value = store.prepare_collection_with_previous(
+            "tasks",
+            &Value::Array(tasks),
+            Some(&tasks_collection.value),
+        )?;
+        let event = store.replace_collection_in_tx(&tx, "tasks", snapshot_revision, &value)?;
+        events.push(event);
     }
-    Ok(AdoptionResult { added, focus })
+    tx.commit()?;
+    Ok((added, focus_id, events))
 }
 
 pub fn export_report<R: Runtime>(

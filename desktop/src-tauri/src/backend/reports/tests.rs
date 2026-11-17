@@ -301,6 +301,140 @@ fn report_links_plan_evidence_checkins_adoption_and_real_csv() {
 }
 
 #[test]
+fn adopt_focus_and_tasks_commit_in_one_transaction() {
+    // P-084：专注与任务写入同生共死——任务提交失败时不得留下进行中的专注
+    // （原先先启动专注、后提交任务，任务失败会留下界面上不可见的专注）
+    let (_app, learning) = setup();
+    let store = learning.store().unwrap();
+    let recommendations = vec![
+        Recommendation {
+            id: "focus:new".into(),
+            title: "记录一次真实专注".into(),
+            detail: "真实建议".into(),
+            kind: "focus".into(),
+            plan_id: None,
+            node_id: None,
+        },
+        Recommendation {
+            id: "node:plan-1:weak".into(),
+            title: "补强：待巩固节点".into(),
+            detail: "真实建议".into(),
+            kind: "practice".into(),
+            plan_id: Some("plan-1".into()),
+            node_id: Some("weak".into()),
+        },
+    ];
+    let ids = vec!["focus:new".to_string(), "node:plan-1:weak".to_string()];
+    // 坏任务行：直接写库绕过校验，使任务提交在校验阶段失败
+    store
+        .conn
+        .execute(
+            "INSERT INTO kv (namespace, id, data, updated_at) VALUES ('tasks', '77', ?1, ?2)",
+            params![
+                json!({"id":77,"title":"坏任务","subject":"测试","duration":20,"done":false,"kind":"非法类型"})
+                    .to_string(),
+                timestamp(now().unwrap()).unwrap()
+            ],
+        )
+        .unwrap();
+    let error = super::adopt_in_tx(&store, &recommendations, &ids).unwrap_err();
+    assert_eq!(error.code, "invalid_kind");
+    // 任务提交失败：不得留下进行中的专注，也不得写入任何任务
+    assert_eq!(running_focuses(&store), 0);
+    let tasks = store.collection("tasks").unwrap().value;
+    assert_eq!(tasks.as_array().unwrap().len(), 1);
+    // 清掉坏行后重新采纳：专注与任务同事务落库
+    store
+        .conn
+        .execute("DELETE FROM kv WHERE namespace = 'tasks' AND id = '77'", [])
+        .unwrap();
+    let (added, focus_id, events) = super::adopt_in_tx(&store, &recommendations, &ids).unwrap();
+    assert_eq!(added, 1);
+    assert!(focus_id.is_some());
+    assert_eq!(events.len(), 2, "focus.started 与 state.changed 各一条");
+    assert_eq!(running_focuses(&store), 1);
+    let tasks = store.collection("tasks").unwrap().value;
+    assert_eq!(tasks.as_array().unwrap().len(), 1);
+    assert_eq!(
+        tasks.as_array().unwrap()[0]["title"].as_str(),
+        Some("补强：待巩固节点")
+    );
+}
+
+#[test]
+fn repeated_adopt_of_the_same_task_recommendation_is_deduplicated() {
+    // P-084：采纳在写事务内串行化后，后到的并发采纳不再收到 revision_conflict，
+    // 而是读到最新快照、按标题去重跳过重复建议（不产生第二条同标题任务）
+    let (_app, learning) = setup();
+    let store = learning.store().unwrap();
+    let recommendations = vec![Recommendation {
+        id: "node:plan-1:weak".into(),
+        title: "补强：待巩固节点".into(),
+        detail: "真实建议".into(),
+        kind: "practice".into(),
+        plan_id: Some("plan-1".into()),
+        node_id: Some("weak".into()),
+    }];
+    let ids = vec!["node:plan-1:weak".to_string()];
+    let (added, focus_id, events) = super::adopt_in_tx(&store, &recommendations, &ids).unwrap();
+    assert_eq!(added, 1);
+    assert!(focus_id.is_none());
+    assert_eq!(events.len(), 1);
+    let (added_again, focus_id_again, events_again) =
+        super::adopt_in_tx(&store, &recommendations, &ids).unwrap();
+    assert_eq!(added_again, 0, "同标题建议不重复建任务");
+    assert!(focus_id_again.is_none());
+    assert!(events_again.is_empty(), "无变更不产生事件");
+    let tasks = store.collection("tasks").unwrap().value;
+    assert_eq!(tasks.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn adopt_focus_recommendation_starts_focus_without_touching_tasks() {
+    // P-084：采纳专注类建议只启动专注、不写任务；已有进行中专注时报错且
+    // 不产生任何写入（占用检查与插入同在写事务内）
+    let (app, learning) = setup();
+    let report = ipc(&app, "get_learning_report", json!({"period":"8w"})).unwrap();
+    assert_eq!(report["recommendations"][0]["kind"], "focus");
+    let id = report["recommendations"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let adopted = ipc(&app, "adopt_report_recommendations", json!({"ids":[id]})).unwrap();
+    assert_eq!(adopted["added"], 0);
+    assert_eq!(adopted["focus"]["status"], "running");
+    let store = learning.store().unwrap();
+    assert!(store
+        .collection("tasks")
+        .unwrap()
+        .value
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        ipc(
+            &app,
+            "adopt_report_recommendations",
+            json!({"ids":["focus:new"]})
+        )
+        .unwrap_err()["code"],
+        "focus_active"
+    );
+    assert_eq!(running_focuses(&store), 1);
+}
+
+fn running_focuses(store: &Store) -> i64 {
+    store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM focus_sessions WHERE status IN ('running', 'paused')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+#[test]
 fn calendar_checkin_rate_denominator_follows_first_active_day() {
     // 15#1：分母 = 自首个活跃日起的天数——今天首活跃分母为 1（不再被固定
     // 84 稀释），83 天前首活跃分母为 84（打卡率不再超过 100%）

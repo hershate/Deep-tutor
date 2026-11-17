@@ -717,6 +717,17 @@ impl Store {
     }
 
     pub fn collection(&self, namespace: &str) -> Result<Collection> {
+        self.collection_in_tx(&self.conn, namespace)
+    }
+
+    /// P-084：在给定连接/事务内读集合值与版本号——采纳建议在写事务内取任务
+    /// 快照；原先值与版本分两条语句读，并发写落在两条读之间会得到「旧值 +
+    /// 新版本」的错配快照，版本守卫据此放行并覆盖并发写入
+    pub(crate) fn collection_in_tx(
+        &self,
+        conn: &Connection,
+        namespace: &str,
+    ) -> Result<Collection> {
         if namespace == "drafts" {
             return Err(BackendError::new(
                 "invalid_collection",
@@ -727,8 +738,8 @@ impl Store {
             return Err(BackendError::new("unknown_collection", "不支持的数据集合"));
         }
         Ok(Collection {
-            value: Self::collection_value(&self.conn, namespace, &self.account_path)?,
-            revision: Self::revision(&self.conn, namespace)?,
+            value: Self::collection_value(conn, namespace, &self.account_path)?,
+            revision: Self::revision(conn, namespace)?,
         })
     }
 
@@ -856,8 +867,8 @@ impl Store {
         Ok(Mutation { state, event })
     }
 
-    fn normalize_tasks(&self, value: &Value) -> Result<Value> {
-        let previous = self.collection("tasks")?.value;
+    /// 任务完成时间归一——previous 为归一前的 tasks 集合快照
+    fn normalize_tasks(&self, value: &Value, previous: &Value) -> Result<Value> {
         let mut normalized = value.clone();
         let timestamp = Self::now()?;
         if let Some(items) = normalized.as_array_mut() {
@@ -887,6 +898,27 @@ impl Store {
         expected_revision: i64,
         value: &Value,
     ) -> Result<Mutation> {
+        let value = self.prepare_collection(namespace, value)?;
+        // IMMEDIATE 事务：与流式 delta 写入并发时不再触发 BUSY_SNAPSHOT。
+        let tx = self.write_transaction()?;
+        let event = self.replace_collection_in_tx(&tx, namespace, expected_revision, &value)?;
+        self.finish_write_receipt(tx, Some(event))
+    }
+
+    /// 集合写入的前置：命名空间准入、任务完成时间归一、集合形状校验
+    pub(crate) fn prepare_collection(&self, namespace: &str, value: &Value) -> Result<Value> {
+        self.prepare_collection_with_previous(namespace, value, None)
+    }
+
+    /// P-084：调用方已在写事务内读到 tasks 快照时，把它作为 previous 传入——
+    /// 归一化不再在写锁内重复全量扫描 tasks 集合（扫描量随集合上限增长，写锁
+    /// 持有期随之变长，其它写者要等到 busy_timeout）
+    pub(crate) fn prepare_collection_with_previous(
+        &self,
+        namespace: &str,
+        value: &Value,
+        previous_tasks: Option<&Value>,
+    ) -> Result<Value> {
         if namespace == "resources" {
             return Err(BackendError::new(
                 "use_material_commands",
@@ -897,7 +929,13 @@ impl Store {
             return Err(BackendError::new("unknown_collection", "不支持的数据集合"));
         }
         let normalized = if namespace == "tasks" {
-            Some(self.normalize_tasks(value)?)
+            match previous_tasks {
+                Some(previous) => Some(self.normalize_tasks(value, previous)?),
+                None => {
+                    let previous = self.collection("tasks")?.value;
+                    Some(self.normalize_tasks(value, &previous)?)
+                }
+            }
         } else {
             None
         };
@@ -907,13 +945,24 @@ impl Store {
         } else {
             validate_collection(namespace, value)?;
         }
-        // IMMEDIATE 事务：与流式 delta 写入并发时不再触发 BUSY_SNAPSHOT。
+        Ok(value.clone())
+    }
+
+    /// P-084：在调用方事务内替换集合——采纳建议要把「启动专注」与「写入任务」
+    /// 放进同一事务，任一失败都不落库；原先两者分属两个事务，专注先提交、
+    /// 任务后提交，任务提交失败会留下界面上不可见的进行中专注
+    pub(crate) fn replace_collection_in_tx(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        namespace: &str,
+        expected_revision: i64,
+        value: &Value,
+    ) -> Result<BackendEvent> {
         // 25#18：notes 配额的计数检查放进写事务内执行。
         // 127#3/#6：增量基准改用事务内 COUNT——原先事务外把整个 notes
         // 集合全量读出反序列化只为 len()（万行级 IO 放大），且 autocommit
         // 快照与事务内计数在并发删除交叠时使 next-used 被低估、可超限；
         // 事务内读后 IMMEDIATE 串行化，增量恒正确
-        let tx = self.write_transaction()?;
         if namespace == "notes" {
             let next = value.as_array().map_or(0, Vec::len) as i64;
             let used: i64 = tx.query_row(
@@ -922,10 +971,10 @@ impl Store {
                 |row| row.get(0),
             )?;
             if next > used {
-                self.ensure_quota_in_tx(&tx, "notes", (next - used) as u64)?;
+                self.ensure_quota_in_tx(tx, "notes", (next - used) as u64)?;
             }
         }
-        let revision = Self::next_revision(&tx, namespace)?;
+        let revision = Self::next_revision(tx, namespace)?;
         if revision - 1 != expected_revision {
             return Err(BackendError::new(
                 "revision_conflict",
@@ -934,13 +983,13 @@ impl Store {
         }
         tx.execute("DELETE FROM kv WHERE namespace = ?1", params![namespace])?;
         if namespace == "preferences" {
-            Self::insert_json(&tx, namespace, "current", value)?;
+            Self::insert_json(tx, namespace, "current", value)?;
         } else {
             for item in value
                 .as_array()
                 .ok_or_else(|| BackendError::new("collection_must_be_array", "集合必须是数组"))?
             {
-                Self::insert_json(&tx, namespace, &record_id(item)?, item)?;
+                Self::insert_json(tx, namespace, &record_id(item)?, item)?;
             }
         }
         if namespace == "notes" {
@@ -967,11 +1016,11 @@ impl Store {
             tx.execute("DELETE FROM learning_node_tasks WHERE task_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'tasks')", [])?;
         }
         let event = Self::event(
-            &tx,
+            tx,
             "state.changed",
             json!({"namespace": namespace, "revision": revision}),
         )?;
-        self.finish_write_receipt(tx, Some(event))
+        Ok(event)
     }
 
     fn validate_draft_id(id: &str) -> Result<()> {
