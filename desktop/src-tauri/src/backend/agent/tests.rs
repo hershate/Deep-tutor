@@ -763,6 +763,284 @@ fn scratch_edits_preserve_lecture_versions_and_block_unsafe_paths() {
 }
 
 #[test]
+fn promote_version_conflict_closes_the_pending_approval() {
+    let (app, state, _server, session) = prepare();
+    learning::lecture::generate(
+        app.handle(),
+        &state.learning,
+        session.plan_id.as_deref().unwrap(),
+        "stage-1",
+        false,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let original = loop {
+        let lecture = learning::lecture::get(
+            &state.learning,
+            session.plan_id.as_deref().unwrap(),
+            "stage-1",
+            None,
+        )
+        .unwrap();
+        if !["running", "cancelling"].contains(&lecture.status.as_str()) {
+            break lecture;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let run = deferred_run(&app, &state, &session);
+    let unit = serde_json::to_value(original.units[0].content.as_ref().unwrap()).unwrap();
+    let written = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "artifact-write",
+        "workspace.write",
+        json!({"path": "notes/unit.json", "stageId": "stage-1", "unitIndex": 0, "content": unit}),
+    );
+    assert_eq!(written["status"], "committed");
+    let artifact_id = written["artifactId"].as_i64().unwrap();
+    let promotion = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "artifact-promote",
+        "artifact.promote",
+        json!({"artifactId": artifact_id}),
+    );
+    let approval_id = promotion["approvalId"].as_i64().unwrap();
+    // 制造版本冲突：讲义单元被更新时删除 learning_lectures 行，使
+    // promote 的版本条件 UPDATE 命中 0 行——等价于基础讲义在版本读取
+    // 与提交之间被并发推进
+    state
+        .store()
+        .unwrap()
+        .conn
+        .execute_batch(
+            "CREATE TRIGGER test_promote_version_conflict BEFORE UPDATE ON learning_lecture_units BEGIN DELETE FROM learning_lectures WHERE plan_id = OLD.plan_id AND stage_id = OLD.stage_id; END;",
+        )
+        .unwrap();
+    let error = tools::approve(app.handle(), &state, &approval_id.to_string()).unwrap_err();
+    state
+        .store()
+        .unwrap()
+        .conn
+        .execute_batch("DROP TRIGGER test_promote_version_conflict;")
+        .unwrap();
+    assert_eq!(error.code, "lecture_version_conflict");
+    // P-076：版本冲突拒绝后审批必须收口，不得停留 pending——原先事务
+    // 回滚把 resolve_pending 一并撤销，审批卡永驻且每次批准重复报错
+    let approval_status: String = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT status FROM agent_approvals WHERE id = ?1",
+            params![approval_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(approval_status, "expired");
+    // 冲突拒绝不得推进讲义版本，也不得把产物标记为已提升
+    assert_eq!(
+        learning::lecture::get(
+            &state.learning,
+            session.plan_id.as_deref().unwrap(),
+            "stage-1",
+            None
+        )
+        .unwrap()
+        .version,
+        1
+    );
+    let artifact_status: String = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT status FROM agent_artifacts WHERE id = ?1",
+            params![artifact_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(artifact_status, "committed");
+}
+
+#[test]
+fn workspace_list_returns_artifact_summaries_without_content() {
+    let (app, state, _server, session) = prepare();
+    learning::lecture::generate(
+        app.handle(),
+        &state.learning,
+        session.plan_id.as_deref().unwrap(),
+        "stage-1",
+        false,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let original = loop {
+        let lecture = learning::lecture::get(
+            &state.learning,
+            session.plan_id.as_deref().unwrap(),
+            "stage-1",
+            None,
+        )
+        .unwrap();
+        if !["running", "cancelling"].contains(&lecture.status.as_str()) {
+            break lecture;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let run = deferred_run(&app, &state, &session);
+    let mut unit = serde_json::to_value(original.units[0].content.as_ref().unwrap()).unwrap();
+    // 讲义正文放大到 16KB 以上——清单若仍装入完整 content，模型可见
+    // 份额会被截断在产物数组中段，后续产物的 id/path/status 不可见
+    let body = "长正文".repeat(2000);
+    unit["sections"] = json!([
+        {"heading": "扩写章节一", "content": body.clone()},
+        {"heading": "扩写章节二", "content": body.clone()},
+        {"heading": "扩写章节三", "content": body},
+    ]);
+    let written = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "artifact-write",
+        "workspace.write",
+        json!({"path": "notes/unit.json", "stageId": "stage-1", "unitIndex": 0, "content": unit}),
+    );
+    assert_eq!(written["status"], "committed");
+    let artifact_id = written["artifactId"].as_i64().unwrap();
+    let listed = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "workspace-list",
+        "workspace.list",
+        json!({}),
+    );
+    assert_eq!(listed["status"], "done");
+    let artifacts = listed["artifacts"].as_array().unwrap();
+    assert_eq!(artifacts.len(), 1);
+    let summary = &artifacts[0];
+    assert_eq!(summary["id"], artifact_id);
+    assert_eq!(summary["path"], "notes/unit.json");
+    assert_eq!(summary["stageId"], "stage-1");
+    assert_eq!(summary["unitIndex"], 0);
+    assert_eq!(summary["status"], "committed");
+    assert_eq!(summary["title"], "原生讲义");
+    // P-077：摘要不含完整 content——内容由 workspace.read 按需读取
+    assert!(summary.get("content").is_none());
+    assert!(summary.get("overview").is_none());
+    // 清单整体留在模型可见份额（16KB）之内，可被完整解析
+    assert!(
+        serde_json::to_string(&listed).unwrap().len() < 16 * 1024,
+        "产物清单超出模型可见份额，条目会被截断"
+    );
+    // 完整内容仍可按需读取
+    let read = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "workspace-read",
+        "workspace.read",
+        json!({"reference": format!("artifact:{artifact_id}")}),
+    );
+    assert_eq!(read["content"]["title"], "原生讲义");
+    assert_eq!(
+        read["content"]["sections"][0]["content"]
+            .as_str()
+            .unwrap()
+            .len(),
+        18_000
+    );
+}
+
+#[test]
+fn workspace_list_trims_artifact_summaries_by_byte_budget() {
+    let (app, state, _server, session) = prepare();
+    learning::lecture::generate(
+        app.handle(),
+        &state.learning,
+        session.plan_id.as_deref().unwrap(),
+        "stage-1",
+        false,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let original = loop {
+        let lecture = learning::lecture::get(
+            &state.learning,
+            session.plan_id.as_deref().unwrap(),
+            "stage-1",
+            None,
+        )
+        .unwrap();
+        if !["running", "cancelling"].contains(&lecture.status.as_str()) {
+            break lecture;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let run = deferred_run(&app, &state, &session);
+    let unit = serde_json::to_value(original.units[0].content.as_ref().unwrap()).unwrap();
+    // 60 个产物，每个都带近上限的长标题（讲义标题写入侧限 200 字节）与
+    // 近上限的长路径（artifact_path 限 128 字节）——条数封顶（50）之下
+    // 摘要总量仍会越过 16KB 模型可见份额
+    let long_title = "标".repeat(60);
+    let mut newest = 0i64;
+    for index in 0..60 {
+        let mut content = unit.clone();
+        content["title"] = json!(format!("{long_title}-{index}"));
+        let path = format!("notes/{}/unit-{index}.json", "d".repeat(100));
+        let written = call(
+            &app,
+            &state,
+            run.id,
+            &session,
+            &format!("artifact-write-{index}"),
+            "workspace.write",
+            json!({"path": path, "stageId": "stage-1", "unitIndex": 0, "content": content}),
+        );
+        assert_eq!(written["status"], "committed");
+        newest = written["artifactId"].as_i64().unwrap();
+    }
+    let listed = call(
+        &app,
+        &state,
+        run.id,
+        &session,
+        "workspace-list",
+        "workspace.list",
+        json!({}),
+    );
+    assert_eq!(listed["status"], "done");
+    let artifacts = listed["artifacts"].as_array().unwrap();
+    // 整段结果仍落在模型可见份额之内，可被完整解析（不被截断成 preview）
+    assert!(
+        serde_json::to_string(&listed).unwrap().len() <= MODEL_TOOL_CONTENT_LIMIT,
+        "产物清单超出模型可见份额，条目会被截断成不可解析的预览串"
+    );
+    // 字节预算生效：清单被裁剪并如实标记截断
+    assert_eq!(listed["artifactsTruncated"], true);
+    assert!(artifacts.len() < 60, "清单未被裁剪");
+    assert!(artifacts.len() <= 50, "清单未被条数上限裁剪");
+    // 最新产物恒在首位——产物 id 是模型继续推进的唯一凭据
+    assert_eq!(artifacts[0]["id"], newest);
+    // 标题按字节裁剪，摘要仍不含完整 content
+    let title = artifacts[0]["title"].as_str().unwrap();
+    assert!(title.ends_with('…'), "标题未被裁剪：{title}");
+    assert!(title.len() < long_title.len() + 8);
+    assert!(artifacts[0].get("content").is_none());
+}
+
+#[test]
 fn cancelling_a_stream_preserves_partial_output_and_retries_with_a_new_request() {
     let (app, state, _baseline, session) = prepare();
     let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));

@@ -454,6 +454,120 @@ fn read_artifact(
     ))
 }
 
+/// P-077：产物清单摘要条数上限——清单本身也是模型可见负载，
+/// 条数无上限时超长清单会再次触发 16KB 截断，把 JSON 压成不可解析
+/// 的预览串。
+const ARTIFACT_SUMMARY_LIMIT: usize = 50;
+
+/// P-077：单条摘要的标题字节上限——标题是讲义内容的自由文本，写入侧
+/// 限 200 字节（learning/lecture.rs 的 validate_content），path 由
+/// artifact_path 限 128 字节，只有 stageId 没有长度约束。标题只用于
+/// 模型辨认产物，裁短不影响 id 关联，完整标题交由 workspace.read
+/// 按需读取。
+const ARTIFACT_TITLE_LIMIT: usize = 64;
+
+/// P-077：单条摘要的字节上限——摘要含 path/stageId/title 三个变长字段，
+/// 单条即可撑爆模型可见份额。超限时先裁标题，仍超限（stageId 等异常
+/// 长）的条目整条丢弃并计入截断标记。
+const ARTIFACT_SUMMARY_ENTRY_LIMIT: usize = 1024;
+
+/// P-077：workspace.list 结果的固定开销余量——status/planId/字段名/
+/// 布尔位与 JSON 转义膨胀。产物字节预算从模型可见份额中扣除该余量。
+const WORKSPACE_LIST_OVERHEAD: usize = 256;
+
+/// 按字节裁剪自由文本（标题）：在字符边界截断，超出部分以省略号收尾。
+fn clip_text(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.to_string();
+    }
+    let mut cut = limit.saturating_sub("…".len());
+    while cut > 0 && !value.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let mut clipped = value[..cut].to_string();
+    clipped.push('…');
+    clipped
+}
+
+/// P-077：读取会话产物的摘要字段（不含完整 content）——原先
+/// workspace.list 直接装入全部产物的完整 content，模型可见份额被
+/// 16KB 截断在产物数组中段，后续产物的 id/path/status 不可见，
+/// 模型只能猜测产物 id 去构造 workspace.read artifact:<ID> 等调用并
+/// 被 not_found 拒绝；content 交由 workspace.read 按需读取。
+/// 同时不再借用 get()——那会连带反序列化最近 100 条会话消息与 10 条
+/// 运行记录，对「列出产物」无用。
+///
+/// 条数封顶（50）不足以保证整段结果可解析：单条摘要约 200B，50 条长
+/// path/长标题叠加仍会越过 16KB，越界后 truncate_for_model 只留
+/// preview 串，模型拿不到任何产物 id——P-077 的症状原样复现。故此处
+/// 同时按字节预算裁剪：byte_budget 由调用方按「模型可见份额 − 同段
+/// stages 载荷 − 固定开销」给出，逐条累加序列化字节，超预算即停。
+/// 返回 (摘要列表, 是否因上限截断)。
+fn artifact_summaries(
+    state: &AgentState,
+    session: &AgentSession,
+    byte_budget: usize,
+) -> Result<(Vec<Value>, bool)> {
+    let store = state.store()?;
+    let mut statement = store.conn.prepare(
+        "SELECT id, path, stage_id, unit_index, status, content_json, created_at, expires_at FROM agent_artifacts WHERE session_id = ?1 ORDER BY id DESC LIMIT ?2",
+    )?;
+    let rows = statement
+        .query_map(
+            params![session.id, (ARTIFACT_SUMMARY_LIMIT + 1) as i64],
+            |row| {
+                let content_json: String = row.get(5)?;
+                Ok(json!({
+                    "id": row.get::<_, i64>(0)?,
+                    "path": row.get::<_, String>(1)?,
+                    "stageId": row.get::<_, String>(2)?,
+                    "unitIndex": row.get::<_, i64>(3)?,
+                    "status": row.get::<_, String>(4)?,
+                    // 标题是讲义内容的首字段，坏 content_json 降级为空串
+                    // （75#3 同款降级口径，坏行不使整个清单失败）
+                    "title": serde_json::from_str::<Value>(&content_json)
+                        .ok()
+                        .and_then(|content| {
+                            content.get("title").and_then(Value::as_str).map(str::to_string)
+                        })
+                        .unwrap_or_default(),
+                    "createdAt": row.get::<_, String>(6)?,
+                    "expiresAt": row.get::<_, String>(7)?,
+                }))
+            },
+        )?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut truncated = rows.len() > ARTIFACT_SUMMARY_LIMIT;
+    let mut kept: Vec<Value> = Vec::with_capacity(rows.len());
+    // 数组自身的 "[]" 与条目间逗号计入预算
+    let mut used = 2usize;
+    for mut entry in rows.into_iter().take(ARTIFACT_SUMMARY_LIMIT) {
+        if let Some(title) = entry
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        {
+            entry["title"] = Value::String(clip_text(&title, ARTIFACT_TITLE_LIMIT));
+        }
+        let entry_bytes = serde_json::to_string(&entry)?.len();
+        if entry_bytes > ARTIFACT_SUMMARY_ENTRY_LIMIT {
+            // 变长字段（stageId 等）异常长：整条丢弃，模型仍可用
+            // workspace.write 返回的 artifactId 定位该产物
+            truncated = true;
+            continue;
+        }
+        let cost = entry_bytes + usize::from(!kept.is_empty());
+        // 首条恒保留：产物 id 是模型继续推进的唯一凭据
+        if !kept.is_empty() && used + cost > byte_budget {
+            truncated = true;
+            break;
+        }
+        used += cost;
+        kept.push(entry);
+    }
+    Ok((kept, truncated))
+}
+
 fn approval<R: Runtime>(
     app: &AppHandle<R>,
     state: &AgentState,
@@ -667,8 +781,24 @@ pub fn execute<R: Runtime>(
             "workspace.list" => {
                 let plan_id = required_plan_id(session)?;
                 let plan = learning::get(&state.learning, plan_id)?;
+                let stages = plan.result.as_ref().map(|result| &result.stages);
+                // P-077：只列摘要字段——完整 content 由 workspace.read
+                // artifact:<ID> 按需读取，避免模型可见份额被 16KB 截断。
+                // 字节预算：模型可见份额（16KB）扣掉同段 stages 载荷与固定
+                // 开销——条数封顶不足以保证整段 JSON 落在份额内，越界后
+                // truncate_for_model 会把 JSON 压成不可解析的 preview 串，
+                // 模型拿不到任何产物 id
+                let stages_bytes = stages
+                    .map(|value| serde_json::to_string(value))
+                    .transpose()?
+                    .map(|text| text.len())
+                    .unwrap_or(0);
+                let budget = super::MODEL_TOOL_CONTENT_LIMIT
+                    .saturating_sub(stages_bytes)
+                    .saturating_sub(WORKSPACE_LIST_OVERHEAD);
+                let (artifacts, truncated) = artifact_summaries(state, session, budget)?;
                 Ok(
-                    json!({"status": "done", "planId": session.plan_id, "stages": plan.result.as_ref().map(|result| &result.stages), "artifacts": get(state, &session.id.to_string())?.artifacts}),
+                    json!({"status": "done", "planId": session.plan_id, "stages": stages, "artifacts": artifacts, "artifactsTruncated": truncated}),
                 )
             }
             "workspace.read" => match string(&arguments, "reference")? {
@@ -1148,30 +1278,62 @@ fn promote<R: Runtime>(
     }
     let version = lecture.version + 1;
     let timestamp = now()?;
-    let tx = store.conn.unchecked_transaction()?;
-    resolve_pending(&tx, approval_id, "approved", &timestamp)?;
-    tx.execute("INSERT INTO learning_lecture_units (plan_id, stage_id, version, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, updated_at) SELECT plan_id, stage_id, ?1, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, ?2 FROM learning_lecture_units WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5", params![version, timestamp, learning::plan_id(plan_id)?, artifact.0, lecture.version])?;
-    tx.execute("UPDATE learning_lecture_units SET content_json = ?1, status = 'done', request_id = NULL, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5 AND unit_index = ?6", params![serde_json::to_string(&content)?, timestamp, learning::plan_id(plan_id)?, artifact.0, version, artifact.1])?;
-    let promoted = tx.execute("UPDATE learning_lectures SET version = ?1, status = 'done', current_unit = ?2, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE plan_id = ?4 AND stage_id = ?5 AND version = ?6", params![version, lecture.units.len() as i64, timestamp, learning::plan_id(plan_id)?, artifact.0, lecture.version])?;
-    if promoted != 1 {
-        return Err(BackendError::new(
-            "lecture_version_conflict",
-            "基础讲义已更新，请基于新版本重新生成 scratch 产物",
-        ));
+    // P-076：版本条件 UPDATE 命中 0 行（基础讲义在版本读取与提交之间
+    // 被并发推进）时收口 pending 审批——原先直接 return Err，事务随句柄
+    // 析构回滚，同事务内的 resolve_pending 一并回滚，审批行停留 pending，
+    // 审批卡永驻且用户无从得知该审批已失效。事务体整体放进闭包：出错时
+    // 事务先回滚，再走 156#1 的 reject_with_pending 统一把审批 resolve
+    // 为 expired 并发 agent.approval_expired 事件
+    //
+    // 如实口径（评审复核）：冲突不是「每次点批准都重复同一错误且重试
+    // 无法自愈」——promote 每次调用都重新读取讲义版本（上方
+    // learning::lecture::get），版本未再推进时重试会直接成功（把按旧
+    // 版本生成的产物内容提升为新版本）。收口 pending 的收益是让失效
+    // 审批显式过期、用户重新批准一次，不是消除版本冲突本身。
+    //
+    // 行为扩大：闭包覆盖 promote 事务内的全部错误（含 commit 失败等偶发
+    // DB 错误），这些错误原先同样因回滚把审批留在 pending。一律收口为
+    // expired 与 156#1 的既有口径一致；且失败后仍留 pending 审批存在
+    // 「提交实际已生效再批准一次」的重复提升风险
+    let promotion = (|| -> Result<super::super::store::BackendEvent> {
+        let tx = store.conn.unchecked_transaction()?;
+        resolve_pending(&tx, approval_id, "approved", &timestamp)?;
+        tx.execute("INSERT INTO learning_lecture_units (plan_id, stage_id, version, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, updated_at) SELECT plan_id, stage_id, ?1, unit_index, node_id, status, attempt, request_id, content_json, error_code, error_message, ?2 FROM learning_lecture_units WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5", params![version, timestamp, learning::plan_id(plan_id)?, artifact.0, lecture.version])?;
+        tx.execute("UPDATE learning_lecture_units SET content_json = ?1, status = 'done', request_id = NULL, error_code = NULL, error_message = NULL, updated_at = ?2 WHERE plan_id = ?3 AND stage_id = ?4 AND version = ?5 AND unit_index = ?6", params![serde_json::to_string(&content)?, timestamp, learning::plan_id(plan_id)?, artifact.0, version, artifact.1])?;
+        let promoted = tx.execute("UPDATE learning_lectures SET version = ?1, status = 'done', current_unit = ?2, error_code = NULL, error_message = NULL, updated_at = ?3 WHERE plan_id = ?4 AND stage_id = ?5 AND version = ?6", params![version, lecture.units.len() as i64, timestamp, learning::plan_id(plan_id)?, artifact.0, lecture.version])?;
+        if promoted != 1 {
+            return Err(BackendError::new(
+                "lecture_version_conflict",
+                "基础讲义已更新，请基于新版本重新生成 scratch 产物",
+            ));
+        }
+        tx.execute("INSERT INTO learning_lecture_versions (plan_id, stage_id, version, created_at) VALUES (?1, ?2, ?3, ?4)", params![learning::plan_id(plan_id)?, artifact.0, version, timestamp])?;
+        tx.execute(
+            "UPDATE agent_artifacts SET status = 'promoted' WHERE id = ?1",
+            params![artifact_id],
+        )?;
+        let event = Store::event(
+            &tx,
+            "agent.artifact_promoted",
+            json!({"sessionId": session.id, "approvalId": approval_id, "artifactId": artifact_id, "planId": session.plan_id, "stageId": artifact.0, "version": version}),
+        )?;
+        tx.commit()?;
+        Ok(event)
+    })();
+    match promotion {
+        Ok(event) => {
+            emit(app, &event);
+            Ok(())
+        }
+        Err(error) => Err(reject_with_pending(
+            app,
+            &store,
+            approval_id,
+            artifact_id,
+            &error.code,
+            &error.message,
+        )),
     }
-    tx.execute("INSERT INTO learning_lecture_versions (plan_id, stage_id, version, created_at) VALUES (?1, ?2, ?3, ?4)", params![learning::plan_id(plan_id)?, artifact.0, version, timestamp])?;
-    tx.execute(
-        "UPDATE agent_artifacts SET status = 'promoted' WHERE id = ?1",
-        params![artifact_id],
-    )?;
-    let event = Store::event(
-        &tx,
-        "agent.artifact_promoted",
-        json!({"sessionId": session.id, "approvalId": approval_id, "artifactId": artifact_id, "planId": session.plan_id, "stageId": artifact.0, "version": version}),
-    )?;
-    tx.commit()?;
-    emit(app, &event);
-    Ok(())
 }
 
 pub fn cancel_approval<R: Runtime>(app: &AppHandle<R>, state: &AgentState, id: &str) -> Result<()> {
