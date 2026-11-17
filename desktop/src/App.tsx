@@ -17,10 +17,10 @@ import Settings from './pages/Settings'
 import SharedPlan from './pages/SharedPlan'
 import TutorPanel from './components/TutorPanel'
 import AgentTaskCenter from './components/AgentTaskCenter'
-import DataDirectoryPanel from './components/DataDirectoryPanel'
+import DataDirectoryPanel, { DataDirectoryNotice } from './components/DataDirectoryPanel'
 import SecurityPanel from './components/SecurityPanel'
 import { Button, ConfirmDialog, hasOpenModal, IconButton, Modal, useFocusContainment } from './components/UI'
-import type { PageId, Project, Task } from './data'
+import type { PageId, Project, Task, GeneratorDraft } from './data'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
@@ -69,6 +69,10 @@ export default function App() {
   const [mapPlanId, setMapPlanId] = useState<string | null>(null)
   // 120#5：全局搜索节点结果的地图定位目标（nonce 支持同一节点重复点击）
   const [mapNodeTarget, setMapNodeTarget] = useState<{ planId: string; nodeId: string; nonce: number } | null>(null)
+  // 150#7：方案生成页的输入草稿槽——「前往模型接入中心」会离页，
+  // 组件本地 state 随之丢失（目标/基础/日期/里程碑与资料勾选全清）。
+  // 用 ref 承载：逐字输入不触发 App 重渲染，离页再回来时按草稿恢复
+  const generatorDraftRef = useRef<GeneratorDraft | null>(null)
   const [tutorOpen, setTutorOpen] = useState(false)
   const [tutorContext, setTutorContext] = useState<{ planId: string; label: string } | null>(null)
   const [modal, setModal] = useState<'search' | 'quick' | 'notifications' | 'tasks' | null>(null)
@@ -190,13 +194,17 @@ export default function App() {
   // 晚到仍会覆盖新请求成功后的清错
   const notificationsSeq = useRef(0)
   const notificationsLive = useRef(false)
-  const loadNotifications = useCallback(async () => {
+  // 150#1：回传本次读取到的概览（失败为 null）——预约提醒弹层需要在通知
+  // 尚未加载（或读取失败）时补读一次，拿到真实 suppressed 才决定是否弹层
+  const loadNotifications = useCallback(async (): Promise<NotificationOverview | null> => {
     const ticket = ++notificationsSeq.current
     try {
       const next = await engagementBackend.notifications()
       if (notificationsLive.current && ticket === notificationsSeq.current) { setNotifications(next); setNotificationsError('') }
+      return next
     } catch (error) {
       if (notificationsLive.current && ticket === notificationsSeq.current) { setNotificationsError(backendErrorMessage(error)); reportBackendError(error) }
+      return null
     }
   }, [])
   useEffect(() => {
@@ -250,10 +258,17 @@ export default function App() {
         // 37#6：同一轮领取的多条到期预约逐条可见——原先只弹最后一条标题
         // 115#4：免打扰时段不主动弹层（通知中心仍保留行，30s 轮询刷新），
         // 与设置页「通知仍保留在中心，不主动弹出提醒」的承诺对齐
-        if (active && due.length && !notificationsRef.current?.suppressed) {
-          const titles = due.map(item => item.title)
-          const listed = titles.length > 5 ? `${titles.slice(0, 5).join('、')} 等` : titles.join('、')
-          notify(due.length === 1 ? `预约「${listed}」即将开始` : `${due.length} 条预约即将开始：${listed}`)
+        // 150#1：免打扰判据必须来自真实通知概览——notifications 未加载
+        // （启动瞬间 claim 先于 get_notifications 返回）或读取持续失败时
+        // 原先取到 undefined，!undefined 为真，免打扰用户仍被主动弹出。
+        // 此处补读一次；仍读不到则按「不主动弹出」处理（通知中心仍保留行）
+        if (active && due.length) {
+          const overview = notificationsRef.current ?? await loadNotifications()
+          if (active && overview && !overview.suppressed) {
+            const titles = due.map(item => item.title)
+            const listed = titles.length > 5 ? `${titles.slice(0, 5).join('、')} 等` : titles.join('、')
+            notify(due.length === 1 ? `预约「${listed}」即将开始` : `${due.length} 条预约即将开始：${listed}`)
+          }
         }
       } catch {
         claimFailures += 1
@@ -270,7 +285,7 @@ export default function App() {
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => { active = false; document.removeEventListener('visibilitychange', onVisibility); window.clearInterval(timer) }
-  }, [ready, loginRequired])
+  }, [ready, loginRequired, loadNotifications])
   useEffect(() => {
     // 37#3：dragDropEnabled 早已开启但全仓无处理器——拖入被 WebView2 静默
     // 吞掉。现在全窗口接收 OS 拖放：文件经共享导入通道暂存进资料库，
@@ -439,13 +454,13 @@ export default function App() {
   const renderPage = () => {
     switch (page) {
       case 'today': return <Dashboard tasks={tasks} setTasks={setTasks} onNavigate={navigate} onFocus={openFocus} notify={notify} overview={homeSummary} summaryError={homeSummaryError} onRetrySummary={() => setSummaryReload(current => current + 1)} />
-      case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} />
+      case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} draftRef={generatorDraftRef} />
       case 'plan': return <Plan setTasks={setTasks} onNavigate={navigate} notify={notify} />
-      case 'agent': return <AgentCenter notify={notify} />
+      case 'agent': return <AgentCenter notify={notify} onNavigate={navigate} />
       // 104#1：学习空间「专注模式」入口原先绕过 openFocus（不拉取后端
       // 会话、不置 loading）——存在运行中会话时点「开始专注」撞
       // focus_active，且先按默认 25:00 渲染（91#6 要消除的场景）
-      case 'study': return <StudyRoom target={studyTarget} onFocus={() => openFocus()} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} />
+      case 'study': return <StudyRoom target={studyTarget} onFocus={() => openFocus()} onNavigate={navigate} onTutorContext={setTutorContext} notify={notify} onTargetConsumed={() => setStudyTarget(null)} />
       case 'map': return <KnowledgeMap onNavigate={navigate} notify={notify} initialPlanId={mapPlanId} focusTarget={mapNodeTarget} onFocusConsumed={() => setMapNodeTarget(null)} onStudy={(planId, stageId) => { setStudyTarget({ planId, stageId, nonce: Date.now() }); navigate('study') }} onPractice={(planId, stageId, nodeId) => { setPracticeTarget({ planId, stageId, nodeId, nonce: Date.now() }); navigate('practice') }} />
       case 'practice': return <Practice notify={notify} target={practiceTarget} onTargetConsumed={() => setPracticeTarget(null)} onNavigate={navigate} />
       case 'review': return <Review notify={notify} />
@@ -489,6 +504,9 @@ export default function App() {
 
     <div className="app-main">
       <header className="topbar"><div className="topbar-left"><IconButton label="打开导航" className="mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton><button className="global-search" onClick={() => openAppModal('search')}><Search size={17} /><span>搜索课程、笔记或知识节点…</span><kbd>Ctrl + K</kbd></button></div><div className="topbar-actions"><button className="quick-add" onClick={() => openAppModal('quick')}><Plus size={18} /><span>快速记录</span></button><IconButton label={preferences.theme === 'light' ? '切换深色模式' : '切换明亮模式'} onClick={() => setPreferences(current => ({ ...current, theme: current.theme === 'light' ? 'dark' : 'light' }))}  /* 35#5：updater 形态——渲染闭包整对象会被排队写入整体覆盖（32#13 同型） */>{preferences.theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</IconButton><IconButton label="通知" className="notification-button" onClick={() => openAppModal('notifications')}><Bell size={18} />{notifications && notifications.unreadCount > 0 && <i>{notifications.unreadCount}</i>}</IconButton><Button variant="secondary" size="sm" className="ask-agent" onClick={() => setTutorOpen(true)} title={modelTasks > 0 ? `${modelTasks} 个模型请求进行中（Agent 每步模型调用同时计数），点击打开知舟导师；运行中的任务可在 Agent 任务中心查看或取消` : undefined}>{modelTasks > 0 && <span className="live-dot" aria-hidden="true" />}<Sparkles size={16} />问知舟</Button></div></header>
+      {/* P-001：数据目录缺失提示的全局横幅——启动错误页与设置页之外的
+          正常运行路径也要能看到，否则用户只见到一个空工作区 */}
+      <DataDirectoryNotice onOpenSettings={() => navigate('settings')} />
       <main id="main-content" className="main-content" tabIndex={-1}><Suspense fallback={<div className="page-loading" role="status"><LoaderMark />正在加载学习工作区…</div>}><PageErrorBoundary key={page}>{renderPage()}</PageErrorBoundary></Suspense></main>
     </div>
 

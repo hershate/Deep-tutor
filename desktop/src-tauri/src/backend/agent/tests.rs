@@ -1525,3 +1525,355 @@ fn general_chat_works_without_a_learning_plan_and_hides_workspace_tools() {
         .iter()
         .any(|message| message.role == "assistant" && message.content == "通用问答可独立使用"));
 }
+
+// 32#1：workspace.write 的工具定义必须把 content/overwrite 声明在顶层
+// properties，并在顶层声明 required——原先三者被误嵌进 unitIndex 的
+// schema 对象，模型收到的契约里全部参数皆可选且 content 无结构提示
+#[test]
+fn workspace_write_definition_declares_content_and_required_at_the_top_level() {
+    let session = AgentSession {
+        id: 1,
+        title: "工具目录测试".into(),
+        plan_id: Some("plan-1".into()),
+        provider_id: "test".into(),
+        budget_tokens: 16_000,
+        output_tokens_used: 0,
+        status: "active".into(),
+        messages: Vec::new(),
+        runs: Vec::new(),
+        artifacts: Vec::new(),
+        approvals: Vec::new(),
+        memory: Vec::new(),
+        updated_at: "2026-01-01T00:00:00Z".into(),
+    };
+    let catalog = tools::catalog(&session);
+    let write = catalog
+        .iter()
+        .find(|tool| tool.function.name == "workspace.write")
+        .expect("工具目录应含 workspace.write");
+    let parameters = &write.function.parameters;
+    let properties = parameters
+        .get("properties")
+        .and_then(Value::as_object)
+        .expect("parameters.properties 应为对象");
+    assert!(
+        properties.contains_key("content"),
+        "content 必须声明在顶层 properties"
+    );
+    assert!(
+        properties.contains_key("overwrite"),
+        "overwrite 必须声明在顶层 properties"
+    );
+    let unit_index = properties
+        .get("unitIndex")
+        .and_then(Value::as_object)
+        .expect("unitIndex 应为对象");
+    assert!(
+        !unit_index.contains_key("content"),
+        "content 不得嵌在 unitIndex 的 schema 内"
+    );
+    assert!(
+        !unit_index.contains_key("overwrite"),
+        "overwrite 不得嵌在 unitIndex 的 schema 内"
+    );
+    let required = parameters
+        .get("required")
+        .and_then(Value::as_array)
+        .expect("顶层应有 required 数组");
+    for key in ["stageId", "unitIndex", "content"] {
+        assert!(
+            required.iter().any(|item| item.as_str() == Some(key)),
+            "顶层 required 缺少 {key}"
+        );
+    }
+    let content = properties
+        .get("content")
+        .and_then(Value::as_object)
+        .expect("content 应为对象");
+    assert!(content.contains_key("properties"), "content 需要结构提示");
+    assert!(content.contains_key("required"), "content 需要声明必填字段");
+}
+
+// 75#1：工具参数不是合法 JSON、不是 JSON 对象、标识超限或参数超 64KB 时，
+// 整轮运行不再直接失败——错误作为工具结果回给模型，模型据此修正参数重试
+#[test]
+fn malformed_tool_arguments_are_returned_to_the_model_as_tool_results() {
+    let (app, state) = setup();
+    let agent_server = server(|_request, stream| {
+        response(stream, "200 OK", "data: [DONE]\n\n");
+    });
+    configure_provider(&app, &state, &agent_server.url());
+    let session = new_session(app.handle(), &state, None, None, Some(16_000)).unwrap();
+    let run = deferred_run(&app, &state, &session);
+    let call = |id: &str, arguments: &str| ToolCall {
+        id: id.into(),
+        name: "workspace.list".into(),
+        arguments: arguments.into(),
+    };
+    let failed_code = |outcome: &Value| {
+        outcome
+            .get("error")
+            .and_then(|error| error.get("code"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    let invalid_json = tools::execute(
+        app.handle(),
+        &state,
+        run.id,
+        &session,
+        &call("bad-json", "{不是 JSON"),
+        1,
+    )
+    .expect("坏参数不应让整轮运行失败");
+    assert_eq!(
+        invalid_json.get("status").and_then(Value::as_str),
+        Some("failed")
+    );
+    assert_eq!(
+        failed_code(&invalid_json).as_deref(),
+        Some("invalid_tool_arguments")
+    );
+    let not_object = tools::execute(
+        app.handle(),
+        &state,
+        run.id,
+        &session,
+        &call("not-object", "[1,2]"),
+        1,
+    )
+    .expect("非对象参数不应让整轮运行失败");
+    assert_eq!(
+        failed_code(&not_object).as_deref(),
+        Some("invalid_tool_arguments")
+    );
+    let oversized_id = tools::execute(
+        app.handle(),
+        &state,
+        run.id,
+        &session,
+        &call(&"x".repeat(200), "{}"),
+        1,
+    )
+    .expect("超长标识不应让整轮运行失败");
+    assert_eq!(
+        failed_code(&oversized_id).as_deref(),
+        Some("invalid_tool_call")
+    );
+    let oversized_arguments = tools::execute(
+        app.handle(),
+        &state,
+        run.id,
+        &session,
+        &call("too-large", &"a".repeat(64 * 1024 + 1)),
+        1,
+    )
+    .expect("超限参数不应让整轮运行失败");
+    assert_eq!(
+        failed_code(&oversized_arguments).as_deref(),
+        Some("invalid_tool_call")
+    );
+    // 登记行已收尾为 failed：同 id 重放不会命中 tool_active 被永久拒绝
+    let status: String = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT status FROM agent_tool_calls WHERE id = 'bad-json'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "failed");
+}
+
+// 75#1 返工：非法工具调用 id（空 / 超长）在进入协议序列前换成合成 id——
+// 合成 id 非空且不超 128 字节；同一 (run, step, index) 恒定（续接重跑时
+// 同 id 命中已登记的 agent_tool_calls 行，不重复产生副作用）；与真实 id
+// 及历史已占用的 id 不撞号
+#[test]
+fn invalid_tool_call_ids_are_repaired_into_unique_synthetic_ids() {
+    let calls = vec![
+        ToolCall {
+            id: String::new(),
+            name: "workspace.list".into(),
+            arguments: "{}".into(),
+        },
+        ToolCall {
+            id: "x".repeat(200),
+            name: "workspace.list".into(),
+            arguments: "{}".into(),
+        },
+        ToolCall {
+            id: "call-real".into(),
+            name: "workspace.list".into(),
+            arguments: "{}".into(),
+        },
+    ];
+    let mut used: HashSet<String> = HashSet::new();
+    let repaired = repair_tool_call_ids(&calls, &mut used, 7, 3);
+    assert_eq!(repaired.len(), 3);
+    assert!(
+        valid_tool_call_id(&repaired[0].id),
+        "空 id 必须被替换：{}",
+        repaired[0].id
+    );
+    assert!(
+        valid_tool_call_id(&repaired[1].id),
+        "超长 id 必须被替换：{}",
+        repaired[1].id
+    );
+    assert_eq!(repaired[2].id, "call-real", "合法 id 必须原样保留");
+    assert_ne!(
+        repaired[0].id, repaired[1].id,
+        "同响应的两个非法 id 必须错开"
+    );
+    // 同一 (run, step, index) 恒定：续接重跑时同 id 命中已登记行
+    let mut again: HashSet<String> = HashSet::new();
+    let repeated = repair_tool_call_ids(&calls, &mut again, 7, 3);
+    assert_eq!(repeated[0].id, repaired[0].id);
+    assert_eq!(repeated[1].id, repaired[1].id);
+    // 合成 id 已被历史占用时必须加后缀避开——同 id 会让 23#9 的
+    // declared/answered 配对错位
+    let mut occupied: HashSet<String> = HashSet::new();
+    occupied.insert(repaired[0].id.clone());
+    let collided = repair_tool_call_ids(&calls, &mut occupied, 7, 3);
+    assert_ne!(collided[0].id, repaired[0].id, "已被占用的合成 id 必须避开");
+    assert!(valid_tool_call_id(&collided[0].id));
+}
+
+// 75#1 返工：历史里残留的空 id / 超长 id 声明与回复不参与配对——修复前
+// 入库的数据若原样重放，序列会带出非法 tool_call / tool_call_id，严格
+// OpenAI 系端点整体 400
+#[test]
+fn history_replay_drops_legacy_invalid_tool_call_ids() {
+    let (app, state) = setup();
+    let _ = &app;
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES ('非法标识会话', 'plan-1', 'p1', 16000, ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO agent_runs (session_id, status, steps, created_at, updated_at) VALUES (1, 'cancelled', 1, ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    let created_id = 1_i64;
+    let long_id = "y".repeat(200);
+    store.conn.execute(
+        "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, tool_calls_json, tool_call_id, name, partial, created_at)
+         VALUES (?1, 1, 1, 'assistant', '正文', '', ?2, NULL, NULL, 0, ?3)",
+        params![created_id, format!(r#"[{{"id":"","name":"web.search","arguments":"{{}}"}},{{"id":"{long_id}","name":"web.search","arguments":"{{}}"}}]"#), timestamp],
+    ).unwrap();
+    store.conn.execute(
+        "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, tool_calls_json, tool_call_id, name, partial, created_at)
+         VALUES (?1, 1, 1, 'tool', '空标识回复', '', NULL, '', 'web.search', 0, ?2)",
+        params![created_id, timestamp],
+    ).unwrap();
+    store.conn.execute(
+        "INSERT INTO agent_messages (session_id, run_id, step_index, role, content, reasoning, tool_calls_json, tool_call_id, name, partial, created_at)
+         VALUES (?1, 1, 1, 'tool', '超长标识回复', '', NULL, ?2, 'web.search', 0, ?3)",
+        params![created_id, long_id, timestamp],
+    ).unwrap();
+    let session = get(&state, &created_id.to_string()).unwrap();
+    let replay = history(&session).unwrap();
+    for message in &replay {
+        for call in message.tool_calls.iter().flatten() {
+            assert!(
+                valid_tool_call_id(&call.id),
+                "重放序列不得带出非法 tool_call id：{}",
+                call.id
+            );
+        }
+        if let Some(id) = &message.tool_call_id {
+            assert!(
+                valid_tool_call_id(id),
+                "重放序列不得带出非法 tool_call_id：{id}"
+            );
+        }
+    }
+    assert!(
+        replay.iter().all(|message| message.role != "tool"),
+        "非法标识的 tool 回复必须被修剪"
+    );
+}
+
+// 75#1 返工：供应商返回超长工具调用 id 时，agent 在进入协议序列前换成
+// 合成 id——发给端点的第二次请求里 tool_call 与 tool 消息配对且 id 合法，
+// 不会再让严格 OpenAI 系端点整体 400
+#[test]
+fn oversized_provider_tool_call_id_is_repaired_before_the_next_request() {
+    let (app, state, _baseline, base_session) = prepare();
+    let bodies = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&bodies);
+    let long_id = "z".repeat(200);
+    let wire_id = long_id.clone();
+    let agent_server = server(move |request, stream| {
+        sink.lock().unwrap().push(request.to_string());
+        let event = if request.contains("\"role\":\"tool\"") {
+            json!({"choices": [{"delta": {"content": "修复完成"}}]})
+        } else {
+            json!({"choices": [{"delta": {"tool_calls": [{
+                "index": 0, "id": wire_id, "type": "function",
+                "function": {"name": "workspace.read", "arguments": "{\"reference\":\"current\"}"},
+            }]}}]})
+        };
+        response(stream, "200 OK", &format!("data: {event}\n\ndata: {{\"usage\":{{\"prompt_tokens\":12,\"completion_tokens\":33}},\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: [DONE]\n\n"));
+    });
+    configure_provider(&app, &state, &agent_server.url());
+    let session = new_session(
+        app.handle(),
+        &state,
+        Some("超长标识修复".into()),
+        base_session.plan_id,
+        Some(16_000),
+    )
+    .unwrap();
+    let run = send(
+        app.handle(),
+        &state,
+        &session.id.to_string(),
+        "读取当前方案".into(),
+    )
+    .unwrap();
+    let completed = wait_run(&state, &run.id.to_string());
+    assert_eq!(completed.status, "done");
+    let bodies = bodies.lock().unwrap();
+    assert_eq!(bodies.len(), 2, "{bodies:?}");
+    let second = bodies.last().unwrap();
+    assert!(!second.contains(&long_id), "发给端点的序列不得带出超长 id");
+    // 测试服务器记录的是原始 HTTP 报文，JSON 体在首部之后
+    let payload = second
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .unwrap_or(second.as_str());
+    let body: Value = serde_json::from_str(payload).expect("请求体应为 JSON");
+    let messages = body["messages"].as_array().expect("messages 应为数组");
+    let declared = messages
+        .iter()
+        .find_map(|message| {
+            message
+                .get("tool_calls")
+                .and_then(|calls| calls.as_array())
+                .and_then(|calls| calls.first())
+        })
+        .expect("第二次请求应带 assistant 的工具调用声明");
+    let id = declared["id"].as_str().expect("声明应带 id");
+    assert!(valid_tool_call_id(id), "声明 id 必须合法：{id}");
+    let tool = messages
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .expect("第二次请求应带 tool 消息");
+    assert_eq!(
+        tool["tool_call_id"].as_str(),
+        Some(id),
+        "tool 回复必须与声明同 id"
+    );
+}

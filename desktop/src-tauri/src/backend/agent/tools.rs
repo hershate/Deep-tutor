@@ -26,6 +26,26 @@ pub fn catalog(session: &AgentSession) -> Vec<super::super::providers::tools::To
         }
     }
     let empty = || json!({"type": "object", "properties": {}});
+    // 32#1：workspace.write 的 content 是多层嵌套结构（LectureContent 六字段
+    // 全必填且 deny_unknown_fields），工具定义必须原样声明——原先 content/
+    // overwrite 被误嵌进 unitIndex 的 schema 对象、顶层无 required，模型
+    // 收到的契约里全部参数皆可选且 content 无结构提示，只能猜结构并被
+    // invalid_artifact_content 拒绝
+    fn lecture_content_schema() -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "overview": {"type": "string"},
+                "sections": {"type": "array", "items": {"type": "object", "properties": {"heading": {"type": "string"}, "content": {"type": "string"}}, "required": ["heading", "content"], "additionalProperties": false}},
+                "examples": {"type": "array", "items": {"type": "object", "properties": {"title": {"type": "string"}, "content": {"type": "string"}}, "required": ["title", "content"], "additionalProperties": false}},
+                "checkpoints": {"type": "array", "items": {"type": "object", "properties": {"question": {"type": "string"}, "answer": {"type": "string"}}, "required": ["question", "answer"], "additionalProperties": false}},
+                "citations": {"type": "array", "items": {"type": "object", "properties": {"materialId": {"type": "integer"}, "quote": {"type": "string"}}, "required": ["materialId", "quote"], "additionalProperties": false}}
+            },
+            "required": ["title", "overview", "sections", "examples", "checkpoints", "citations"],
+            "additionalProperties": false
+        })
+    }
     let mut tools = vec![
         definition(
             "workspace.list",
@@ -40,7 +60,7 @@ pub fn catalog(session: &AgentSession) -> Vec<super::super::providers::tools::To
         definition(
             "workspace.write",
             "将有效的讲义单元保存为 scratch 产物",
-            json!({"type": "object", "properties": {"path": {"type": "string"}, "stageId": {"type": "string"}, "unitIndex": {"type": "integer", "content": {"type": "object"}, "overwrite": {"type": "boolean"}}, "required": ["stageId", "unitIndex", "content"]}}),
+            json!({"type": "object", "properties": {"path": {"type": "string"}, "stageId": {"type": "string"}, "unitIndex": {"type": "integer"}, "content": lecture_content_schema(), "overwrite": {"type": "boolean"}}, "required": ["stageId", "unitIndex", "content"]}),
         ),
         definition(
             "workspace.edit",
@@ -522,11 +542,13 @@ fn cap_tool_result(result: Value) -> Value {
 }
 
 /// 把登记为 running 的工具调用收尾为 failed（参数校验失败路径专用）。
-fn finish_failed_tool_call(store: &Store, id: &str, message: &str) -> Result<()> {
+fn finish_failed_tool_call(store: &Store, id: &str, code: &str, message: &str) -> Result<()> {
     store.conn.execute(
         "UPDATE agent_tool_calls SET status = 'failed', result_json = ?1, finished_at = ?2 WHERE id = ?3 AND status = 'running'",
         params![
-            serde_json::to_string(&json!({"status": "failed", "error": message}))?,
+            // 75#1：错误体与其余工具结果同构（code + message）——原先写
+            // 字符串 error，重放时模型读到的是没有错误码的裸文本
+            serde_json::to_string(&json!({"status": "failed", "error": {"code": code, "message": message}}))?,
             now()?,
             id
         ],
@@ -542,11 +564,27 @@ pub fn execute<R: Runtime>(
     call: &ToolCall,
     step: u32,
 ) -> Result<Value> {
-    if call.id.is_empty() || call.id.len() > 128 || call.arguments.len() > 64 * 1024 {
-        return Err(BackendError::new(
-            "invalid_tool_call",
-            "工具调用标识或参数超过限制",
-        ));
+    // 75#1：参数形态（非法 JSON / 非对象）与规模超限不再让整轮运行失败。
+    // 原先这些路径直接 Err 上抛，run_loop 的 ? 使整轮运行标记 failed，
+    // 用户看到失败横幅并需手动恢复；模型本可读错误后修正参数重试。
+    // 同函数内其余校验错误（缺 key、类型不符）本就包装成正常工具结果，
+    // 两条路径口径统一。
+    // 标识非法（空或超长）时无法登记工具调用行、也不与 assistant 声明
+    // 配对，直接以工具结果回给模型；参数超 64KB 同样不入库（保留
+    // arguments_json 的存储上限），避免超大行落盘。
+    // 75#1 返工：run_loop 在进入协议序列前已把非法 id 换成合成 id
+    // （见 agent/mod.rs 的 repair_tool_call_ids），声明与 tool 回复共用
+    // 同一 id，重放序列与发给端点的序列都不会带出空 id/超长 id；这里的
+    // 校验是绕过 run_loop 直接调用本函数时的最后一道防线。
+    if !super::valid_tool_call_id(&call.id) {
+        return Ok(
+            json!({"status": "failed", "error": {"code": "invalid_tool_call", "message": "工具调用标识为空或超过 128 字节上限"}}),
+        );
+    }
+    if call.arguments.len() > 64 * 1024 {
+        return Ok(
+            json!({"status": "failed", "error": {"code": "invalid_tool_call", "message": "工具参数超过 64KB 上限"}}),
+        );
     }
     let store = state.store()?;
     let registered = store.conn.execute(
@@ -597,21 +635,31 @@ pub fn execute<R: Runtime>(
     }
     // 参数校验失败也要收尾登记行：否则 status 停留 running，
     // 同 id 重放会命中 tool_active 被永久拒绝（07#2）
+    // 75#1：解析失败作为工具结果回给模型（模型据此修正参数重试），
+    // 不再让整轮运行失败
     let arguments: Value = match serde_json::from_str::<Value>(&call.arguments) {
         Ok(value) if value.is_object() => value,
         Ok(_) => {
-            finish_failed_tool_call(&store, &call.id, "工具参数必须是 JSON 对象")?;
-            return Err(BackendError::new(
+            finish_failed_tool_call(
+                &store,
+                &call.id,
                 "invalid_tool_arguments",
                 "工具参数必须是 JSON 对象",
-            ));
+            )?;
+            return Ok(
+                json!({"status": "failed", "error": {"code": "invalid_tool_arguments", "message": "工具参数必须是 JSON 对象"}}),
+            );
         }
         Err(_) => {
-            finish_failed_tool_call(&store, &call.id, "工具参数不是有效 JSON")?;
-            return Err(BackendError::new(
+            finish_failed_tool_call(
+                &store,
+                &call.id,
                 "invalid_tool_arguments",
                 "工具参数不是有效 JSON",
-            ));
+            )?;
+            return Ok(
+                json!({"status": "failed", "error": {"code": "invalid_tool_arguments", "message": "工具参数不是有效 JSON"}}),
+            );
         }
     };
     let result = (|| -> Result<Value> {

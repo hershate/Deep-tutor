@@ -722,6 +722,52 @@ fn get_run(state: &AgentState, id: i64) -> Result<AgentRun> {
     }).optional()?.ok_or_else(|| BackendError::new("not_found", "Agent 运行不存在"))
 }
 
+/// 工具调用标识的协议与存储约束：非空且不超过 128 字节。
+/// 空 id 会让严格 OpenAI 系端点整体 400（tool 消息的 tool_call_id 必须
+/// 与前置声明配对且非空），超长 id 超出 agent_tool_calls 主键的存储上界。
+const MAX_TOOL_CALL_ID_BYTES: usize = 128;
+
+/// 75#1 返工：模型返回的工具调用 id 可能为空（Responses 的 153#6 兜底
+/// 登记路径取不到 call_id 时写入空串）或超长（供应商不校验长度）。
+/// 协议要求 tool_call id 非空，两者任一不满足都不能进入协议序列。
+pub(crate) fn valid_tool_call_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= MAX_TOOL_CALL_ID_BYTES
+}
+
+/// 75#1 返工：把不合法的工具调用 id 换成会话内唯一的合成 id。
+/// 合成 id 形如 `dtcall_<run>_<step>_<index>`：与供应商 id 前缀不同；
+/// 同一 (run, step, index) 恒定（续接重跑时同 id 命中已登记的
+/// agent_tool_calls 行，不重复产生副作用）；跨 run/step/index 不撞号。
+/// used 传入历史已占用的 id（会话消息里的声明与回复）——合成 id 不得与
+/// 其中任何一个相同，同 id 会让 23#9 的 declared/answered 配对错位。
+fn repair_tool_call_ids(
+    calls: &[ToolCall],
+    used: &mut HashSet<String>,
+    run_id: i64,
+    step: u32,
+) -> Vec<ToolCall> {
+    let mut repaired = calls.to_vec();
+    // 先登记本次响应里的合法 id：合成 id 不得与同响应的真实 id 撞号
+    for call in repaired.iter() {
+        if valid_tool_call_id(&call.id) {
+            used.insert(call.id.clone());
+        }
+    }
+    for (index, call) in repaired.iter_mut().enumerate() {
+        if valid_tool_call_id(&call.id) {
+            continue;
+        }
+        let mut candidate = format!("dtcall_{run_id}_{step}_{index}");
+        let mut counter = 0_u32;
+        while !used.insert(candidate.clone()) {
+            counter += 1;
+            candidate = format!("dtcall_{run_id}_{step}_{index}_{counter}");
+        }
+        call.id = candidate;
+    }
+    repaired
+}
+
 fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
     let mut messages = vec![
         ChatMessage {
@@ -748,6 +794,11 @@ fn history(session: &AgentSession) -> Result<Vec<ChatMessage>> {
         .filter(|message| message.role == "assistant")
         .flat_map(|message| message.tool_calls.iter())
         .map(|call| call.id.as_str())
+        // 75#1 返工：空 id / 超长 id 不参与配对——历史里若残留此类声明
+        // （修复前入库的数据），配对判定会把它当成已回复而不修剪，
+        // 重放序列就会带着非法 tool_call / tool_call_id 发给严格端点
+        // （400）。剔除后与 23#9 的悬挂修剪同口径：不声明、不发送。
+        .filter(|id| valid_tool_call_id(id))
         .collect();
     let answered: HashSet<&str> = session
         .messages
@@ -1002,6 +1053,19 @@ fn run_loop<R: Runtime>(
     let session = get(state, &session_id.to_string())?;
     let mut messages = history(&session)?;
     let catalog = tools::catalog(&session);
+    // 75#1 返工：历史已占用的工具调用 id——合成 id 不得与其中任何一个
+    // 相同（同一 id 会让 23#9 的 declared/answered 配对错位）
+    let mut used_tool_call_ids: HashSet<String> = session
+        .messages
+        .iter()
+        .flat_map(|message| {
+            message
+                .tool_calls
+                .iter()
+                .map(|call| call.id.clone())
+                .chain(message.tool_call_id.clone())
+        })
+        .collect();
     loop {
         let run = get_run(state, run_id)?;
         if cancel_requested(state, run_id)? {
@@ -1124,6 +1188,11 @@ fn run_loop<R: Runtime>(
                 "已达到本会话 Token 预算，未再发起新的模型请求",
             ));
         }
+        // 75#1 返工：进入协议序列前修复不合法的工具调用 id——assistant
+        // 声明与 tool 回复共用同一 id，重放序列（23#9 的配对判定）与
+        // 发给端点的序列都保持自洽，不会带出空 id 或超长 id
+        let tool_calls =
+            repair_tool_call_ids(&request.tool_calls, &mut used_tool_call_ids, run_id, step);
         save_message(
             app,
             state,
@@ -1133,12 +1202,12 @@ fn run_loop<R: Runtime>(
             "assistant",
             request.output.clone(),
             request.reasoning.clone(),
-            &request.tool_calls,
+            &tool_calls,
             None,
             None,
             false,
         )?;
-        if request.tool_calls.is_empty() {
+        if tool_calls.is_empty() {
             return finish_run(app, state, run_id, "done", None);
         }
         // 34#5：assistant(tool_calls) 声明进上下文——OpenAI 系要求 tool 消息
@@ -1146,8 +1215,7 @@ fn run_loop<R: Runtime>(
         // functionCall/functionResponse 同理）；原先只落库不进 messages 向量，
         // 多步工具循环的第二次模型请求在严格端点必 400。与 history() 重放
         // （23#9 修剪后的自洽序列）保持同一形态
-        let declared_calls = request
-            .tool_calls
+        let declared_calls = tool_calls
             .iter()
             .map(|call| ToolCallRequest {
                 id: call.id.clone(),
@@ -1166,7 +1234,7 @@ fn run_loop<R: Runtime>(
             name: None,
         });
         let mut seen_call_ids: HashSet<String> = HashSet::new();
-        for call in &request.tool_calls {
+        for call in &tool_calls {
             // 122#7：单响应内重复 tool_call id 只回复一次——部分本地/小模型
             // 会重复 id，两条同 id 的 tool 消息会被严格 OpenAI 系端点整体
             // 400 拒绝且 resume 重放同样序列（会话卡死）；跳过重复项不执行

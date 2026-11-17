@@ -2,9 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { backend, backendErrorMessage, onBackendEvent, isCancelRace } from './client'
 import type { AgentRun, AgentSession, LearningPlan } from './client'
 
-type Options = { planId?: string; sessionTitle?: string; enabled?: boolean }
+type Options = { planId?: string; sessionTitle?: string; enabled?: boolean; strictTitle?: boolean }
 type Stream = { requestId: string; text: string; reasoning: string }
 const emptyStream: Stream = { requestId: '', text: '', reasoning: '' }
+// 53#1：操作错误与读取错误分列——新建/发送失败原先写进同一个 error，
+// AgentCenter 用「error 且会话列表为空」判定整页错误页，标题固定为
+// 「Agent 会话读取失败」（与事实相反），唯一按钮还会清掉真实原因
+export type ActionError = { code: string; text: string }
 
 function numberField(value: unknown) {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : null
@@ -12,13 +16,20 @@ function numberField(value: unknown) {
 function stringField(value: unknown) {
   return typeof value === 'string' ? value : null
 }
+function actionErrorOf(cause: unknown): ActionError {
+  const code = typeof cause === 'object' && cause !== null && 'code' in cause
+    ? String((cause as { code?: unknown }).code ?? '')
+    : ''
+  return { code, text: backendErrorMessage(cause) }
+}
 
-export function useAgent({ planId, sessionTitle = '新学习会话', enabled = true }: Options = {}) {
+export function useAgent({ planId, sessionTitle = '新学习会话', enabled = true, strictTitle = false }: Options = {}) {
   const [sessions, setSessions] = useState<AgentSession[]>([])
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [activeId, setActiveId] = useState<number | null>(null)
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState('')
+  const [actionError, setActionError] = useState<ActionError | null>(null)
   const [busy, setBusy] = useState('')
   const [liveRequestId, setLiveRequestId] = useState('')
   const [stream, setStream] = useState<Stream>(emptyStream)
@@ -42,6 +53,9 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     routeUpstreams.current.clear()
     setStream(emptyStream)
     setError('')
+    // 53#1：切换会话即离开上一次操作的上下文——操作错误随之清除，
+    // 但后台刷新与「重新读取」都不会清掉它（真实原因必须留在界面上）
+    setActionError(null)
   }, [])
   const setLiveRequest = useCallback((id: string) => {
     liveRequestRef.current = id
@@ -102,15 +116,22 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       setPlans(adopted)
       const next = activeIdRef.current && available.some(item => item.id === activeIdRef.current)
         ? activeIdRef.current
-        : available.find(item => item.title === sessionTitle)?.id ?? available[0]?.id ?? null
+        : available.find(item => item.title === sessionTitle)?.id ?? (strictTitle ? null : available[0]?.id ?? null)
       activeIdRef.current = next
       setActiveId(next)
       setError('')
     } catch (cause) { if (ticket === refreshSeqRef.current) setError(backendErrorMessage(cause)) } finally { if (ticket === refreshSeqRef.current) setLoading(false) }
-  }, [enabled, planId, rememberRuns, sessionTitle])
+  }, [enabled, planId, rememberRuns, sessionTitle, strictTitle])
 
   useEffect(() => { void refresh() }, [refresh])
   const activeSession = useMemo(() => sessions.find(item => item.id === activeId) ?? null, [sessions, activeId])
+  // 46#1：切换会话时重拉该会话快照——agent.* 事件只在会话等于当前激活
+  // 会话时刷新（下方事件守卫），运行中切到别的会话再切回时快照停留在
+  // 「运行中」，发送框被禁用且该会话不再产生事件，状态无法自愈
+  useEffect(() => {
+    if (!enabled || activeId === null) return
+    void refreshSession(activeId)
+  }, [enabled, activeId, refreshSession])
   const activeRun = useMemo(() => activeSession?.runs.find(run => run.status === 'running' || run.status === 'cancelling') ?? activeSession?.runs[0] ?? null, [activeSession])
   useEffect(() => {
     const live = activeRun?.status === 'running' || activeRun?.status === 'cancelling'
@@ -197,6 +218,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
   const createSession = useCallback(async (title?: string, requestedPlanId?: string | null): Promise<AgentSession | null> => {
     setBusy('create')
     setError('')
+    setActionError(null)
     try {
       const selectedPlan = requestedPlanId !== undefined ? requestedPlanId : planId ?? null
       const created = await backend.createAgentSession({ title: title ?? sessionTitle, planId: selectedPlan })
@@ -204,7 +226,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       setSessions(current => [created, ...current.filter(item => item.id !== created.id)])
       selectSession(created.id)
       return created
-    } catch (cause) { setError(backendErrorMessage(cause)); return null } finally { setBusy('') }
+    } catch (cause) { setActionError(actionErrorOf(cause)); return null } finally { setBusy('') }
   }, [planId, rememberRuns, selectSession, sessionTitle])
 
   const send = useCallback(async (content: string): Promise<AgentRun | null> => {
@@ -215,6 +237,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     //（内部空值守卫兜底，但窗口存在）；进入即置位
     setBusy('send')
     setError('')
+    setActionError(null)
     let id = activeIdRef.current
     if (!id) {
       const created = await createSession()
@@ -227,7 +250,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       runOwners.current.set(run.id, id)
       await refreshSession(id)
       return run
-    } catch (cause) { setError(backendErrorMessage(cause)); return null } finally { setBusy('') }
+    } catch (cause) { setActionError(actionErrorOf(cause)); return null } finally { setBusy('') }
   }, [createSession, refreshSession])
 
   const cancel = useCallback(async (id: number) => {
@@ -235,7 +258,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     try { await backend.cancelAgentRun(String(id)); if (activeIdRef.current) await refreshSession(activeIdRef.current); return true }
     catch (cause) {
       // 任务已终态后的取消是刷新竞态：刷新会话即可，不作为错误提示
-      if (!isCancelRace(cause)) setError(backendErrorMessage(cause))
+      if (!isCancelRace(cause)) setActionError(actionErrorOf(cause))
       if (activeIdRef.current) await refreshSession(activeIdRef.current).catch(() => {})
       return false
     } finally { setBusy('') }
@@ -244,7 +267,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     setBusy('resume')
     try { await backend.resumeAgentRun(String(id)); if (activeIdRef.current) await refreshSession(activeIdRef.current); return true }
     // 29#2：run_active 是"内存中已在恢复"的窄窗口竞态码，静默即可
-    catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)); return false } finally { setBusy('') }
+    catch (cause) { if (!isCancelRace(cause)) setActionError(actionErrorOf(cause)); return false } finally { setBusy('') }
   }, [refreshSession])
   const remove = useCallback(async (id: number) => {
     setBusy('delete')
@@ -258,7 +281,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       if (activeIdRef.current === id) selectSession(null)
       await refresh()
       return true
-    } catch (cause) { setError(backendErrorMessage(cause)); return false } finally { setBusy('') }
+    } catch (cause) { setActionError(actionErrorOf(cause)); return false } finally { setBusy('') }
   }, [refresh, selectSession])
   const resolveApproval = useCallback(async (id: number, approved: boolean) => {
     setBusy(`approval-${id}`)
@@ -269,7 +292,7 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
       return true
     } catch (cause) {
       // 29#1：双击审批/两面板同时处理时 approval_resolved 表示已被正常处理
-      if (!isCancelRace(cause)) setError(backendErrorMessage(cause))
+      if (!isCancelRace(cause)) setActionError(actionErrorOf(cause))
       return false
     } finally { setBusy('') }
   }, [refreshSession])
@@ -281,5 +304,5 @@ export function useAgent({ planId, sessionTitle = '新学习会话', enabled = t
     await refresh()
   }, [enabled, refresh])
 
-  return { sessions, plans, activeSession, activeId, activeRun, selectSession, loading, error, busy, stream, createSession, send, cancel, resume, remove, resolveApproval, refresh, retry }
+  return { sessions, plans, activeSession, activeId, activeRun, selectSession, loading, error, actionError, busy, stream, createSession, send, cancel, resume, remove, resolveApproval, refresh, retry }
 }
