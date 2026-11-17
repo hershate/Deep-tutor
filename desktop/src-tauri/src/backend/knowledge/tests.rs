@@ -368,6 +368,136 @@ fn interrupted_answer_reuses_completed_provider_output() {
     assert_eq!(server.request_count(), 1);
 }
 
+// P-016：取消与模型完成的毫秒竞态——上游输出与用量已完整落库，问答终态却是
+// cancelled（不是 interrupted）。恢复必须复用已完成的模型输出，不得重新请求
+// 上游（否则同一问题被完整重跑一遍并重复计费）
+#[test]
+fn cancelled_answer_reuses_the_completed_provider_output() {
+    let (app, state, server, material_id, provider_id) = prepare();
+    let store = state.store().unwrap();
+    store.conn.execute(
+        "INSERT INTO knowledge_sessions (question, status, provider_id, request_id, error_code, error_message, created_at, updated_at) VALUES ('先验概率是什么？', 'cancelled', ?1, 'wiki-1-1', 'cancelled', 'Wiki 问答已取消，未写入模型结果', 'now', 'now')",
+        params![provider_id],
+    ).unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO knowledge_session_materials (session_id, material_id) VALUES (1, ?1)",
+            params![material_id],
+        )
+        .unwrap();
+    drop(store);
+    // 竞态终态：模型请求已完成并落库，问答结果被取消窗口丢弃
+    let result = providers::stream_chat(
+        app.handle(),
+        &state.providers,
+        "wiki-1-1",
+        &provider_id,
+        &[ChatMessage {
+            role: "user".into(),
+            content: "先验概率是什么？".into(),
+            ..Default::default()
+        }],
+        4096,
+    )
+    .unwrap();
+    assert_eq!(result.status, "done");
+    assert_eq!(server.request_count(), 1);
+    let persisted = providers::get_chat(&state.providers, "wiki-1-1").unwrap();
+    assert_eq!(persisted.status, "done", "{persisted:?}");
+    let resumed = resume(app.handle(), &state, 1).unwrap();
+    assert_eq!(resumed.attempt, 1, "{resumed:?}");
+    assert_eq!(resumed.request_id.as_deref(), Some("wiki-1-1"));
+    let restored = wait(&state, 1);
+    assert_eq!(restored.status, "done");
+    assert_eq!(restored.attempt, 1);
+    assert_eq!(
+        restored.answer.as_deref(),
+        Some("先验概率是在看到新证据之前的判断。")
+    );
+    assert_eq!(server.request_count(), 1, "恢复不得再次请求上游");
+}
+
+// P-016 竞态变体：取消落在模型收尾阶段——上游 provider_requests 行已是 done
+// （输出与用量完整），但路由终态按 174#1「取消优先于迟到结果」记 cancelled，
+// 路由视图把返回状态一并掩蔽成 cancelled。恢复必须复用上游已完成的输出，
+// 不得再次请求上游（否则同一问题被完整重跑一遍并重复计费）。
+// 本用例走生产路径 routing::stream_chat（直连 providers::stream_chat 造不出
+// 路由行，覆盖不到终态掩蔽）。
+#[test]
+fn cancelled_answer_reuses_the_completed_upstream_output_after_a_route_cancel() {
+    let (app, state, server, material_id, provider_id) = prepare();
+    let store = state.store().unwrap();
+    store.conn.execute(
+        "INSERT INTO knowledge_sessions (question, status, provider_id, request_id, error_code, error_message, created_at, updated_at) VALUES ('先验概率是什么？', 'cancelled', ?1, 'wiki-1-1', 'cancelled', 'Wiki 问答已取消，未写入模型结果', 'now', 'now')",
+        params![provider_id],
+    ).unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO knowledge_session_materials (session_id, material_id) VALUES (1, ?1)",
+            params![material_id],
+        )
+        .unwrap();
+    drop(store);
+    // 经路由路径完成一次模型请求：路由行与上游行同时落库
+    let result = providers::routing::stream_chat(
+        app.handle(),
+        &state.providers,
+        "wiki-1-1",
+        "wiki",
+        Some(&provider_id),
+        &[ChatMessage {
+            role: "user".into(),
+            content: "先验概率是什么？".into(),
+            ..Default::default()
+        }],
+        4096,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(result.status, "done");
+    assert_eq!(server.request_count(), 1);
+    // 竞态窗口：取消落在模型收尾阶段——路由行先落 cancelling，finish() 据
+    // 174#1 把路由终态写成 cancelled（上游行仍是 done，输出与用量完整）
+    {
+        let store = state.store().unwrap();
+        store.conn.execute(
+            "UPDATE provider_route_runs SET status = 'cancelling' WHERE request_id = 'wiki-1-1'",
+            [],
+        )
+        .unwrap();
+    }
+    let masked =
+        providers::routing::finish(app.handle(), &state.providers, "wiki-1-1", &result).unwrap();
+    assert_eq!(masked.status, "cancelled", "路由终态掩蔽仍在（174#1）");
+    let upstream_status: String = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT status FROM provider_requests WHERE request_id = 'wiki-1-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(upstream_status, "done", "上游行已完成，输出与用量完整");
+    // 恢复：复用上游已完成的输出
+    let resumed = resume(app.handle(), &state, 1).unwrap();
+    assert_eq!(resumed.attempt, 1, "{resumed:?}");
+    assert_eq!(resumed.request_id.as_deref(), Some("wiki-1-1"));
+    let restored = wait(&state, 1);
+    assert_eq!(restored.status, "done");
+    assert_eq!(restored.attempt, 1);
+    assert_eq!(
+        restored.answer.as_deref(),
+        Some("先验概率是在看到新证据之前的判断。")
+    );
+    assert_eq!(server.request_count(), 1, "恢复不得再次请求上游");
+}
+
 // P-065：提问/恢复问答命令已移入阻塞线程池（逐份开库读 5 MiB 级解析文本
 // 不再占主线程）——回归锁：满额资料范围（8 份）经 IPC 提问仍须建出会话、
 // 挂齐 8 份来源并跑完真实模型请求

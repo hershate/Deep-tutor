@@ -489,7 +489,10 @@ pub(crate) fn begin_unit<R: Runtime>(
             "讲义单元已经完成，不会重复调用模型",
         ));
     }
-    let reusable = status == "interrupted"
+    // P-016：取消与模型完成的毫秒竞态下单元终态是 cancelled 而非 interrupted
+    // （fail_unit 在取消类错误下落 cancelled）——但上游输出与用量已完整落库，
+    // 同 interrupted 口径复用，避免重复生成与重复计费
+    let reusable = matches!(status.as_str(), "interrupted" | "cancelled")
         && providers::completed_chat(&state.providers, previous_request.as_deref())?;
     let attempt = if status == "running" || reusable {
         previous_attempt

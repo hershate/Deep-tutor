@@ -1130,6 +1130,68 @@ fn lecture_recovery_reuses_completed_unit_output() {
     assert_eq!(server.request_count(), initial_calls + 3);
 }
 
+// P-016 竞态：讲义单元在模型返回 done 之后、落库之前被取消——fail_unit 把
+// 单元终态记成 cancelled（不是 interrupted），但上游输出与用量已完整落库。
+// 重新生成必须复用该输出，不得再次请求上游（否则重复计费）。
+#[test]
+fn lecture_regeneration_reuses_a_cancelled_unit_output() {
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let _ = wait_terminal(&state, &started.id);
+    let initial_calls = server.request_count();
+    actions::adopt(app.handle(), &state, &started.id).unwrap();
+    state.defer.store(true, Ordering::Release);
+    lecture::generate(app.handle(), &state, &started.id, "stage-1", false).unwrap();
+    let (_, request_id) = lecture::begin_unit(app.handle(), &state, 1, "stage-1", 1, 0).unwrap();
+    let request = providers::stream_chat(
+        app.handle(),
+        &state.providers,
+        &request_id,
+        &started.provider_id,
+        &[ChatMessage {
+            role: "user".into(),
+            content: "自学讲义".into(),
+            ..Default::default()
+        }],
+        8192,
+    )
+    .unwrap();
+    assert_eq!(request.status, "done");
+    assert_eq!(server.request_count(), initial_calls + 1);
+    state.lecture_active.lock().unwrap().clear();
+    // 竞态终态：模型输出已落库，讲义与单元终态是 cancelled（fail_unit 口径）
+    {
+        let store = state.store().unwrap();
+        store.conn.execute(
+            "UPDATE learning_lectures SET status = 'cancelled', error_code = 'cancelled', error_message = '讲义生成已取消' WHERE plan_id = 1 AND stage_id = 'stage-1'",
+            [],
+        ).unwrap();
+        store.conn.execute(
+            "UPDATE learning_lecture_units SET status = 'cancelled', error_code = 'cancelled', error_message = '讲义生成已取消' WHERE plan_id = 1 AND stage_id = 'stage-1' AND version = 1 AND unit_index = 0",
+            [],
+        ).unwrap();
+    }
+    state.defer.store(false, Ordering::Release);
+    lecture::generate(app.handle(), &state, &started.id, "stage-1", false).unwrap();
+    let recovered = wait_lecture(&state, &started.id, "stage-1");
+    assert_eq!(recovered.status, "done");
+    assert_eq!(recovered.units[0].status, "done");
+    assert_eq!(recovered.units[0].attempt, 1);
+    assert_eq!(
+        recovered.units[0].request_id.as_deref(),
+        Some(request_id.as_str())
+    );
+    assert_eq!(recovered.completed_units, 3);
+    assert_eq!(
+        server.request_count(),
+        initial_calls + 3,
+        "恢复不得再次请求上游"
+    );
+}
+
 #[test]
 fn lecture_rejects_citations_outside_the_original_text() {
     let sources = vec![Source {

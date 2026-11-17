@@ -1105,6 +1105,12 @@ pub fn completed_chat(state: &ProviderState, request_id: Option<&str>) -> Result
     let Some(request_id) = request_id else {
         return Ok(false);
     };
+    // P-016：174#1 的终态掩蔽只作用于路由视图——取消落在模型收尾阶段时
+    // route run 终态是 cancelled，而上游 provider_requests 行已是 done
+    // （输出与用量完整）。复用判定必须看上游行，否则恢复会重跑并重复计费
+    if let Some(done) = routing::upstream_completed(state, request_id)? {
+        return Ok(done);
+    }
     match get_chat(state, request_id) {
         Ok(request) => Ok(request.status == "done"),
         Err(error) if error.code == "not_found" => Ok(false),

@@ -275,6 +275,51 @@ fn interrupted_grading_reuses_a_completed_request_without_another_upstream_call(
     assert_eq!(server.request_count(), calls + 1);
 }
 
+// P-016 竞态：主观评分在模型返回 done 之后、落库之前被取消——二次取消检查
+// （subjective.rs:492-497）命中，落库被 status='grading' 守卫拦下，fail() 把
+// 评分终态记成 cancelled（不是 interrupted），但上游评分输出与用量已完整落库。
+// 恢复必须复用该输出，不得再次调用评分模型（否则重复计费）。
+#[test]
+fn cancelled_grading_reuses_a_completed_request_without_another_upstream_call() {
+    let (app, state, server, plan_id) = prepare();
+    let generated = generate_subjectives(&app, &state, &plan_id, "immediate");
+    let question = &generated.questions[0];
+    let store = state.store().unwrap();
+    store.conn.execute(
+        "INSERT INTO practice_answers (question_id, set_id, response_json, score, max_score, correct, feedback_json, status, grader_request_id, attempt, error_code, error_message, created_at) VALUES (?1, ?2, ?3, 0, 1, 0, '{\"status\":\"grading\"}', 'cancelled', 'practice-grade-1-1', 1, 'cancelled', '主观评分已取消，未写入模型评分', 'now')",
+        params![question.id, generated.set.id, "\"先验概率是证据更新前的判断\""],
+    ).unwrap();
+    drop(store);
+    let calls = server.request_count();
+    let plan = learning::get(&state.learning, &plan_id).unwrap();
+    // 竞态终态：模型请求已完成并落库，评分结果被取消窗口丢弃
+    let result = providers::stream_chat(
+        app.handle(),
+        &state.providers,
+        "practice-grade-1-1",
+        &plan.provider_id,
+        &[ChatMessage {
+            role: "system".into(),
+            content: subjective::GRADING_SYSTEM.into(),
+            ..Default::default()
+        }],
+        4096,
+    )
+    .unwrap();
+    assert_eq!(result.status, "done");
+    assert_eq!(server.request_count(), calls + 1);
+    subjective::resume(app.handle(), &state, 1).unwrap();
+    let answer = wait_answer(&state, generated.set.id, question.id);
+    assert_eq!(answer.status, "done");
+    assert_eq!(answer.score, Some(0.8));
+    assert_eq!(answer.request_id.as_deref(), Some("practice-grade-1-1"));
+    assert_eq!(
+        server.request_count(),
+        calls + 1,
+        "恢复不得再次调用评分模型"
+    );
+}
+
 #[test]
 fn subjective_schema_migration_preserves_existing_objective_questions() {
     let store = Store::in_memory().unwrap();

@@ -1027,6 +1027,66 @@ pub fn latest_chat(state: &ProviderState, request_id: &str) -> Result<ProviderRe
     })
 }
 
+/// 路由请求最近一次真实上游请求标识（熔断跳过行 upstream_request_id 为空，不计）
+fn latest_upstream(state: &ProviderState, request_id: &str) -> Result<Option<String>> {
+    let store = state.store()?;
+    let upstream = store
+        .conn
+        .query_row(
+            "SELECT upstream_request_id FROM provider_route_attempts WHERE request_id = ?1 AND upstream_request_id IS NOT NULL ORDER BY attempt DESC LIMIT 1",
+            params![request_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(upstream)
+}
+
+/// 上游是否已有完整可用的模型结果。
+///
+/// 174#1 的终态掩蔽只作用于路由视图：取消落在模型收尾阶段时 route run
+/// 终态是 cancelled（finish() 记「取消优先于迟到结果」），而上游
+/// provider_requests 行已是 done、输出与用量完整——复用判定必须看上游行，
+/// 否则恢复会重跑并重复计费。
+/// 返回 None 表示该 request_id 没有路由上游行（直连路径）。
+pub fn upstream_completed(state: &ProviderState, request_id: &str) -> Result<Option<bool>> {
+    let Some(upstream) = latest_upstream(state, request_id)? else {
+        return Ok(None);
+    };
+    let store = state.store()?;
+    let status: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT status FROM provider_requests WHERE request_id = ?1",
+            params![upstream],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(status.map(|status| status == "done"))
+}
+
+/// 同 id 续读用的结果视图。
+///
+/// 路由终态为取消类时 latest_chat 的掩蔽会把上游已完成的结果一并盖成
+/// cancelled——续读方（域层恢复）要的是「上游是否完成」，上游确为 done 时
+/// 返回上游结果（输出与用量完整），否则维持路由视图。
+fn reusable_chat(state: &ProviderState, request_id: &str) -> Result<ProviderRequest> {
+    let masked = latest_chat(state, request_id)?;
+    if masked.status == "done" {
+        return Ok(masked);
+    }
+    let Some(upstream) = latest_upstream(state, request_id)? else {
+        return Ok(masked);
+    };
+    let Ok(mut result) = super::chat(state, &upstream) else {
+        return Ok(masked);
+    };
+    if result.status != "done" {
+        return Ok(masked);
+    }
+    result.request_id = request_id.into();
+    Ok(result)
+}
+
 pub fn stream_chat<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
@@ -1072,7 +1132,8 @@ pub fn stream_chat<R: Runtime>(
                 "请求标识已用于其他任务、供应商或模型，不会覆盖原请求",
             ));
         }
-        return latest_chat(state, request_id);
+        // 同 id 续读——域层恢复据此复用已完成的上游结果（P-016）
+        return reusable_chat(state, request_id);
     }
     super::usage::ensure_budget(state, None)?;
     let _guard = register_route(state, request_id)?;
@@ -1132,7 +1193,8 @@ pub fn stream_chat<R: Runtime>(
             |row| row.get(0),
         )?;
         if existing_status != "failed" || first_attempt_had_upstream {
-            return latest_chat(state, request_id);
+            // 同 id 续读——域层恢复据此复用已完成的上游结果（P-016）
+            return reusable_chat(state, request_id);
         }
         tx.execute(
             "DELETE FROM provider_route_runs WHERE request_id = ?1",

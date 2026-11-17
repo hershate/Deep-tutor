@@ -898,7 +898,11 @@ pub fn resume<R: Runtime>(
             "评分状态已改变，不能重复恢复",
         ));
     }
-    let reusable = status == "interrupted"
+    // P-016：取消与模型完成的毫秒竞态下评分终态是 cancelled 而非 interrupted
+    // （模型返回 done 后、落库前的二次取消检查 subjective.rs:492-497 命中，
+    // 落库被 status='grading' 守卫拦下后 fail() 记 cancelled）——但上游评分
+    // 输出与用量已完整落库，同 interrupted 口径复用，避免重复评分与重复计费
+    let reusable = matches!(status.as_str(), "interrupted" | "cancelled")
         && providers::completed_chat(&state.providers, previous_request.as_deref())?;
     let attempt = if reusable {
         attempt
