@@ -191,6 +191,7 @@ pub fn clear_all(conn: &Connection) -> Result<()> {
 fn validate_scope(
     input: &CardInput,
     state: &ReviewState,
+    current_plan_id: Option<&str>,
 ) -> Result<(Option<String>, Option<String>)> {
     if input.front.trim().is_empty()
         || input.front.len() > 8000
@@ -216,7 +217,13 @@ fn validate_scope(
     }
     if let Some(id) = &input.plan_id {
         let plan = learning::get(&state.learning, id)?;
-        if plan.adopted_project_id.is_none() {
+        // P-045：项目删除后 learning_plan_adoptions 的采用记录被 GC
+        // （store.rs 按项目 GC），方案回到未采用态，但记忆卡仍指向该
+        // 方案——原先任何编辑都被「只能关联已采用的学习方案」拒绝，
+        // 用户连改个错别字都做不到，界面下拉还显示空白。已关联且本次
+        // 未改选的方案允许保留（评分路径 grade_review_card 同样不做
+        // 采用校验，两条路径口径一致）；改选到未采用方案仍拒绝。
+        if plan.adopted_project_id.is_none() && current_plan_id != Some(id.as_str()) {
             return Err(BackendError::new(
                 "invalid_card_scope",
                 "只能关联已采用的学习方案",
@@ -277,7 +284,7 @@ pub fn create<R: Runtime>(
     state: &ReviewState,
     input: CardInput,
 ) -> Result<ReviewCard> {
-    let (plan_id, node_id) = validate_scope(&input, state)?;
+    let (plan_id, node_id) = validate_scope(&input, state, None)?;
     let store = state.store()?;
     let timestamp = now()?;
     let tx = store.conn.unchecked_transaction()?;
@@ -301,8 +308,11 @@ pub fn update<R: Runtime>(
     if id <= 0 {
         return Err(BackendError::new("invalid_card_id", "记忆卡标识无效"));
     }
-    let (plan_id, node_id) = validate_scope(&input, state)?;
     let store = state.store()?;
+    // P-045：取出卡片当前关联的方案——项目删除后方案回到未采用态，
+    // validate_scope 需要据此放行「未变更的关联」，否则任何编辑都被拒
+    let current = get_card(&store.conn, id)?;
+    let (plan_id, node_id) = validate_scope(&input, state, current.plan_id.as_deref())?;
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute(
         "UPDATE review_cards SET plan_id = ?1, node_id = ?2, front = ?3, back = ?4, tag = ?5, updated_at = ?6 WHERE id = ?7 AND deleted = 0",
@@ -884,5 +894,54 @@ mod tests {
             .unwrap();
         assert_eq!(remaining, 0);
         assert!(next(&state).unwrap().is_none());
+    }
+
+    // P-045：项目删除后 store.rs 按项目 GC 删除 learning_plan_adoptions，
+    // 方案回到未采用态但记忆卡仍指向它——原先任何编辑都被「只能关联已采用
+    // 的学习方案」拒绝，用户连改错别字都做不到。已关联且未改选的方案必须
+    // 允许保留；改选到未采用方案仍拒绝。
+    #[test]
+    fn review_card_edit_survives_the_plan_losing_its_adoption() {
+        let (app, state) = setup();
+        seed_plan(&state);
+        let card = create(app.handle(), &state, input()).unwrap();
+        // 项目删除 → 采用记录被 GC，方案回到未采用态
+        state
+            .store()
+            .unwrap()
+            .conn
+            .execute("DELETE FROM learning_plan_adoptions WHERE plan_id = 1", [])
+            .unwrap();
+        // 未变更关联的编辑必须成功，且关联保持不变
+        let updated = update(
+            app.handle(),
+            &state,
+            card.id,
+            CardInput {
+                front: "改过的正面".into(),
+                back: "先验概率".into(),
+                tag: Some("概率".into()),
+                plan_id: Some("plan-1".into()),
+                node_id: Some("prob".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.front, "改过的正面");
+        assert_eq!(updated.plan_id.as_deref(), Some("plan-1"));
+        assert_eq!(updated.node_id.as_deref(), Some("prob"));
+        // 改选到未采用方案仍被拒绝
+        let rejected = create(
+            app.handle(),
+            &state,
+            CardInput {
+                front: "新卡正面".into(),
+                back: "新卡答案".into(),
+                tag: Some("概率".into()),
+                plan_id: Some("plan-1".into()),
+                node_id: Some("prob".into()),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(rejected.code, "invalid_card_scope");
     }
 }

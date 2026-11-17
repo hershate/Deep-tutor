@@ -73,9 +73,12 @@ fn sources(state: &LearningState, input: &PlanInput) -> Result<Vec<Source>> {
             })?;
         total_bytes = total_bytes.saturating_add(text.len());
         if total_bytes > 192 * 1024 {
+            // P-104：产品链路没有按章节选择资料的入口（资料粒度是整份文件），
+            // 原提示后半句「选择较小章节」指向不存在的功能——只保留可执行的
+            // 「减少所选资料」
             return Err(BackendError::new(
                 "context_too_large",
-                "所选资料文本超过 192 KB，请减少资料或选择较小章节后重试",
+                "所选资料文本超过 192 KB，请减少所选资料后重试",
             ));
         }
         sources.push(Source {

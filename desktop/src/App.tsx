@@ -56,6 +56,19 @@ function BrandMark() {
 export default function App() {
   const initialPage = allNav.some(item => item.id === window.location.hash.slice(1)) || ['settings', 'shared'].includes(window.location.hash.slice(1)) ? window.location.hash.slice(1) as PageId : 'today'
   const [page, setPage] = useState<PageId>(initialPage)
+  // P-040：拖放导入监听跨页常驻（原先依赖数组含 page，切页即卸载监听并
+  // 冻结进度胶囊），shared 页的跳过改在 drop 回调里按当前页判定
+  const pageRef = useRef<PageId>(page)
+  useEffect(() => { pageRef.current = page }, [page])
+  // P-040 返工：导入守卫的存活标记与「effect 重跑」解耦——原先用 effect
+  // 内的 disposed 闭包标志，依赖数组（ready/loginRequired）变化时 cleanup
+  // 即置 true，进行中导入的进度回调与 finally 被跳过，胶囊永久冻结
+  // （会话失效/重新登录即触发）。此处只在组件真正卸载时置 false。
+  const importAliveRef = useRef(true)
+  useEffect(() => {
+    importAliveRef.current = true
+    return () => { importAliveRef.current = false }
+  }, [])
   const { snapshot, ready, startupError, loginRequired, replaceCollection, resetApplication, importBackup, importNotes } = useBackendState()
   const { tasks, notes, resources, projects, preferences } = snapshot
   // 24#5：集合 setter 支持更新函数（以最新集合为基准），消除一帧双写的静默丢失
@@ -292,22 +305,30 @@ export default function App() {
     // 生成器/资料库页由 material.* 事件自动刷新
     // 144#1：只读分享页不渲染 import-progress 胶囊与 ToastStack，拖放导入
     // 会真实写入资料库却零反馈——与 Ctrl+K 的 136#6 同口径跳过 shared 页
-    if (!ready || loginRequired || page === 'shared') return
+    // P-040：依赖数组原先含 page，切页触发 cleanup 把 disposed 置 true，
+    // 进度回调与 finally 的清空都被守卫跳过——导入进度胶囊永久冻结在
+    // 最后一个数值并与「已导入完成」toast 同时存在。监听器改为跨页常驻，
+    // shared 页的跳过改在 drop 回调里按当前页判定（pageRef）。
+    // P-040 返工：disposed 只用于「本 effect 的监听器是否仍有效」；
+    // 导入进度与 finally 改看 importAliveRef——依赖数组变化（会话失效/
+    // 重新登录）触发的 effect 重跑不再冻结进行中导入的胶囊。
+    if (!ready || loginRequired) return
     let disposed = false
     let unlisten: (() => void) | undefined
     void getCurrentWebview().onDragDropEvent(event => {
       if (disposed || event.payload.type !== 'drop') return
+      if (pageRef.current === 'shared') return
       const paths = event.payload.paths
       if (!paths?.length) return
       setImportProgress(`正在导入资料 0/${paths.length}`)
-      void importMaterialPaths(paths, (processed, total) => { if (!disposed) setImportProgress(`正在导入资料 ${processed}/${total}`) })
+      void importMaterialPaths(paths, (processed, total) => { if (importAliveRef.current) setImportProgress(`正在导入资料 ${processed}/${total}`) })
         .then(summary => notify(summarizeMaterialImport(summary)))
         .catch(error => reportBackendError(error, 'write'))
-        .finally(() => { if (!disposed) setImportProgress('') })
+        .finally(() => { if (importAliveRef.current) setImportProgress('') })
     }).then(remove => { if (disposed) remove(); else unlisten = remove })
       .catch(() => { /* 拖放监听不可用时保持无拖放行为，不影响主流程 */ })
     return () => { disposed = true; unlisten?.() }
-  }, [ready, loginRequired, page, notify])
+  }, [ready, loginRequired, notify])
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.theme
     document.documentElement.classList.toggle('large-text', preferences.largeText)

@@ -33,6 +33,20 @@ pub struct ReadingProgress {
     pub bookmarked: bool,
 }
 
+/// P-103：证据标签里的分数与分母是 SUM 聚合值——0.8 累加三次得
+/// 2.4000000000000004，Rust 的 `{}` 输出最短可往返十进制表示，标签即显示
+/// 长尾小数。统一四舍五入到两位并去掉多余的零（2.4 / 3 / 0）。
+fn round_score(value: f64) -> String {
+    let scaled = (value * 100.0).round() / 100.0;
+    let text = format!("{scaled:.2}");
+    let trimmed = text.trim_end_matches('0').trim_end_matches('.');
+    if trimmed.is_empty() || trimmed == "-" || trimmed == "-0" {
+        "0".into()
+    } else {
+        trimmed.into()
+    }
+}
+
 pub fn progress(state: &LearningState, id: &str) -> Result<KnowledgeOverview> {
     let id = plan_id(id)?;
     let plan = get(state, &format!("plan-{id}"))?;
@@ -93,7 +107,13 @@ pub fn progress(state: &LearningState, id: &str) -> Result<KnowledgeOverview> {
                 overall_maximum += maximum;
             }
             let mut label = if count > 0 {
-                format!("{count} 项测评记录 · {score}/{maximum}")
+                // P-103：score/maximum 是 SUM 聚合值（复习路径写入 0/0.6/0.8/1.0），
+                // 直接 Display f64 会输出 2.4000000000000004 这类长尾小数
+                format!(
+                    "{count} 项测评记录 · {}/{}",
+                    round_score(score),
+                    round_score(maximum)
+                )
             } else {
                 "尚无测评证据".into()
             };
@@ -355,4 +375,21 @@ pub fn save_note<R: Runtime>(
     tx.commit()?;
     emit(app, &event);
     store.app_state()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::round_score;
+
+    // P-103：证据标签直接 Display SUM 聚合的 f64 会输出长尾小数——复习路径
+    // 写入 0.8，三条 good 记录聚合为 2.4000000000000004
+    #[test]
+    fn evidence_score_label_drops_long_float_tail() {
+        assert_eq!(round_score(0.8 + 0.8 + 0.8), "2.4");
+        assert_eq!(round_score(3.0), "3");
+        assert_eq!(round_score(0.6), "0.6");
+        assert_eq!(round_score(0.0), "0");
+        assert_eq!(round_score(0.8 + 0.8 + 0.8 + 0.6 + 0.8), "3.8");
+        assert_eq!(round_score(10.0), "10");
+    }
 }

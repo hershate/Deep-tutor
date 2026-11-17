@@ -493,3 +493,124 @@ fn frontend_session_event_survives_snapshot_coalescing() {
         "去抖回调必须保留会话事件并触发工作区代际切换"
     );
 }
+
+// 58#2 返工：登出与切换曾构成 ABBA 死锁——登出持账户库互斥锁（跨
+// stop_all）再取切换写锁，切换持切换写锁再取账户库锁，两条命令各在
+// 一个后台线程执行，互相等待，双方永久挂起。
+#[test]
+fn logout_does_not_hold_account_store_lock_while_awaiting_switch_lock() {
+    // 固定住切换写锁，让登出线程停在取写锁处，再检查账户库互斥锁是否
+    // 仍被登出持有：持有即锁序反转（登出必须先释放账户库锁）。
+    let (app, _learning) = setup();
+    ipc(&app, "bootstrap", json!({})).unwrap();
+    let session = ipc(&app, "get_security_overview", json!({})).unwrap()["session"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        guard::exclusive(|| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+        .unwrap();
+    });
+    started_rx.recv().unwrap();
+    let handle = app.handle().clone();
+    let logout_handle = handle.clone();
+    let logout = std::thread::spawn(move || {
+        let state = logout_handle.state::<SecurityState>();
+        super::logout(&logout_handle, &state)
+    });
+    // 等登出撤销会话（凭据槽被清空）——撤销段只持账户库锁，不被写锁阻塞
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let revoked = handle
+            .state::<SecurityState>()
+            .credentials
+            .get(&format!("session-{session}"))
+            .unwrap()
+            .is_none();
+        if revoked {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "登出未在时限内撤销会话"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    // 撤销完成后登出线程停在取切换写锁处：账户库互斥锁此时必须已释放
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(
+        !logout.is_finished(),
+        "登出必须停在切换写锁处（写锁被测试固定住）"
+    );
+    let accounts_free = handle
+        .state::<SecurityState>()
+        .connection
+        .try_lock()
+        .is_ok();
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
+    logout.join().unwrap().unwrap();
+    assert!(
+        accounts_free,
+        "登出不得在等待切换写锁期间持有账户库互斥锁（ABBA 锁序反转）"
+    );
+}
+
+#[test]
+fn concurrent_logout_and_user_switch_both_return() {
+    // 并发冒烟：并发「切换用户 + 退出当前会话」时两条命令都必须在限时内
+    // 返回。锁序反转的确定性检测在上一条用例（固定切换写锁后检查账户库
+    // 互斥锁是否被登出持有）——本用例只覆盖「两者都不挂起」这一面。
+    let (app, _learning) = setup();
+    ipc(&app, "bootstrap", json!({})).unwrap();
+    ipc(
+        &app,
+        "create_local_user",
+        json!({"name":"并发登出用户","role":"成员"}),
+    )
+    .unwrap();
+    for round in 0..12 {
+        let handle = app.handle().clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<&'static str>();
+        let logout_tx = done_tx.clone();
+        let logout_handle = handle.clone();
+        let logout = std::thread::spawn(move || {
+            let state = logout_handle.state::<SecurityState>();
+            let result = super::logout(&logout_handle, &state);
+            let _ = logout_tx.send("logout");
+            result
+        });
+        let switch_handle = handle.clone();
+        let switcher = std::thread::spawn(move || {
+            let window = switch_handle.get_webview_window("main").unwrap();
+            let response = tauri::test::get_ipc_response(
+                &window,
+                InvokeRequest {
+                    cmd: "login_local_user".into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: "http://tauri.localhost".parse().unwrap(),
+                    body: InvokeBody::Json(json!({"userId": 2})),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            );
+            let _ = done_tx.send("switch");
+            response
+        });
+        let mut completed = Vec::new();
+        while completed.len() < 2 {
+            match done_rx.recv_timeout(std::time::Duration::from_secs(20)) {
+                Ok(tag) => completed.push(tag),
+                Err(_) => panic!("登出与切换并发时必须都在限时内返回（死锁，第 {round} 轮）"),
+            }
+        }
+        let _ = logout.join().unwrap();
+        let _ = switcher.join().unwrap();
+    }
+}

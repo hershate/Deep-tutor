@@ -697,9 +697,14 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .exam-facts > div { display: grid; padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
 .exam-facts svg { color: var(--accent); margin-bottom: 8px; }
 .exam-facts span { color: var(--muted); font-size: 12px; }
+/* P-041：历史行是 button——原选择器写成 `.exam-history > div`，只命中
+   SectionHeader 的 div（给区块标题误加 padding 与分隔线），历史行整列
+   回落浏览器默认按钮样式（灰底、默认边框、文字居中）。改指 button 并
+   补齐按钮重置 */
 .exam-history { padding: 24px; align-self: start; }
-.exam-history > div { display: flex; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
-.exam-history > div strong { color: var(--accent); font-size: 20px; }
+.exam-history > button { display: flex; justify-content: space-between; align-items: center; gap: 15px; width: 100%; padding: 14px 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font-size: 13px; text-align: left; }
+.exam-history > button strong { color: var(--accent); font-size: 20px; }
+.exam-history > button small { display: block; color: var(--muted); font-size: 12px; }
 .exam-history p { margin: 18px 0 0; font-size: 12px; }
 
 /* Spaced review */

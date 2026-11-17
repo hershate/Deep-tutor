@@ -4,6 +4,7 @@ use super::super::{
     BackendState,
 };
 use super::{active_user, initialize, with_user, SecurityState};
+use std::sync::Arc;
 use std::sync::RwLock;
 use tauri::{
     ipc::{Invoke, InvokeBody},
@@ -161,7 +162,10 @@ fn current<R: Runtime>(app: &AppHandle<R>) -> Result<i64> {
     Ok(initialize(app, &security)?.0.id)
 }
 
-fn prepare_store<R: Runtime>(app: &AppHandle<R>, user_id: i64) -> Result<()> {
+/// 58#2：把目标用户的工作区切到 store 上——PAT 登录在后台线程完成换库，
+/// 避免 GB 级首开复制落在主线程的下一条命令上（guard 的 prepare_store
+/// 原本只在主线程的派发路径里调用）。
+pub(crate) fn prepare_store<R: Runtime>(app: &AppHandle<R>, user_id: i64) -> Result<()> {
     let Some(state) = app.try_state::<BackendState>() else {
         return Ok(());
     };
@@ -185,7 +189,15 @@ fn prepare_store<R: Runtime>(app: &AppHandle<R>, user_id: i64) -> Result<()> {
     Ok(())
 }
 
-fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) -> bool {
+/// 58#2：切换整段（停机 + 换库 + 签发 + 恢复）改在后台线程执行——原先
+/// 落在主线程：停机等待上限取最慢单域（sync 50s），目标用户工作区首开
+/// 可能整库复制（GB 级），窗口在此期间完全无响应（Windows 标记「未
+/// 响应」，SecurityPanel 的 LoaderCircle 动画停摆）。IPC 响应仍在切换
+/// 真正完成后才发出，调用方语义不变。
+fn switch<R: Runtime + 'static, F>(invoke: Invoke<R>, handler: Arc<F>) -> bool
+where
+    F: Fn(Invoke<R>) -> bool + Send + Sync + 'static,
+{
     let app = invoke.message.webview().app_handle().clone();
     let target = match invoke.message.payload() {
         InvokeBody::Json(value) => value.get("userId").and_then(|value| value.as_i64()),
@@ -204,6 +216,34 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
     {
         return reject(invoke, error);
     }
+    // 58#2：后台线程 panic 时用克隆的 resolver 兜底拒绝——否则 invoke 被
+    // 丢弃，前端 promise 永久挂起
+    let resolver = invoke.resolver.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            switch_blocking(invoke, handler, &app, target)
+        }));
+        if outcome.is_err() {
+            resolver.reject(BackendError::new(
+                "internal_error",
+                "用户切换任务异常终止，请重试",
+            ));
+        }
+    });
+    true
+}
+
+/// 58#2：切换段本体——在工作区切换写锁内完成停机、换库、签发与恢复。
+/// 调用线程不是主线程（见 switch），但锁序与语义与迁移前一致。
+fn switch_blocking<R: Runtime + 'static, F>(
+    invoke: Invoke<R>,
+    handler: Arc<F>,
+    app: &AppHandle<R>,
+    target: i64,
+) -> bool
+where
+    F: Fn(Invoke<R>) -> bool + Send + Sync + 'static,
+{
     let _write = match WORKSPACE_SWITCH.write() {
         Ok(guard) => guard,
         Err(_) => {
@@ -213,14 +253,14 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
             )
         }
     };
-    let previous = match current(&app) {
+    let previous = match current(app) {
         Ok(user) => Some(user),
         Err(error) if super::reauthentication_required(&error) => None,
         Err(error) => return reject(invoke, error),
     };
     let resume = |user| {
         if let Some(user) = user {
-            with_user(user, || resume_background(&app));
+            with_user(user, || resume_background(app));
         }
     };
     let backend = app.try_state::<BackendState>();
@@ -256,7 +296,7 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
         note_store_owner(Some(target));
     }
     let handled = handler(invoke);
-    let actual = current(&app).ok();
+    let actual = current(app).ok();
     if actual != Some(target) {
         if let (Some(state), Some(previous)) = (&backend, previous_store) {
             // 90#11：回滚路径锁中毒恢复继续用（73#16 语义，与 backend/
@@ -278,6 +318,11 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
 // 对称，多窗口/异步化后不存在旧用户上下文以新用户库执行的交错
 // 150#9：备份导入与应用重置同口径持写锁——两者都是「先停机再取 store
 // 锁」的阻塞命令体，停机窗口内可发生工作区切换
+// 58#2 返工：全局锁序固定为「切换写锁 → 账户库互斥锁 → 工作区 store
+// 锁」——持写锁时可再取账户库锁与 store 锁；持账户库锁时只可再取 store
+// 锁，不得回头取写锁（登出原先先账户库锁跨 stop_all 再取写锁，与
+// switch 的写锁→账户库构成 ABBA 死锁：两条命令各在后台线程，互相等待
+// 到永久挂起）。
 pub(crate) fn exclusive<T>(operation: impl FnOnce() -> T) -> Result<T> {
     let _write = WORKSPACE_SWITCH
         .write()
@@ -340,6 +385,9 @@ where
     R: Runtime + 'static,
     F: Fn(Invoke<R>) -> bool + Send + Sync + 'static,
 {
+    // 58#2：切换段改在后台线程执行，需要把 handler 一并移入该线程——
+    // Arc 包裹后既能共享（clone）也能满足后台线程的 'static 约束
+    let handler = Arc::new(handler);
     move |invoke| {
         let command = invoke.message.command();
         if matches!(
@@ -357,7 +405,7 @@ where
             return reject(invoke, error);
         }
         if command == "login_local_user" {
-            return switch(invoke, &handler);
+            return switch(invoke, handler.clone());
         }
         if matches!(
             command,

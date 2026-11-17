@@ -1046,46 +1046,80 @@ pub fn login<R: Runtime>(
     overview_from(state)
 }
 
-pub fn logout<R: Runtime>(app: &AppHandle<R>, state: &SecurityState) -> Result<()> {
+pub fn logout<R: Runtime + 'static>(app: &AppHandle<R>, state: &SecurityState) -> Result<()> {
     state
         .logged_out
         .store(true, std::sync::atomic::Ordering::Release);
-    let store = state.store()?;
-    let (user, session) = current(&store.conn, state)?;
-    // 23#6：撤销该用户全部会话——只撤最新一条时，"登录用户1 → 切换用户2 →
-    // 登出"后 current() 会命中用户1 仍有效的旧会话，以他人身份静默续用
-    let active_sessions: Vec<String> = {
-        let mut statement = store
-            .conn
-            .prepare("SELECT id FROM auth_sessions WHERE user_id = ?1 AND revoked_at IS NULL")?;
-        let rows = statement
-            .query_map(params![user.id], |row| row.get::<_, String>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        drop(statement);
-        rows
+    // 34#2 锁序统一为「切换写锁 → 账户库互斥锁 → 工作区 store 锁」。
+    // 登出原先持账户库互斥锁跨 stop_all 再取切换写锁，与 switch 的
+    // 写锁→账户库顺序相反：并发「切换用户 + 退出登录」时两条命令各在
+    // 一个后台线程执行，构成 ABBA 死锁，双方永久挂起。撤销段改为只持
+    // 账户库互斥锁（不再取切换写锁）：撤销与切换读会话都走同一把账户库
+    // 锁，由该锁串行，无需再取切换写锁；并发切换时「撤销谁」取决于两条
+    // 命令的实际先后（撤销的是撤销时刻的当前会话用户），停机后的复核
+    // 段兜底并发切换带来的继任者差异。
+    let user_id = {
+        let store = state.store()?;
+        let (user, session) = current(&store.conn, state)?;
+        // 23#6：撤销该用户全部会话——只撤最新一条时，"登录用户1 → 切换用户2 →
+        // 登出"后 current() 会命中用户1 仍有效的旧会话，以他人身份静默续用
+        let active_sessions: Vec<String> = {
+            let mut statement = store.conn.prepare(
+                "SELECT id FROM auth_sessions WHERE user_id = ?1 AND revoked_at IS NULL",
+            )?;
+            let rows = statement
+                .query_map(params![user.id], |row| row.get::<_, String>(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            drop(statement);
+            rows
+        };
+        let tx = store.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE auth_sessions SET revoked_at = ?1 WHERE user_id = ?2 AND revoked_at IS NULL",
+            params![timestamp(now()?)?, user.id],
+        )?;
+        let event = Store::event(
+            &tx,
+            "security.session_revoked",
+            json!({"sessionId":session.id,"userId":user.id}),
+        )?;
+        tx.commit()?;
+        for id in active_sessions {
+            let _ = state.credentials.delete(&format!("session-{id}"));
+        }
+        emit(app, &event);
+        user.id
     };
-    let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE auth_sessions SET revoked_at = ?1 WHERE user_id = ?2 AND revoked_at IS NULL",
-        params![timestamp(now()?)?, user.id],
-    )?;
-    let event = Store::event(
-        &tx,
-        "security.session_revoked",
-        json!({"sessionId":session.id,"userId":user.id}),
-    )?;
-    tx.commit()?;
-    for id in active_sessions {
-        let _ = state.credentials.delete(&format!("session-{id}"));
-    }
-    emit(app, &event);
     // 31#7：登出后旧用户的派生后台任务与同步调度器不再穿透会话边界——
     // 与 login switch 同一停机集合；登出无继任用户，调度器一并停机。
-    // 停机为尽力而为，不阻断会话撤销本身
+    // 停机为尽力而为，不阻断会话撤销本身。
+    // 58#2：命令体已移到后台线程（commands.rs 的 async + spawn_blocking），
+    // 不再由 guard 的读锁覆盖整个命令体——停机等待不再占用主线程。
+    // 停机段既不持账户库锁也不持切换写锁（reset_application 同口径，
+    // commands.rs:258-262）：stop_all 最坏约 50s（sync 域 deadline），
+    // 写锁在位期间全应用 IPC 派发被阻塞，主线程一阻塞即窗口无响应
+    // （Windows 标记「未响应」、按钮动画停摆）。登出期间受守卫命令
+    // 一律以 login_required 被拒（会话已撤销且 logged_out 置位），
+    // 无需靠写锁挡住派发。
     if let Some(backend) = app.try_state::<crate::backend::BackendState>() {
-        let _ = with_user(user.id, || guard::stop_all(&backend));
+        let _ = with_user(user_id, || guard::stop_all(&backend));
     }
-    super::sync::scheduler::stop_scheduler();
+    // 停调度器前复核会话归属：停机期间若发生用户切换（切换已在新会话
+    // 下恢复后台），本次停机打到新用户头上——此时停调度器会让新用户的
+    // 同步静默停摆（107#1 同型），须按新用户恢复而不是停机。复核与
+    // 调度器停机在切换写锁内完成（不跨 stop_all；调度器停机等待调度
+    // 线程退出，量级为秒），不与切换交错。
+    let _ = guard::exclusive(|| {
+        let successor = state
+            .store()
+            .ok()
+            .and_then(|store| current(&store.conn, state).ok())
+            .map(|(user, _)| user.id);
+        match successor {
+            Some(successor) => with_user(successor, || guard::resume_background(app)),
+            None => super::sync::scheduler::stop_scheduler(),
+        }
+    });
     Ok(())
 }
 
@@ -1356,11 +1390,19 @@ pub fn authenticate_token<R: Runtime>(
     // 31#7：切换到另一用户时与 login switch 同口径——先停旧用户全部
     // 后台与同步调度器，签发后以新用户身份重启调度，不留后台穿透。
     // 31#34：停机/签发段持 WORKSPACE_SWITCH 写锁，与 switch 对称
+    // 58#2：换库（目标用户工作区首开，GB 级可达数十秒）在本命令的后台
+    // 线程内完成——原先推迟到登录后的第一条受守卫命令，那条命令在主线程
+    // 执行（guard.rs 的 prepare_store），冻结点从「点击登录」转移到登录后
+    // 的首次操作。换库先于签发（与 switch 同序）：换库失败即中止签发，
+    // 不留半签发会话；账户库互斥锁在换库前释放（34#2 同口径，避免
+    // 账户库锁与 store 锁嵌套）
     guard::exclusive(|| {
-        let store = state.store()?;
-        let previous = current(&store.conn, state)
-            .ok()
-            .map(|(previous, _)| previous.id);
+        let previous = {
+            let store = state.store()?;
+            current(&store.conn, state)
+                .ok()
+                .map(|(previous, _)| previous.id)
+        };
         if previous != Some(user_id) {
             if let Some(backend) = app.try_state::<crate::backend::BackendState>() {
                 if let Some(previous) = previous {
@@ -1369,6 +1411,8 @@ pub fn authenticate_token<R: Runtime>(
             }
             super::sync::scheduler::stop_scheduler();
         }
+        guard::prepare_store(app, user_id)?;
+        let store = state.store()?;
         issue(app, state, user_id, &store)
     })??;
     with_user(user_id, || guard::resume_background(&app));

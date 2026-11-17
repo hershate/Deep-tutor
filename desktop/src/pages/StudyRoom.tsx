@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeKatexError from '../markdown/rehypeKatexError'
+import { normalizeDisplayMath } from '../markdown/displayMath'
 import type { PageId } from '../data'
 import { Badge, Button, ConfirmDialog, IconButton, MarkdownLink, Modal, ProgressBar } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
@@ -19,8 +20,11 @@ const lectureStatus: Record<string, string> = { empty: '尚未生成', running: 
 // Markdown/KaTeX 逐次重解析（内容引用不变即跳过）
 // P-043：rehypeKatexError 必须在 rehypeKatex 之后——把 KaTeX 解析失败的
 // 红色源码改写为中文错误说明
+// P-042：normalizeDisplayMath 把独占一行的单行 `$$…$$` 改写为多行块公式
+// 形式——否则 remark-math 判为行内公式，align 等只允许显示模式的环境直接
+// 渲染成红色报错块
 const MemoMarkdown = memo(function MemoMarkdown({ text }: { text: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeKatexError]} components={{ a: MarkdownLink }}>{text}</ReactMarkdown>
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeKatexError]} components={{ a: MarkdownLink }}>{normalizeDisplayMath(text)}</ReactMarkdown>
 })
 
 export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext, notify, onTargetConsumed }: { target?: { planId: string; stageId: string; nonce: number } | null; onFocus: () => void; onNavigate: (page: PageId) => void; onTutorContext: (context: { planId: string; label: string } | null) => void; notify: (message: string) => void; onTargetConsumed?: () => void }) {
