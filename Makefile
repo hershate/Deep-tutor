@@ -37,6 +37,12 @@ lint:
 	cd desktop && $(NPM) audit --omit=dev && $(NPM) audit
 
 test:
+	# 前端回归测试：Markdown 预处理（公式定界符改写）与主题缓存分区此前
+	# 只靠临时探针验证，改动后无兜底——用 Node 自带 test runner 补上，
+	# 不新增依赖
+	node desktop/scripts/frontend-test.mjs
+	# 构建脚本回归测试：旧版本安装包清理（P-154）此前无自动化通道
+	node desktop/scripts/build-test.mjs
 	# 串行执行：多个测试共享进程级全局（如 sync DEFER 标志），并行会互相污染
 	cd desktop/src-tauri && $(CARGO) test --release --locked -- --test-threads=1
 
