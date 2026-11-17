@@ -1150,3 +1150,322 @@ fn export_fails_before_writing_an_archive_whose_manifest_exceeds_the_limit() {
     assert_eq!(error["code"], "backup_manifest_too_large", "{error}");
     assert!(!path.exists(), "超限导出不得落盘备份文件");
 }
+
+#[test]
+fn dangling_community_post_project_does_not_block_the_import() {
+    // P-094：互评帖的 project_id 悬挂（项目删除后残留）原先使整单导入被拒
+    // （invalid_backup_reference）——帖子正文与回复是用户内容，导入时解除
+    // 已不存在的项目关联并保留帖子与回复
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    {
+        let store = source.store().unwrap();
+        let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO community_posts (title, body, kind, project_id, project_title, created_at, updated_at) VALUES ('互评帖', '帖子正文', 'peer_review', 99, '已删项目', ?1, ?1)",
+                params![timestamp],
+            )
+            .unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO community_replies (post_id, body, created_at) VALUES (1, '真实回复', ?1)",
+                params![timestamp],
+            )
+            .unwrap();
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("dangling.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let target = LearningState::for_tests().unwrap();
+    let target_app = setup(&target);
+    let state = ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let store = target.store().unwrap();
+    let (project_id, project_title): (Option<i64>, Option<String>) = store
+        .conn
+        .query_row(
+            "SELECT project_id, project_title FROM community_posts WHERE title = '互评帖'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(project_id.is_none(), "悬挂的项目引用须在导入时解除");
+    assert!(project_title.is_none());
+    let replies: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM community_replies", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(replies, 1, "帖子回复是用户内容，不随项目引用解除而丢失");
+    let warnings = state["backupImportWarnings"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .collect::<Vec<_>>()
+                .join("；")
+        })
+        .unwrap_or_default();
+    assert!(
+        warnings.contains("已解除项目关联"),
+        "导入告警须说明项目关联已解除，实际：{warnings}"
+    );
+}
+
+#[test]
+fn imported_quota_limits_land_in_the_root_account_store() {
+    // P-097：备份携带的配额上限属账户数据——执行侧（store::ensure_quota_in_tx
+    // 走 account_path）与安全面板都读根账户库，导入原先把 security_quotas
+    // 行写进工作区库，成了无人读取的死副本，恢复后自定义上限不生效
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    {
+        let store = source.store().unwrap();
+        let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO local_users (id, display_name, role, active, created_at, updated_at) VALUES (1, '源用户', '管理员', 1, ?1, ?1)",
+                params![timestamp],
+            )
+            .unwrap();
+        for resource in ["notes", "materials"] {
+            store
+                .conn
+                .execute(
+                    "INSERT INTO security_quotas (user_id, resource, item_limit) VALUES (1, ?1, 77)",
+                    params![resource],
+                )
+                .unwrap();
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("quota-account.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let target = LearningState::for_tests().unwrap();
+    // 目标机的根账户库须有当前账户——生产拓扑下工作区库在 users/<id>/
+    // 下，与根账户库分离
+    let account = crate::backend::store::Store::root(target.database_path().to_path_buf()).unwrap();
+    account
+        .conn
+        .execute(
+            "INSERT INTO local_users (id, display_name, role, active, created_at, updated_at) VALUES (1, '本地管理员', '管理员', 1, 'now', 'now')",
+            [],
+        )
+        .unwrap();
+    let target_app = crate::backend::security::with_user(1, || setup(&target));
+    crate::backend::security::with_user(1, || {
+        ipc(
+            &target_app,
+            "import_full_backup",
+            json!({"path": path.to_string_lossy()}),
+        )
+    })
+    .unwrap();
+    // 配额上限落在根账户库的当前账户行——恢复后自定义上限立即生效
+    let limit: i64 = account
+        .conn
+        .query_row(
+            "SELECT item_limit FROM security_quotas WHERE user_id = 1 AND resource = 'notes'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(limit, 77, "备份携带的配额上限须写回根账户库");
+    // 工作区库不再留死副本
+    let workspace = crate::backend::security::with_user(1, || target.store().unwrap());
+    let copied: i64 = workspace
+        .conn
+        .query_row("SELECT COUNT(*) FROM security_quotas", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(copied, 0, "工作区库不得再留无人读取的配额副本");
+}
+
+#[test]
+fn importing_keeps_locally_customized_quota_limits() {
+    // P-097 返工：导入不得用备份里的上限静默覆盖本机已自定义的配额上限
+    // （旧备份可能放宽上限）——本机已自定义的行保留当前值并告警；仍是出厂
+    // 默认值的行才由备份携带的上限替换（那正是恢复用户自定义值的场景）
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    {
+        let store = source.store().unwrap();
+        let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO local_users (id, display_name, role, active, created_at, updated_at) VALUES (1, '源用户', '管理员', 1, ?1, ?1)",
+                params![timestamp],
+            )
+            .unwrap();
+        for resource in ["notes", "materials"] {
+            store
+                .conn
+                .execute(
+                    "INSERT INTO security_quotas (user_id, resource, item_limit) VALUES (1, ?1, 77)",
+                    params![resource],
+                )
+                .unwrap();
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("quota-keep.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let target = LearningState::for_tests().unwrap();
+    let account = crate::backend::store::Store::root(target.database_path().to_path_buf()).unwrap();
+    account
+        .conn
+        .execute(
+            "INSERT INTO local_users (id, display_name, role, active, created_at, updated_at) VALUES (1, '本地管理员', '管理员', 1, 'now', 'now')",
+            [],
+        )
+        .unwrap();
+    // notes=100 是用户自定义（出厂默认 500），materials=200 仍是出厂默认值
+    account
+        .conn
+        .execute(
+            "INSERT INTO security_quotas (user_id, resource, item_limit) VALUES (1, 'notes', 100)",
+            [],
+        )
+        .unwrap();
+    account
+        .conn
+        .execute(
+            "INSERT INTO security_quotas (user_id, resource, item_limit) VALUES (1, 'materials', 200)",
+            [],
+        )
+        .unwrap();
+    let target_app = crate::backend::security::with_user(1, || setup(&target));
+    let state = crate::backend::security::with_user(1, || {
+        ipc(
+            &target_app,
+            "import_full_backup",
+            json!({"path": path.to_string_lossy()}),
+        )
+    })
+    .unwrap();
+    let limit: i64 = account
+        .conn
+        .query_row(
+            "SELECT item_limit FROM security_quotas WHERE user_id = 1 AND resource = 'notes'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(limit, 100, "本机已自定义的配额上限不得被旧备份静默覆盖");
+    let restored: i64 = account
+        .conn
+        .query_row(
+            "SELECT item_limit FROM security_quotas WHERE user_id = 1 AND resource = 'materials'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        restored, 77,
+        "本机仍是出厂默认值的配额上限须由备份携带的上限替换"
+    );
+    let warnings = state["backupImportWarnings"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .collect::<Vec<_>>()
+                .join("；")
+        })
+        .unwrap_or_default();
+    assert!(
+        warnings.contains("保留当前设置"),
+        "导入告警须说明本机已自定义的配额上限被保留，实际：{warnings}"
+    );
+}
+
+#[test]
+fn preview_degrades_when_the_account_store_is_unavailable() {
+    // P-097 返工：根账户库不可用时预演不得整单失败——导入路径把同一错误
+    // 降级为导入警告（工作区数据已恢复，配额写不回而已），两条路径口径
+    // 必须一致，否则用户看到「预览失败」却能正常导入
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    {
+        let store = source.store().unwrap();
+        let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO local_users (id, display_name, role, active, created_at, updated_at) VALUES (1, '源用户', '管理员', 1, ?1, ?1)",
+                params![timestamp],
+            )
+            .unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO security_quotas (user_id, resource, item_limit) VALUES (1, 'notes', 77)",
+                [],
+            )
+            .unwrap();
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("quota-preview.dtbackup");
+    ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    let target = LearningState::for_tests().unwrap();
+    let store = target.store().unwrap();
+    // 账户库文件不存在——account_connection 返回 account_store_unavailable
+    let broken = LearningState::new(
+        &target
+            .database_path()
+            .parent()
+            .unwrap()
+            .join("missing-account.db"),
+        &target.provider_state(),
+        &target.material_state(),
+    );
+    let preview = super::preview(&broken, &store, &path).unwrap();
+    let warnings = preview.warnings.join("；");
+    assert!(
+        warnings.contains("配额上限未随备份恢复"),
+        "预演须把账户库不可用降级为警告，实际：{warnings}"
+    );
+}

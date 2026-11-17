@@ -395,6 +395,16 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
         1
     );
     let target = crate::backend::learning::LearningState::for_tests().unwrap();
+    // P-097：配额上限属账户数据——目标机的根账户库须有对应账户，导入
+    // 才把备份携带的上限写回根账户库（工作区库不再留死副本）
+    let account = Store::root(target.database_path().to_path_buf()).unwrap();
+    account
+        .conn
+        .execute(
+            "INSERT INTO local_users (id, display_name, role, active, created_at, updated_at) VALUES (1, '本地管理员', '管理员', 1, 'now', 'now')",
+            [],
+        )
+        .unwrap();
     let target_store = with_user(1, || target.store().unwrap());
     with_user(1, || {
         crate::backend::backup::import(app.handle(), &target_store, &target, &path)
@@ -424,8 +434,9 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
             .unwrap(),
         0
     );
+    // P-097：配额上限落在根账户库的当前账户行——工作区库不再留死副本
     assert_eq!(
-        target_store
+        account
             .conn
             .query_row(
                 "SELECT item_limit FROM security_quotas WHERE user_id = 1 AND resource = 'notes'",
@@ -434,6 +445,14 @@ fn quotas_count_real_resources_and_backup_excludes_authentication_material() {
             )
             .unwrap(),
         77
+    );
+    assert_eq!(
+        target_store
+            .conn
+            .query_row("SELECT COUNT(*) FROM security_quotas", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
     );
 }
 

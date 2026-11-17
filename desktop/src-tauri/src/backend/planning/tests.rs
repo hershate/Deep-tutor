@@ -411,3 +411,21 @@ fn out_of_range_schedule_date_is_rejected_before_anything_is_saved() {
         .unwrap();
     assert_eq!(rows, 0, "越界日期不得留下已保存的排期行");
 }
+
+#[test]
+fn goal_update_accepts_a_goal_longer_than_two_hundred_bytes() {
+    // P-096：创建入口（learning::validate_input）允许 1000 字节的目标，
+    // 调整目标入口原先只许 200 字节——弹窗预填创建时合法的长目标后保存
+    // 必被拒（invalid_goal），用户必须手工缩短当初合法输入的目标
+    let (app, learning) = setup();
+    insert_plan(&learning.store().unwrap());
+    // 超过创建入口上限（1000 字节）仍须拒绝
+    let error = ipc(&app, "update_learning_goal", json!({"input":{"planId":"plan-1","goal":"长".repeat(400),"deadline":"2099-02-01","weeklyHours":21,"level":"基础"}})).unwrap_err();
+    assert_eq!(error["code"], "invalid_goal");
+    let long_goal = "长".repeat(300);
+    assert_eq!(long_goal.len(), 900);
+    let started = ipc(&app, "update_learning_goal", json!({"input":{"planId":"plan-1","goal":long_goal,"deadline":"2099-02-01","weeklyHours":21,"level":"基础"}})).unwrap();
+    assert_eq!(started["status"], "running");
+    let plan = crate::backend::learning::get(&learning, "plan-1").unwrap();
+    assert_eq!(plan.goal, long_goal);
+}

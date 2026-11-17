@@ -92,20 +92,48 @@ fn sources(state: &LearningState, input: &PlanInput) -> Result<Vec<Source>> {
     Ok(sources)
 }
 
+/// P-015：学习目标允许 1000 字节，外部检索的检索词上限为 300 字节且
+/// 搜索地址整体不得超过 900 字节——原样传入必然被拒，方案永久降级且
+/// 警告不指向真实原因。检索词按检索层上限截断（截断形态由网页域统一
+/// 实现），并回报是否发生截断。
+fn search_query(goal: &str) -> (String, bool) {
+    super::super::web::truncate_query(goal)
+}
+
 pub(crate) fn resources(input: &PlanInput, sources: &[Source]) -> Value {
-    let (status, reason, results) = match super::super::web::search(&input.goal, 3) {
+    let (query, truncated) = search_query(&input.goal);
+    // 截断说明随理由回传——用户看到的降级/截断原因指向真实来源
+    let truncation_note = if truncated {
+        "（学习目标过长，检索词已按检索上限截断）"
+    } else {
+        ""
+    };
+    let (status, reason, results) = match super::super::web::search(&query, 3) {
         Ok(search) => {
             let results = search
                 .get("results")
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
+            // P-017：rejected 只含失败明细，省略说明在 notes——原先按
+            // 数组长度计数把「预算省略」当成失败候选，失实计数与 partial
+            // 状态直达用户
             let rejected = search
                 .get("rejected")
                 .and_then(Value::as_array)
                 .map_or(0, Vec::len);
+            let notes = search
+                .get("notes")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             let status = if rejected == 0 { "done" } else { "partial" };
-            let reason = if rejected == 0 {
+            let mut reason = if rejected == 0 {
                 format!("已实际抓取并验证 {} 个公开网页", results.len())
             } else {
                 format!(
@@ -114,13 +142,17 @@ pub(crate) fn resources(input: &PlanInput, sources: &[Source]) -> Value {
                     rejected
                 )
             };
+            if !notes.is_empty() {
+                reason.push_str(&format!("；{}", notes.join("；")));
+            }
+            reason.push_str(truncation_note);
             (status, reason, results)
         }
         Err(error) => (
             "unavailable",
             format!(
-                "外部资源检索不可用（{}：{}）；未采用未验证的外部链接",
-                error.code, error.message
+                "外部资源检索不可用（{}：{}）；未采用未验证的外部链接{}",
+                error.code, error.message, truncation_note
             ),
             Vec::new(),
         ),
@@ -133,7 +165,7 @@ pub(crate) fn resources(input: &PlanInput, sources: &[Source]) -> Value {
         "externalSearch": {
             "status": status,
             "reason": reason,
-            "queries": [input.goal],
+            "queries": [query],
             "results": results,
         }
     })
@@ -637,7 +669,7 @@ fn execute_index<R: Runtime>(
 }
 
 pub fn run<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: i64) -> Result<()> {
-    let input = input(state, id)?;
+    let mut input = input(state, id)?;
     if step_state(state, id, 7)?.0 == "done" {
         if let Some(result) = get(state, &format!("plan-{id}"))?.result {
             return complete_plan(app, state, id, &result);
@@ -666,6 +698,11 @@ pub fn run<R: Runtime>(app: &AppHandle<R>, state: &LearningState, id: i64) -> Re
             }
         }
     }
+    // P-095：模型步骤执行前校正方案绑定的供应商档案——创建时的档案可能
+    // 已被停用或删除，恒用旧档案会让失败方案的每次恢复都止步于
+    // provider_disabled（方案成为死路）。可用档案解析与回写见
+    // learning::rebind_plan_provider
+    input = super::rebind_plan_provider(state, id, input)?;
     let mut artifacts = RunArtifacts::default();
     for index in 0..7 {
         cancelled(state, id)?;

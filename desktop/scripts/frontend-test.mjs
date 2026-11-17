@@ -286,6 +286,22 @@ test('P-167：入口引入 KaTeX copy-tex 扩展，复制公式得到 LaTeX 源�
   )
 })
 
+test('P-099 返工：事件驱动的只读拉取失败不再在页面顶部钉住红色横幅', () => {
+  const source = readSource('../src/pages/PlanGenerator.tsx')
+  assert.ok(
+    source.includes('throttledMaterials(() => void refreshMaterials(true))'),
+    'material.* 事件触发的节流刷新必须走事件路径——瞬时争用由下一轮事件自愈',
+  )
+  assert.ok(
+    source.includes('if (eventDriven) reportBackendError(cause)'),
+    '事件驱动的资料刷新失败须走 reportBackendError，不得 setError 钉住页面横幅',
+  )
+  assert.ok(
+    source.includes('if (ticket === selectSeq.current) reportBackendError(cause)'),
+    'plan.started 事件触发的方案拉取失败须走 reportBackendError',
+  )
+})
+
 // P-087：费率输入框回填已保存费率。
 // 面板原先把输入框初值写死为 1/2，切换档案/模型时也不回填已保存费率，
 // 点「保存真实费率」（upsert 语义）会用初始默认值静默覆盖已配置费率。

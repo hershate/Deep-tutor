@@ -174,6 +174,16 @@ const RESOURCES: [(&str, u64); 5] = [
     ("agent_memory", 500),
 ];
 
+/// 配额资源的出厂默认上限——备份导入恢复时区分「本机仍是默认上限的行」与
+/// 「用户已自定义的行」：默认行可由备份携带的上限替换（这正是恢复自定义值
+/// 的场景），已自定义的行保留本机当前值，不被旧备份静默放宽
+pub(crate) fn default_quota(resource: &str) -> Option<i64> {
+    RESOURCES
+        .iter()
+        .find(|(name, _)| *name == resource)
+        .map(|(_, limit)| *limit as i64)
+}
+
 pub(crate) trait CredentialBackend: Send + Sync {
     fn get(&self, id: &str) -> Result<Option<Zeroizing<String>>>;
     fn set(&self, id: &str, value: &str) -> Result<()>;

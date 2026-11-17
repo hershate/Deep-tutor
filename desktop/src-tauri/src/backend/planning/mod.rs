@@ -694,10 +694,14 @@ pub fn update_goal<R: Runtime>(
         ));
     }
     let goal = input.goal.trim().to_string();
-    if goal.is_empty() || goal.len() > 200 || !(1..=80).contains(&input.weekly_hours) {
+    // P-096：目标上限与创建入口（learning::validate_input 的 1000 字节）
+    // 对齐——原先此处只许 200 字节，弹窗预填创建时合法的长目标后保存必被
+    // 拒（invalid_goal），用户必须手工缩短当初合法输入的目标才能改任何
+    // 目标参数。同入口的「当前掌握情况」本就是 1000 字节
+    if goal.is_empty() || goal.len() > 1000 || !(1..=80).contains(&input.weekly_hours) {
         return Err(BackendError::new(
             "invalid_goal",
-            "目标须为 1 到 200 字节，每周投入须为 1 到 80 小时",
+            "目标须为 1 到 1000 字节，每周投入须为 1 到 80 小时",
         ));
     }
     // 126#9：截止日不早于今天——原先仅验格式，过去日期静默落库，到

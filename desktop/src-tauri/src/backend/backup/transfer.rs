@@ -1085,6 +1085,22 @@ fn transform(
                         Err(fallback) => return Err(fallback),
                     }
                 }
+                // P-094：社区互评帖的 project_id 悬挂（项目删除后残留）——
+                // 帖子正文与回复是用户内容，跳行会让 community_replies 的
+                // post_id 撞外键并使整单导入失败；置空该列保留帖子与回复，
+                // 只解除指向已不存在项目的关联
+                Err(error)
+                    if table == "community_posts"
+                        && parent == "kv:projects"
+                        && error.code == "invalid_backup_reference" =>
+                {
+                    transfer.warnings.push(format!(
+                        "{}一行关联的项目不在备份中（已解除项目关联，帖子保留）",
+                        table_label(table)
+                    ));
+                    row.insert(column.name.clone(), Value::Null);
+                    row.insert("project_title".into(), Value::Null);
+                }
                 // 99#6：父表属维护裁剪域（runs 1000 / requests 20000 / events
                 // 90d 窗口异构）时，异常库态的单侧悬挂按跳行降级；用户内容型
                 // 父表（方案/资料/笔记等）断链仍整单拒绝
@@ -1315,6 +1331,230 @@ fn user_content_request_holder(table: &str) -> bool {
     )
 }
 
+/// P-097：备份携带的配额上限的恢复计划。配额上限属账户数据——执行侧
+/// （store::ensure_quota_in_tx 走 account_path）与安全面板都读根账户库；
+/// 导入原先把 security_quotas 行写进工作区库，成了无人读取的死副本，
+/// 恢复后自定义上限不生效。这里解析备份里的配额行与本机账户，导入完成
+/// 后写回根账户库的当前账户行。
+enum QuotaRestore {
+    /// 备份未携带配额上限——无需处理
+    Skip,
+    /// 备份携带了配额上限但未能确定归属账户（降级为导入警告）
+    Unresolved(String),
+    /// 可写回根账户库的配额行
+    Apply {
+        user_id: i64,
+        /// 本机尚无该资源、或本机仍是出厂默认上限——导入后写入备份携带的上限
+        rows: Vec<(String, i64)>,
+        /// 本机已自定义过上限——保留本机当前值，不被备份覆盖
+        preserved: Vec<String>,
+    },
+}
+
+/// 根账户库连接——配额上限与账号行的真源（security 域的 store 同路径）
+fn account_connection(state: &LearningState) -> Result<Connection> {
+    let path = state.database_path();
+    if !path.exists() {
+        return Err(BackendError::new(
+            "account_store_unavailable",
+            "账户库不存在，无法恢复配额上限",
+        ));
+    }
+    let connection = Connection::open(path)?;
+    let _ = connection.busy_timeout(std::time::Duration::from_secs(10));
+    Ok(connection)
+}
+
+fn account_has_user(connection: &Connection, user_id: i64) -> bool {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM local_users WHERE id = ?1)",
+            params![user_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(false)
+}
+
+/// 本机唯一未删除的账户——本机只有一名账户时，备份携带的配额上限落到
+/// 该账户上（当前会话账户缺失时的兜底）
+fn account_single_user(connection: &Connection) -> Option<i64> {
+    let mut statement = connection
+        .prepare("SELECT id FROM local_users WHERE deleted_at IS NULL ORDER BY id")
+        .ok()?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, i64>(0))
+        .ok()?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .ok()?;
+    match ids.as_slice() {
+        [only] => Some(*only),
+        _ => None,
+    }
+}
+
+/// P-097：解析备份携带的配额行与本机目标账户
+fn plan_account_quotas(state: &LearningState, transfer: &Transfer) -> Result<QuotaRestore> {
+    let rows = transfer
+        .tables
+        .get("security_quotas")
+        .cloned()
+        .unwrap_or_default();
+    if rows.is_empty() {
+        return Ok(QuotaRestore::Skip);
+    }
+    let mut users: BTreeSet<i64> = BTreeSet::new();
+    for row in &rows {
+        if let Some(user) = row.get("user_id").and_then(Value::as_i64) {
+            users.insert(user);
+        }
+    }
+    if users.is_empty() {
+        return Ok(QuotaRestore::Unresolved("备份的配额行缺少账户标识".into()));
+    }
+    // 源侧账户：导出侧只注入当前用户的配额行；工作区库是从根账户库
+    // 复制来的（含其他账户的旧副本），多出用户时不猜——按备份内账号行
+    // 取交集后仍不唯一即放弃
+    let source_user = if users.len() == 1 {
+        *users.iter().next().expect("非空集合")
+    } else {
+        let backup_users: BTreeSet<i64> = transfer
+            .tables
+            .get("local_users")
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|row| row.get("id").and_then(Value::as_i64))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let candidates: Vec<i64> = users.intersection(&backup_users).copied().collect();
+        match candidates.as_slice() {
+            [only] => *only,
+            _ => {
+                return Ok(QuotaRestore::Unresolved(
+                    "备份含多个账户的配额行，未能确定归属账户".into(),
+                ))
+            }
+        }
+    };
+    let mut limits: BTreeMap<String, i64> = BTreeMap::new();
+    for row in &rows {
+        if row.get("user_id").and_then(Value::as_i64) != Some(source_user) {
+            continue;
+        }
+        let Some(resource) = row.get("resource").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(limit) = row.get("item_limit").and_then(Value::as_i64) else {
+            continue;
+        };
+        if resource.is_empty() || limit <= 0 {
+            continue;
+        }
+        limits.insert(resource.to_string(), limit);
+    }
+    if limits.is_empty() {
+        return Ok(QuotaRestore::Unresolved("备份的配额行没有有效上限".into()));
+    }
+    let account = account_connection(state)?;
+    // 目标侧账户：本机当前会话账户优先，其次本机唯一账户
+    let user_id = super::super::security::principal_id()
+        .filter(|id| account_has_user(&account, *id))
+        .or_else(|| account_single_user(&account));
+    let Some(user_id) = user_id else {
+        return Ok(QuotaRestore::Unresolved(
+            "本机没有可对应的账户，配额上限未随备份恢复".into(),
+        ));
+    };
+    // P-097 返工：区分「本机仍是出厂默认上限的行」与「用户已自定义的行」——
+    // 默认行由备份携带的上限替换（恢复用户在新机上自定义的值，也是 P-097
+    // 的原意），已自定义的行保留本机当前值，不被旧备份静默放宽
+    let current: BTreeMap<String, i64> = {
+        let mut statement = account
+            .prepare("SELECT resource, item_limit FROM security_quotas WHERE user_id = ?1")?;
+        let mapped = statement.query_map(params![user_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut collected = BTreeMap::new();
+        for row in mapped {
+            let (resource, limit) = row?;
+            collected.insert(resource, limit);
+        }
+        collected
+    };
+    let mut rows = Vec::new();
+    let mut preserved = Vec::new();
+    for (resource, limit) in limits {
+        match current.get(&resource) {
+            // 本机已是备份携带的上限——无需写入
+            Some(existing) if *existing == limit => continue,
+            // 本机已自定义（与出厂默认值不同）——保留本机当前值
+            Some(existing)
+                if Some(*existing) != super::super::security::default_quota(&resource) =>
+            {
+                preserved.push(resource);
+            }
+            _ => rows.push((resource, limit)),
+        }
+    }
+    Ok(QuotaRestore::Apply {
+        user_id,
+        rows,
+        preserved,
+    })
+}
+
+/// P-097：把备份携带的配额上限写回根账户库的当前账户行——写进工作区库
+/// 只是死副本，导入后自定义上限不生效
+fn apply_account_quotas(state: &LearningState, transfer: &mut Transfer) -> Result<()> {
+    match plan_account_quotas(state, transfer)? {
+        QuotaRestore::Skip => Ok(()),
+        QuotaRestore::Unresolved(reason) => {
+            transfer
+                .warnings
+                .push(format!("配额上限未随备份恢复：{reason}"));
+            Ok(())
+        }
+        QuotaRestore::Apply {
+            user_id,
+            rows,
+            preserved,
+        } => {
+            if !preserved.is_empty() {
+                transfer.warnings.push(format!(
+                    "本机已自定义 {} 项配额上限，保留当前设置，未随备份覆盖",
+                    preserved.len()
+                ));
+            }
+            let account = account_connection(state)?;
+            let tx = account.unchecked_transaction()?;
+            let mut applied = 0u64;
+            for (resource, limit) in &rows {
+                // 只写 rows 内的资源——本机已自定义的资源不在其中（见
+                // plan_account_quotas）；同键已存在时按备份携带的上限更新
+                // （本机该行仍是出厂默认值，属于恢复用户自定义值的场景）
+                let changed = tx.execute(
+                    "INSERT INTO security_quotas (user_id, resource, item_limit) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(user_id, resource) DO UPDATE SET item_limit = excluded.item_limit",
+                    params![user_id, resource, limit],
+                )?;
+                applied += changed as u64;
+            }
+            tx.commit()?;
+            if applied > 0 {
+                transfer
+                    .warnings
+                    .push(format!("已把备份中的 {applied} 项配额上限恢复到本机账户"));
+            }
+            *transfer
+                .counts
+                .entry("security_quotas".to_string())
+                .or_default() += applied;
+            Ok(())
+        }
+    }
+}
+
 fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str]) -> Result<()> {
     // 31#46：一次性构建「按哈希复用目标已有资料」的目标 id 集合——原先
     // 每行资料在 transform 后对 IdMap 线性反查（O(n²)）
@@ -1347,6 +1587,14 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
     import_kv(transfer, tx)?;
     for table in ordered {
         if *table == "kv" {
+            continue;
+        }
+        // P-097：security_quotas 属账户数据——配额上限的执行侧
+        // （store::ensure_quota_in_tx 走 account_path）与安全面板都读根
+        // 账户库，写进工作区库只是无人读取的死副本（恢复后自定义上限不
+        // 生效）。该表改由导入完成后写回根账户库的当前账户行
+        // （见 apply_account_quotas）。
+        if *table == "security_quotas" {
             continue;
         }
         let mut rows = transfer.tables.get(*table).cloned().unwrap_or_default();
@@ -1515,22 +1763,19 @@ fn target_relative(entry: &FileEntry, maps: &IdMap) -> Result<String> {
                 ));
             }
             // 165#1：与真实导入共用扩展名真源；zip 仅作旧档案兼容。
+            // P-022：白名单外扩展名的落盘名与运维扫描共用同一真源
+            // （materials::supported_original_ext / orphan_original_suffix），
+            // 否则导入留下的 .orphan- 原件会被运维扫描当成孤儿清理
             let declared = path
                 .extension()
                 .and_then(|value| value.to_str())
                 .map(str::to_ascii_lowercase)
                 .unwrap_or_default();
-            let known = super::super::materials::SUPPORTED.contains(&declared.as_str())
-                || declared == "zip";
-            if !known {
+            if !super::super::materials::supported_original_ext(&declared) {
                 return Ok(format!(
                     "materials/originals/{}.orphan-{}",
                     entry.sha256,
-                    declared
-                        .chars()
-                        .take(16)
-                        .filter(|c| c.is_ascii_alphanumeric())
-                        .collect::<String>()
+                    super::super::materials::orphan_original_suffix(&declared)
                 ));
             }
             Ok(entry.path.clone())
@@ -1673,6 +1918,38 @@ pub fn dry_run(
     let ordered = order(&transfer, &tx)?;
     import_rows(&mut transfer, &tx, &ordered)?;
     tx.rollback()?;
+    // P-097：预演不写库——只回报将恢复到根账户库的配额项
+    // 账户库不可用等错误按导入路径同口径降级为警告——预演整单失败而导入
+    // 本身可成功，两条路径口径必须一致
+    match plan_account_quotas(state, &transfer) {
+        Ok(QuotaRestore::Skip) => {}
+        Ok(QuotaRestore::Unresolved(reason)) => transfer
+            .warnings
+            .push(format!("配额上限未随备份恢复：{reason}")),
+        Ok(QuotaRestore::Apply {
+            rows, preserved, ..
+        }) => {
+            if !preserved.is_empty() {
+                transfer.warnings.push(format!(
+                    "本机已自定义 {} 项配额上限，保留当前设置，未随备份覆盖",
+                    preserved.len()
+                ));
+            }
+            if !rows.is_empty() {
+                transfer.warnings.push(format!(
+                    "导入后将把备份中的 {} 项配额上限恢复到本机账户",
+                    rows.len()
+                ));
+            }
+            *transfer
+                .counts
+                .entry("security_quotas".to_string())
+                .or_default() += rows.len() as u64;
+        }
+        Err(error) => transfer
+            .warnings
+            .push(format!("配额上限未随备份恢复：{}", error.message)),
+    }
     // 102#4：跳行/置空降级警告与导入同口径返回，供预演展示
     Ok((transfer.counts, transfer.warnings))
 }
@@ -1703,19 +1980,27 @@ pub fn import(
         )?;
         prepare_ids(&mut transfer, &tx)?;
         // stage_files 须在 prepare_ids 之后：插件清单目标路径按重映射后
-        // 的插件 id 落位（提前执行会拿空映射报缺少记录）；staged 只写
-        // 备份临时工作区，失败由 OpenBackup RAII 清理
+        // 的插件 id 落位（提前执行会算错插件 id）；staged 只写备份临时
+        // 工作区，失败由 OpenBackup RAII 清理
         staged = stage_files(&mut transfer, backup, &root)?;
         let ordered = order(&transfer, &tx)?;
         import_rows(&mut transfer, &tx, &ordered)?;
         installed = install_files(&root, &staged)?;
         tx.commit()?;
-        Ok((transfer.counts, transfer.warnings))
+        Ok(())
     })();
-    if outcome.is_err() {
+    if let Err(error) = outcome {
         for path in installed {
             let _ = fs::remove_file(path);
         }
+        return Err(error);
     }
-    outcome
+    // P-097：工作区数据已恢复，配额上限写回根账户库——失败只降级为导入
+    // 警告，不让整单导入报错（数据已在库中，回滚不了也不该回滚）
+    if let Err(error) = apply_account_quotas(state, &mut transfer) {
+        transfer
+            .warnings
+            .push(format!("配额上限未随备份恢复：{}", error.message));
+    }
+    Ok((transfer.counts, transfer.warnings))
 }

@@ -171,6 +171,11 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
           <p>{job.remotePath}</p>
           <small>{new Date(job.updatedAt).toLocaleString()} · {job.id}</small>
           {job.result?.sha256 && <small>SHA-256 {job.result.sha256}</small>}
+          {/* P-098：连接检测的正常态区分（后端 13#30）——对象已存在与
+              「服务可达但对象尚未创建」此前只有徽章可见，用户看不到
+              「首次上传后自动建立」的说明 */}
+          {job.result?.reachable && job.result.objectPresent && <small>远端同步对象已存在</small>}
+          {job.result?.note && <small>{job.result.note}</small>}
           {job.error && <p className="form-error">{job.error.code}：{job.error.message}</p>}
         </div>
         {['running', 'cancelling'].includes(job.status) && <Button variant="ghost" size="sm" onClick={() => void cancel(job.id)} disabled={job.status === 'cancelling' || Boolean(busy)}><Square size={14} />取消</Button>}

@@ -1005,6 +1005,12 @@ impl Store {
             // 项目删除后悬挂行使备份导入整单拒绝（invalid_backup_reference）；
             // 删除采用记录（方案回到未采用态，语义自洽）
             tx.execute("DELETE FROM learning_plan_adoptions WHERE project_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'projects')", [])?;
+            // P-094：社区互评帖的 project_id 无 FK 约束（community/mod.rs 建表
+            // 时无外键）——项目删除后悬挂行使携带该行的备份在任何目标机整单
+            // 拒导入（invalid_backup_reference）。帖子正文与回复是用户内容，
+            // 删除项目不连带抹掉社区讨论：只解除指向已不存在项目的关联
+            // （project_title 一并置空，避免界面显示已删项目的名字）
+            tx.execute("UPDATE community_posts SET project_id = NULL, project_title = NULL WHERE project_id IS NOT NULL AND project_id NOT IN (SELECT CAST(id AS INTEGER) FROM kv WHERE namespace = 'projects')", [])?;
         }
         if namespace == "tasks" {
             // 155#1/#3：任务删除的三处悬挂——focus_sessions.task_id 置 NULL
@@ -1402,6 +1408,16 @@ pub(crate) fn validate_collection(namespace: &str, value: &Value) -> Result<()> 
                     ));
                 }
                 text(object, "excerpt", 2_000, true)?;
+                // P-013：标签为空的错误须点名字段——通用文案「文本字段为空或
+                // 超过长度上限」同时覆盖标题、标签与正文，编辑器里两个输入
+                // 框时用户无从定位。缺字段仍由通用校验报 missing_field
+                if object
+                    .get("tag")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| value.trim().is_empty())
+                {
+                    return Err(BackendError::new("invalid_field", "笔记标签不能为空"));
+                }
                 text(object, "tag", 100, false)?;
                 text(object, "updated", 100, true)?;
                 text(object, "content", MAX_RECORD_BYTES, false)?;
@@ -1585,6 +1601,14 @@ pub(crate) fn validate_draft(value: &Value) -> Result<()> {
     }
     text(object, "title", 500, true)?;
     text(object, "content", MAX_RECORD_BYTES, true)?;
+    // P-013：草稿标签同笔记标签口径——错误点名字段，前端据此定位
+    if object
+        .get("tag")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err(BackendError::new("invalid_field", "笔记标签不能为空"));
+    }
     text(object, "tag", 100, false)?;
     if object.contains_key("savedAt") && !field(object, "savedAt")?.is_number() {
         return Err(BackendError::new("invalid_field", "草稿保存时间必须是数字"));
@@ -1894,5 +1918,84 @@ mod tests {
         // 152#2：SCHEMA_VERSION 递增至 4（129 波索引迁移补登记）
         // P-113：递增至 5（resources 快照补 status 字段的迁移补登记）
         assert_eq!(version, "5");
+    }
+
+    /// P-094：项目删除后社区互评帖的 project_id 悬挂——帖子正文与回复是
+    /// 用户内容，删除项目只解除已不存在的项目关联；悬挂引用会让携带该行
+    /// 的备份在任何目标机整单拒导入。
+    #[test]
+    fn removing_a_project_clears_the_dangling_community_post_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.db");
+        let store = Store::at(&path).unwrap();
+        store
+            .replace_collection(
+                "projects",
+                0,
+                &json!([{"id": 1, "title": "真实项目", "description": "说明", "due": "2099-01-01", "progress": 0, "tag": "项目", "milestones": []}]),
+            )
+            .unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO community_posts (title, body, kind, project_id, project_title, created_at, updated_at) VALUES ('互评帖', '正文', 'peer_review', 1, '真实项目', 'now', 'now')",
+                [],
+            )
+            .unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO community_replies (post_id, body, created_at) VALUES (1, '回复', 'now')",
+                [],
+            )
+            .unwrap();
+        store.replace_collection("projects", 1, &json!([])).unwrap();
+        let (project_id, project_title): (Option<i64>, Option<String>) = store
+            .conn
+            .query_row(
+                "SELECT project_id, project_title FROM community_posts WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(project_id.is_none(), "项目删除后互评帖不得保留悬挂引用");
+        assert!(
+            project_title.is_none(),
+            "项目删除后互评帖不得显示已删项目的名字"
+        );
+        let replies: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM community_replies", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(replies, 1, "帖子正文与回复是用户内容，不随项目删除而消失");
+    }
+
+    /// P-013：标签为空的错误须点名字段——通用文案「文本字段为空或超过
+    /// 长度上限」同时覆盖标题、标签与正文，编辑器里两个输入框时用户
+    /// 无从定位是哪个字段。
+    #[test]
+    fn empty_note_tag_error_names_the_tag_field() {
+        let error = validate_collection(
+            "notes",
+            &json!([{"id": 1, "title": "标题", "excerpt": "摘要", "updated": "now", "content": "正文", "tag": "  "}]),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_field");
+        assert!(error.message.contains("标签"), "{}", error.message);
+        let error =
+            validate_draft(&json!({"title": "标题", "content": "正文", "tag": ""})).unwrap_err();
+        assert_eq!(error.code, "invalid_field");
+        assert!(error.message.contains("标签"), "{}", error.message);
+        // 非空标签照常通过
+        assert!(validate_collection(
+            "notes",
+            &json!([{"id": 1, "title": "标题", "excerpt": "摘要", "updated": "now", "content": "正文", "tag": "复盘"}]),
+        )
+        .is_ok());
+        assert!(
+            validate_draft(&json!({"title": "标题", "content": "正文", "tag": "复盘"})).is_ok()
+        );
     }
 }

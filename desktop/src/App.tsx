@@ -21,7 +21,7 @@ import DataDirectoryPanel, { DataDirectoryNotice } from './components/DataDirect
 import SecurityPanel from './components/SecurityPanel'
 import { Button, ConfirmDialog, hasOpenModal, IconButton, Modal, useFocusContainment } from './components/UI'
 import type { PageId, Project, Task, GeneratorDraft } from './data'
-import { backendErrorMessage, onBackendEvent, reportBackendError } from './backend/client'
+import { backendErrorMessage, isCancelRace, onBackendEvent, reportBackendError } from './backend/client'
 import type { AppSnapshot } from './backend/client'
 import { useBackendState } from './backend/useBackendState'
 import { engagementBackend } from './backend/engagement'
@@ -412,7 +412,9 @@ export default function App() {
     try {
       const next = focusSession?.status === 'running' ? await reportsBackend.pauseFocus() : focusSession?.status === 'paused' ? await reportsBackend.resumeFocus() : await reportsBackend.startFocus(focusTaskRef.current, 25 * 60)
       setFocusSession(next)
-    } catch (error) { reportBackendError(error, 'write') } finally { setFocusBusy(false) }
+    // P-093：同型缺口——恢复分支的 no_paused_focus/focus_active 是竞态码
+    // （专注已在别处收尾或已恢复），按 isCancelRace 口径静默，不弹红色错误
+    } catch (error) { if (!isCancelRace(error)) reportBackendError(error, 'write') } finally { setFocusBusy(false) }
   }
   const finishFocus = async (cancelled: boolean): Promise<FocusSession | null> => {
     if (!focusSession || focusBusy) return null

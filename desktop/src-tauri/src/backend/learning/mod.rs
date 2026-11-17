@@ -363,6 +363,9 @@ fn validate_input(state: &LearningState, input: &PlanInput) -> Result<PlanInput>
             .map(str::to_string)
             .or_else(|| milestone_date.as_ref().map(|_| "最后阶段里程碑".into())),
         milestone_date,
+        // P-002：新建方案的排期直接用表单分钟，不乘任何强度因子——
+        // 强度只由强度切换写入，缺失即「未缩放基数」
+        intensity: None,
     })
 }
 
@@ -673,6 +676,53 @@ fn input(state: &LearningState, id: i64) -> Result<PlanInput> {
     Ok(serde_json::from_str(&input)?)
 }
 
+/// P-095：模型步骤实际可用的供应商档案解析与回写。方案创建时绑定的档案
+/// 可能已被停用或删除——模型步骤恒用 input.provider_id 时，失败方案的每次
+/// 恢复都止步于 provider_disabled「首选供应商不存在或已停用」，而局部重
+/// 生成与改目标都要求 done/degraded，failed 方案遂成死路（唯一出路是重
+/// 新填一遍全部输入）。档案仍启用时保持原档案（不改变既有方案的行为）；
+/// 失效时按当前路由解析可用档案（与 agent/wiki/practice/projects 等域同
+/// 口径），并把实际使用的档案回写方案——界面显示的供应商与讲义等下游
+/// 步骤同步指向可用档案。
+pub(crate) fn rebind_plan_provider(
+    state: &LearningState,
+    id: i64,
+    mut input: PlanInput,
+) -> Result<PlanInput> {
+    let preferred = input.provider_id.clone().unwrap_or_default();
+    let usable = !preferred.is_empty()
+        && providers::get(&state.providers, &preferred)
+            .map(|profile| profile.enabled)
+            .unwrap_or(false);
+    if usable {
+        return Ok(input);
+    }
+    let resolved =
+        providers::routing::provider_for_task(&state.providers, "plan").map_err(|error| {
+            BackendError::new(
+                &error.code,
+                &format!(
+                    "方案原用的供应商档案{}已停用或删除，当前没有其他可用档案：{}",
+                    if preferred.is_empty() {
+                        "（未记录）"
+                    } else {
+                        &preferred
+                    },
+                    error.message
+                ),
+            )
+        })?;
+    input.provider_id = Some(resolved.clone());
+    let store = state.store()?;
+    let tx = store.conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE learning_plans SET provider_id = ?1, input_json = ?2, updated_at = ?3 WHERE id = ?4",
+        params![resolved, serde_json::to_string(&input)?, now()?, id],
+    )?;
+    tx.commit()?;
+    Ok(input)
+}
+
 fn step_state(
     state: &LearningState,
     id: i64,
@@ -699,7 +749,9 @@ fn begin_step<R: Runtime>(
             "该步骤已经完成，不会重复执行",
         ));
     }
-    let can_reuse = status == "interrupted"
+    // P-016：取消与模型完成的毫秒竞态下步骤终态是 cancelled 而非 interrupted，
+    // 但上游输出已完整落库——同 interrupted 口径复用，避免重复执行与重复计费
+    let can_reuse = matches!(status.as_str(), "interrupted" | "cancelled")
         && providers::completed_chat(&state.providers, previous_request.as_deref())?;
     let attempt = if status == "running" || can_reuse {
         previous_attempt
@@ -814,10 +866,17 @@ fn fail_plan<R: Runtime>(
     };
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    let changed = tx.execute("UPDATE learning_plans SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id])?;
+    let timestamp = now()?;
+    let changed = tx.execute("UPDATE learning_plans SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE id = ?5 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, timestamp, id])?;
     if changed == 0 {
         return Ok(());
     }
+    // P-132：主行翻终态时同步翻仍在 running 的子步骤——panic 路径
+    // （launch 的 catch_unwind）不经过 pipeline 的 fail_step，子行会残留
+    // running；恢复时 begin_step 按原 attempt 与 request_id 复用残骸请求，
+    // 命中未完成的上游行走，表现为首次恢复必在该步骤失败一次。
+    // 子行翻 failed 后恢复即换新请求重发（与 recover() 口径一致）
+    tx.execute("UPDATE learning_plan_steps SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND status = 'running'", params![status, error.code, error.message, timestamp, id])?;
     let event = Store::event(
         &tx,
         if status == "cancelled" {

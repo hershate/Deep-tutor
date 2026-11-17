@@ -20,6 +20,10 @@ pub(crate) const MAX_BACKUP_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_DATABASE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+/// 归档条目数上限——读侧据此拒收（清单 + 数据库 + 文件条目）
+const MAX_ARCHIVE_ENTRIES: usize = 20_002;
+/// 随档携带的文件条目数上限——归档条目数减去清单与数据库两条
+const MAX_ARCHIVE_FILES: usize = MAX_ARCHIVE_ENTRIES - 2;
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) const TABLES: &[&str] = &[
@@ -425,6 +429,13 @@ pub fn export<R: Runtime>(
             )?;
             let mut statement = accounts
                 .prepare("SELECT resource, item_limit FROM security_quotas WHERE user_id = ?1")?;
+            // P-097：工作区库是从根账户库复制来的（含其他账户的配额副本）——
+            // 备份只携带当前用户的配额上限，导入侧据此确定归属账户并写回
+            // 根账户库；留着多账户副本会让归属无法判定
+            snapshot_connection.execute(
+                "DELETE FROM security_quotas WHERE user_id <> ?1",
+                params![user_id],
+            )?;
             let quotas = statement
                 .query_map(params![user_id], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
@@ -478,14 +489,16 @@ pub fn export<R: Runtime>(
             .cloned()
             .collect(),
     };
+    // P-021：导出侧对齐读侧上限——清单 1 MiB 与归档条目数 20,002 的检查
+    // 原先只在读侧存在，文件条目累积到数千条时导出全程成功、日后预演与
+    // 导入双双被拒（错误文案指向「条目」而非清单本身），备份在本应用内
+    // 永远无法恢复。超限时导出即失败并说明原因，不产出读不回的备份
+    let manifest_json = serde_json::to_string(&manifest)?;
+    ensure_export_limits(manifest_json.len(), manifest.files.len())?;
     let mut bytes = Vec::new();
     {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(&mut bytes));
-        write_archive_file(
-            &mut writer,
-            "manifest.json",
-            serde_json::to_string(&manifest)?.as_bytes(),
-        )?;
+        write_archive_file(&mut writer, "manifest.json", manifest_json.as_bytes())?;
         write_archive_file(&mut writer, "state.db", &database_bytes)?;
         for file in &manifest.files {
             let source = state
@@ -525,6 +538,28 @@ pub fn export<R: Runtime>(
         missing_files,
         drifted_files,
     })
+}
+
+/// P-021：导出侧的清单与条目数上限——与读侧同一组常量。导出即校验，
+/// 避免产出「写得出、读不回」的备份（读侧按 1 MiB 清单与 20002 条归档
+/// 拒收，导出侧原先无对应检查）。
+pub(crate) fn ensure_export_limits(manifest_bytes: usize, file_count: usize) -> Result<()> {
+    if manifest_bytes > MAX_MANIFEST_BYTES {
+        return Err(BackendError::new(
+            "backup_manifest_too_large",
+            "备份清单超过 1 MB 上限（随档文件条目过多），本应用无法恢复该备份；请先清理资料原件与插件产物后再导出",
+        ));
+    }
+    if file_count > MAX_ARCHIVE_FILES {
+        return Err(BackendError::new(
+            "backup_too_many_files",
+            &format!(
+                "备份随档文件条目超过 {} 条上限，本应用无法恢复该备份；请先清理资料原件与插件产物后再导出",
+                MAX_ARCHIVE_FILES
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) struct OpenBackup {
@@ -568,7 +603,7 @@ pub(crate) fn open(path: &Path, state: &LearningState) -> Result<OpenBackup> {
     let file = fs::File::open(path)?;
     let mut archive = ZipArchive::new(file)
         .map_err(|_| BackendError::new("invalid_backup", "备份文件损坏或不是有效的归档"))?;
-    if archive.len() < 2 || archive.len() > 20_002 {
+    if archive.len() < 2 || archive.len() > MAX_ARCHIVE_ENTRIES {
         return Err(BackendError::new("invalid_backup", "备份归档条目数量无效"));
     }
     let manifest: Manifest = serde_json::from_slice(&read_bounded(

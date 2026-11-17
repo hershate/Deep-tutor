@@ -600,6 +600,23 @@ fn complete_unit<R: Runtime>(
     Ok(())
 }
 
+/// P-095 同型：方案绑定的供应商档案被停用/删除后，讲义生成不得止步于
+/// provider_disabled——与模型步骤（rebind_plan_provider）同口径解析当前可用
+/// 档案并回写方案，界面显示的供应商与讲义实际调用的档案保持一致
+pub(crate) fn lecture_provider(state: &LearningState, plan: &Plan) -> Result<String> {
+    let usable = providers::get(&state.providers, &plan.provider_id)
+        .map(|profile| profile.enabled)
+        .unwrap_or(false);
+    if usable {
+        return Ok(plan.provider_id.clone());
+    }
+    let id = plan_id(&plan.id)?;
+    let rebound = super::rebind_plan_provider(state, id, super::input(state, id)?)?;
+    rebound
+        .provider_id
+        .ok_or_else(|| BackendError::new("provider_not_configured", "方案缺少模型供应商"))
+}
+
 fn unit<R: Runtime>(
     app: &AppHandle<R>,
     state: &LearningState,
@@ -727,7 +744,10 @@ fn run<R: Runtime>(
     id: i64,
     stage_id: &str,
 ) -> Result<()> {
-    let plan = get_plan(state, id)?;
+    let mut plan = get_plan(state, id)?;
+    // P-095 同型：方案绑定的档案被停用/删除后按当前路由解析可用档案并回写
+    // 方案——讲义生成不再止步于 provider_disabled
+    plan.provider_id = lecture_provider(state, &plan)?;
     let stage = plan
         .result
         .as_ref()

@@ -21,7 +21,9 @@ export type SyncJob = {
   status: 'running' | 'cancelling' | 'done' | 'failed' | 'cancelled' | 'interrupted'
   remotePath: string
   // 151#1：删去 Rust 从不写入的 routingMode/activeProvider 两键（死类型字段）
-  result: null | { profiles?: number; sha256?: string; bytes?: number; reachable?: boolean; remoteConfirmed?: boolean; historyPath?: string; versions?: number }
+  // P-098：连接检测（check）的结果区分「对象已存在」与「对象尚未创建」
+  // （后端 13#30 的正常态区分）——objectPresent/note 是后端实际写入的键
+  result: null | { profiles?: number; sha256?: string; bytes?: number; reachable?: boolean; objectPresent?: boolean; note?: string; remoteConfirmed?: boolean; historyPath?: string; versions?: number }
   localPath: string | null
   error: BackendError | null
   createdAt: string
