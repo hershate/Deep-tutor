@@ -31,6 +31,10 @@ build: lint
 lint:
 	cd desktop/src-tauri && $(CARGO) fmt --all -- --check
 	node scripts/check-versions.mjs
+	# 架构文档规模指标核对（P-152/P-153）：注册命令数、前端调用数、§7 分组
+	# 与「按源码核对」的前端文件/页面/组件/客户端文件数、业务域数、
+	# Rust 测试数此前靠人工誊写，数字漂移无检出通道
+	node scripts/check-doc-metrics.mjs
 	cd desktop && $(NPM) run build
 	# 110#1：依赖审计入门禁——vite/esbuild dev 侧通告（含 Windows 命令
 	# 执行族）原先无任何检出通道；runtime 与 dev 全量要求零漏洞
