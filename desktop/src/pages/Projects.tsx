@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, CalendarDays, Check, CheckCircle2, ChevronRight, Circle, FileUp, FolderKanban, GitBranch, Lightbulb, Plus, Rocket, Sparkles, Trophy } from 'lucide-react'
+import { ArrowRight, CalendarDays, Check, CheckCircle2, ChevronRight, Circle, FileUp, FolderKanban, GitBranch, Lightbulb, Plus, Rocket, Sparkles, Trophy } from '../components/icons'
 import type { Project } from '../data'
 import { Badge, Button, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
@@ -50,6 +50,9 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
   const currentVersion = projectVersions.find(item => item.id === selectedVersionId) || projectVersions[0]
   const running = projectVersions.find(item => ['running', 'cancelling'].includes(item.status))
   const feedback = currentVersion?.feedback
+  // P-030：迭代笔记的门禁与后端一致——评价结果真实存在即可保存；仍在
+  // 评价中的版本不开放（结果未出，旧评价可能过期）
+  const evaluating = Boolean(currentVersion && ['running', 'cancelling'].includes(currentVersion.status))
   const linkedPlan = plans.find(item => item.id === project?.planId)
   const completedMilestones = projects.reduce((total, item) => total + item.milestones.filter(milestone => milestone.done).length, 0)
   const evaluatedVersions = versions.filter(item => item.status === 'done').length
@@ -61,6 +64,10 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
   // 60#3：upstream→logical 映射（StudyRoom 51#5 同型）——failover 后 delta
   // 携带 {R}-f1 上游 id，严格相等失配会让直播停在 failover 前最后一帧
   const routeUpstreamsRef = useRef<Record<string, string>>({})
+  // P-068 复核：get_provider_chat 改为 async 后并发拉取不再按发起顺序返回——
+  // 旧输出后到会盖掉新输出（评估直播文本回退）。delta 节流读取与请求切换时
+  // 的一次性读取共用同一序号，只有最后一次发起的读取可写入
+  const liveChatSeq = useRef(0)
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
@@ -107,7 +114,15 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
         const logicalId = routeUpstreamsRef.current[event.payload.requestId] ?? event.payload.requestId
         if (logicalId === requestId) {
           // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
-          throttledFetch(() => void backend.getProviderChat(logicalId).then(request => { if (active) setLiveOutput(request.output) }).catch(reportBackendError))
+          // P-068 复核：读命令异步化后两次拉取可能乱序返回——序号守卫只放行
+          // 最后一次，旧输出不得回写
+          throttledFetch(() => {
+            const ticket = ++liveChatSeq.current
+            void backend.getProviderChat(logicalId).then(request => {
+              if (!active || ticket !== liveChatSeq.current) return
+              setLiveOutput(request.output)
+            }).catch(reportBackendError)
+          })
         }
       }
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
@@ -122,7 +137,14 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     // 70#7：映射仅对当前请求有意义（route_attempt 已按 runningRequestId 过滤），
     // 请求切换即整表作废——原先只增不清，长驻高频请求下单调增长
     routeUpstreamsRef.current = {}
-    if (requestId) void backend.getProviderChat(requestId).then(request => setLiveOutput(request.output)).catch(reportBackendError)
+    if (requestId) {
+      // P-068 复核：与 delta 节流读取共用序号——旧响应不得回写直播文本
+      const ticket = ++liveChatSeq.current
+      void backend.getProviderChat(requestId).then(request => {
+        if (ticket !== liveChatSeq.current) return
+        setLiveOutput(request.output)
+      }).catch(reportBackendError)
+    }
   }, [running?.requestId])
 
   // 43#3：在途翻转集——勾选立即按目标态渲染，在途时二次点击忽略
@@ -137,7 +159,10 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
       .finally(() => setPendingToggles(current => { const next = new Set(current); next.delete(id); return next }))
   }
   const createProject = async () => {
-    const milestones = milestoneText.split('\n').map(item => item.trim()).filter(Boolean).map((title, index) => ({ id: index + 1, title, done: false }))
+    // P-101：里程碑标题后端限 500 字节（store.rs 的 projects 校验）——
+    // 文本框只对整体做 50000 字节钳制，单行超长会让整批里程碑被拒且
+    // 错误不指明字段，这里逐行按同界截断
+    const milestones = milestoneText.split('\n').map(item => clampToBytes(item.trim(), 500)).filter(Boolean).map((title, index) => ({ id: index + 1, title, done: false }))
     if (!title.trim() || !tag.trim() || !due || !milestones.length || busy) return
     setBusy('create')
     try {
@@ -209,12 +234,12 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
         <div className="project-meta"><span><CalendarDays size={17} />截止 {project.due}</span><span><GitBranch size={17} />{currentVersion ? `版本 v${currentVersion.versionNumber} · 第 ${currentVersion.attempt} 次评价` : '尚未提交版本'}</span><Button variant="secondary" size="sm" disabled={Boolean(running) || busy === 'submit'} onClick={() => { setSubmissionMilestone(''); setMaterialId(''); setSubmitOpen(true) }}><FileUp size={16} />提交阶段成果</Button></div>
         {running && <section className="surface"><span className="visually-hidden" aria-live="polite">{statusNames[running.status]}</span><SectionHeader title="实时原生评价" description={`版本 v${running.versionNumber} · ${statusNames[running.status]} · 请求 ${running.requestId}`} action={<Button variant="secondary" size="sm" disabled={running.status === 'cancelling' || busy === 'cancel'} onClick={() => void cancel()}>请求取消</Button>} /><pre className="streaming-output">{liveOutput || '等待模型返回真实评价…'}</pre></section>}
         <div className="project-detail-grid"><section className="surface milestone-checklist"><SectionHeader title="项目里程碑" description="每完成一步，项目进度按真实勾选重新计算。" /><div>{project.milestones.map(milestone => { const shownDone = milestone.done !== pendingToggles.has(milestone.id); return <button key={milestone.id} onClick={() => toggleMilestone(milestone.id)} aria-pressed={shownDone} aria-label={`${shownDone ? '已完成，点击改为未完成' : '未完成，点击标记完成'}：${milestone.title}`} className={shownDone ? 'done' : ''}><span>{shownDone ? <Check size={16} /> : <Circle size={16} />}</span><strong>{milestone.title}</strong><ChevronRight size={16} /></button> })}</div><button className="text-action" onClick={() => setMilestoneOpen(true)}>＋ 添加里程碑</button></section><aside className="surface project-rubric"><SectionHeader title="评价量规" description={currentVersion ? `来自版本 v${currentVersion.versionNumber} 的真实模型评价` : '提交成果后才会生成评价'} /><div><span>概念应用</span><strong>{score(feedback?.concept)}</strong><ProgressBar value={feedback?.concept ?? 0} srLabel={`概念应用 ${Math.round(feedback?.concept ?? 0)}%`} /></div><div><span>实现质量</span><strong>{score(feedback?.implementation)}</strong><ProgressBar value={feedback?.implementation ?? 0} srLabel={`实现质量 ${Math.round(feedback?.implementation ?? 0)}%`} /></div><div><span>验证与反思</span><strong>{score(feedback?.verification)}</strong><ProgressBar value={feedback?.verification ?? 0} tone="amber" srLabel={`验证与反思 ${Math.round(feedback?.verification ?? 0)}%`} /></div><p><Lightbulb size={16} />{feedback?.suggestions[0] || (currentVersion?.error ? `${currentVersion.error.code}：${currentVersion.error.message}` : '暂无真实改进建议，不显示预设结论。')}</p></aside></div>
-        <section className="surface project-feedback"><div><span className="agent-mark"><Sparkles size={18} /></span><div><h3>知舟的项目反馈</h3><p>{currentVersion ? `版本 v${currentVersion.versionNumber} · ${statusNames[currentVersion.status]} · ${currentVersion.providerId}` : '尚未提交阶段成果'}</p></div><Badge tone={feedback ? 'green' : 'neutral'}>{feedback ? `${feedback.suggestions.length} 条建议` : '无预设评价'}</Badge></div>{feedback ? <><blockquote>{feedback.summary}</blockquote><ul>{feedback.suggestions.map((suggestion, index) => <li key={index}>{suggestion}</li>) /* 148#4：建议文本可重复，key 用序号 */}</ul></> : <p>{currentVersion?.error ? `${currentVersion.error.code}：${currentVersion.error.message}` : '提交真实成果后，后端会保存版本并返回模型评价；失败不会生成替代反馈。'}</p>}<div><Button variant="secondary" disabled={!linkedPlan} onClick={() => { if (project.planId) onNavigateMap(project.planId) }}>学习相关概念<ArrowRight size={16} /></Button><Button variant="ghost" disabled={!feedback} onClick={() => { setNote(feedback?.suggestions.join('\n') || ''); setNoteOpen(true) }}>记录迭代想法</Button>{currentVersion && ['failed', 'cancelled', 'interrupted'].includes(currentVersion.status) && <Button variant="secondary" disabled={busy === 'resume'} onClick={() => void resume()}>恢复真实评价</Button>}</div>{currentVersion && <details><summary>查看本次提交与历史版本</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{currentVersion.content}</pre>{/* 147#18 */}<div className="practice-history-list">{projectVersions.map(item => <button key={item.id} onClick={() => setSelectedVersionId(item.id)}><span>版本 v{item.versionNumber}<small>{item.milestoneTitle || '阶段成果'} · {new Date(item.createdAt).toLocaleString()}</small></span><Badge tone={item.status === 'done' ? 'green' : item.status === 'failed' ? 'red' : 'neutral'}>{statusNames[item.status]}</Badge></button>)}</div></details>}{!linkedPlan && <p className="form-help">未关联已采用的学习方案；可在新建项目时选择真实关联目标。</p>}</section>
+        <section className="surface project-feedback"><div><span className="agent-mark"><Sparkles size={18} /></span><div><h3>知舟的项目反馈</h3><p>{currentVersion ? `版本 v${currentVersion.versionNumber} · ${statusNames[currentVersion.status]} · ${currentVersion.providerId}` : '尚未提交阶段成果'}</p></div><Badge tone={feedback ? 'green' : 'neutral'}>{feedback ? `${feedback.suggestions.length} 条建议` : '无预设评价'}</Badge></div>{feedback ? <><blockquote>{feedback.summary}</blockquote><ul>{feedback.suggestions.map((suggestion, index) => <li key={index}>{suggestion}</li>) /* 148#4：建议文本可重复，key 用序号 */}</ul></> : <p>{currentVersion?.error ? `${currentVersion.error.code}：${currentVersion.error.message}` : '提交真实成果后，后端会保存版本并返回模型评价；失败不会生成替代反馈。'}</p>}<div><Button variant="secondary" disabled={!linkedPlan} onClick={() => { if (project.planId) onNavigateMap(project.planId) }}>学习相关概念<ArrowRight size={16} /></Button><Button variant="ghost" disabled={!feedback || evaluating} onClick={() => { setNote(feedback?.suggestions.join('\n') || ''); setNoteOpen(true) }}>记录迭代想法</Button>{currentVersion && ['failed', 'cancelled', 'interrupted'].includes(currentVersion.status) && <Button variant="secondary" disabled={busy === 'resume'} onClick={() => void resume()}>恢复真实评价</Button>}</div>{currentVersion && <details><summary>查看本次提交与历史版本</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{currentVersion.content}</pre>{/* 147#18 */}<div className="practice-history-list">{projectVersions.map(item => <button key={item.id} onClick={() => setSelectedVersionId(item.id)}><span>版本 v{item.versionNumber}<small>{item.milestoneTitle || '阶段成果'} · {new Date(item.createdAt).toLocaleString()}</small></span><Badge tone={item.status === 'done' ? 'green' : item.status === 'failed' ? 'red' : 'neutral'}>{statusNames[item.status]}</Badge></button>)}</div></details>}{!linkedPlan && <p className="form-help">未关联已采用的学习方案；可在新建项目时选择真实关联目标。</p>}</section>
       </main>
     </div> : <EmptyState title="还没有实践项目" description="创建真实项目与里程碑，提交成果后才会出现版本和评价。" action={<Button onClick={() => setCreateOpen(true)}>创建第一个项目</Button>} />}
 
-    <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="创建实践项目"><div className="form-stack"><label>项目名称<input value={title} onChange={event => setTitle(clampToBytes(event.target.value, 500))} placeholder="例如：做一个递归算法可视化工具" /></label><label>想验证的能力<textarea rows={4} value={description} onChange={event => setDescription(clampToBytes(event.target.value, 10000))} placeholder="我想通过这个项目学会…" /></label><div className="form-grid"><label>目标日期<input type="date" value={due} onChange={event => setDue(event.target.value)} /></label><label>项目分类<input value={tag} onChange={event => setTag(clampToBytes(event.target.value, 100))} /></label></div><label>关联学习目标<select value={planId} onChange={event => setPlanId(event.target.value)}><option value="">不关联学习方案</option>{plans.map(item => <option value={item.id} key={item.id}>{item.goal}</option>)}</select></label><label>初始里程碑（每行一个，可编辑）<textarea rows={5} value={milestoneText} onChange={event => setMilestoneText(clampToBytes(event.target.value, 50000))} /></label><Button onClick={() => void createProject()} disabled={!title.trim() || !tag.trim() || !due || !milestoneText.trim() || busy === 'create'}><Rocket size={17} />{busy === 'create' ? '正在保存…' : '创建并保存里程碑'}</Button></div></Modal>
-    <Modal open={milestoneOpen} onClose={() => setMilestoneOpen(false)} title="添加项目里程碑"><div className="form-stack"><label>里程碑名称<input autoFocus value={milestoneTitle} onChange={event => setMilestoneTitle(event.target.value)} placeholder="输入可检查的实际成果" /></label><Button disabled={!milestoneTitle.trim() || busy === 'milestone'} onClick={() => void addMilestone()}>保存里程碑</Button></div></Modal>
+    <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="创建实践项目"><div className="form-stack"><label>项目名称<input value={title} onChange={event => setTitle(clampToBytes(event.target.value, 500))} placeholder="例如：做一个递归算法可视化工具" /></label><label>想验证的能力<textarea rows={4} value={description} onChange={event => setDescription(clampToBytes(event.target.value, 10000))} placeholder="我想通过这个项目学会…" /></label><div className="form-grid"><label>目标日期<input type="date" value={due} onChange={event => setDue(event.target.value)} /></label><label>项目分类<input value={tag} onChange={event => setTag(clampToBytes(event.target.value, 100))} /></label></div><label>关联学习目标<select value={planId} onChange={event => setPlanId(event.target.value)}><option value="">不关联学习方案</option>{plans.map(item => <option value={item.id} key={item.id}>{item.goal}</option>)}</select></label><label>初始里程碑（每行一个，可编辑）<textarea rows={5} value={milestoneText} onChange={event => setMilestoneText(clampToBytes(event.target.value, 50000))} /></label><p className="form-help">每行一个里程碑，单个标题最多 500 字节，超出部分自动截断。</p><Button onClick={() => void createProject()} disabled={!title.trim() || !tag.trim() || !due || !milestoneText.trim() || busy === 'create'}><Rocket size={17} />{busy === 'create' ? '正在保存…' : '创建并保存里程碑'}</Button></div></Modal>
+    <Modal open={milestoneOpen} onClose={() => setMilestoneOpen(false)} title="添加项目里程碑"><div className="form-stack"><label>里程碑名称<input autoFocus value={milestoneTitle} onChange={event => setMilestoneTitle(clampToBytes(event.target.value, 500))} placeholder="输入可检查的实际成果" /></label><p className="form-help">里程碑名称最多 500 字节，超出部分自动截断。</p><Button disabled={!milestoneTitle.trim() || busy === 'milestone'} onClick={() => void addMilestone()}>保存里程碑</Button></div></Modal>
     <Modal open={submitOpen} onClose={() => setSubmitOpen(false)} title="提交真实阶段成果" wide><div className="form-stack"><label>成果正文<textarea rows={10} value={submission} onChange={event => setSubmission(clampToBytes(event.target.value, 100000))} placeholder="描述实际完成的内容、验证过程、结果与遇到的问题。不要粘贴演示文本。" /></label><div className="form-grid"><label>关联里程碑<select value={submissionMilestone} onChange={event => setSubmissionMilestone(event.target.value)}><option value="">不指定里程碑</option>{project?.milestones.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label>关联已解析资料<select value={materialId} onChange={event => setMaterialId(event.target.value)}><option value="">不附加资料</option>{materials.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label></div><p className="form-help">提交后保存独立版本与原文。模型只评价所提交的内容，不声称执行代码；评价过程可通过原生事件实时查看、取消与恢复。</p><Button disabled={!submission.trim() || busy === 'submit'} onClick={() => void submit()}>{busy === 'submit' ? '正在保存并启动…' : '保存版本并开始真实评价'}</Button></div></Modal>
     <Modal open={noteOpen} onClose={() => setNoteOpen(false)} title="记录真实迭代想法"><div className="form-stack"><label>笔记内容<textarea rows={7} value={note} onChange={event => setNote(clampToBytes(event.target.value, 100000))} /></label><p className="form-help">保存到当前用户的笔记库，并关联项目「{project?.title}」与版本 v{currentVersion?.versionNumber}。</p><Button disabled={!note.trim() || busy === 'note'} onClick={() => void saveNote()}>保存迭代笔记</Button></div></Modal>
   </div>

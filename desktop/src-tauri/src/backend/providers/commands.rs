@@ -7,9 +7,33 @@ use super::{
 use serde_json::Value;
 use tauri::{AppHandle, Runtime, State};
 
-#[tauri::command]
-pub fn list_provider_profiles(state: State<'_, BackendState>) -> Result<Vec<ProviderProfile>> {
-    list(&state.providers)
+/// P-067/P-068：供应商域的重读与写命令原为同步命令——命令体在主线程执行：
+/// list 逐档案读一次系统密钥库（N+1 凭据调用），save_routing_settings 在
+/// 同一命令里再做写事务与事件落盘，route_logs 对 100 行运行再逐行查
+/// attempts（约 101 次 prepare/query），get_provider_chat 承载流式期间
+/// 每 150ms 一次的 MB 级载荷物化。
+/// 移后台执行（61#3 返工同款 guard::scoped：命令体在阻塞线程上重新取
+/// 工作区切换读锁并解析 principal，读写都落在该用户自己的工作区）
+async fn background<R: Runtime + 'static, T: Send + 'static>(
+    app: AppHandle<R>,
+    task: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(move || super::super::security::guard::scoped(&app, task))
+        .await
+        .map_err(|_| {
+            super::super::error::BackendError::new("internal_error", "供应商任务执行异常终止")
+        })?
+}
+
+// P-067：档案列表对每个档案读一次系统密钥库填充 has_key（N+1 凭据读取）
+// ——原先同步命令在主线程执行，供应商事件密集期界面掉帧；移后台
+#[tauri::command(async)]
+pub async fn list_provider_profiles<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+) -> Result<Vec<ProviderProfile>> {
+    let providers = state.providers.shared();
+    background(app, move || list(&providers)).await
 }
 
 #[tauri::command]
@@ -113,13 +137,20 @@ pub async fn test_provider<R: Runtime>(
     })?
 }
 
-#[tauri::command]
-pub fn cancel_provider_chat<R: Runtime>(
+// P-067：取消流式请求要开库改状态并提交事件；原先同步命令在主线程执行，
+// 备份导入等长写事务期间会在 busy_timeout（10 秒）上阻塞主线程；移后台
+#[tauri::command(async)]
+pub async fn cancel_provider_chat<R: Runtime + 'static>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     request_id: String,
 ) -> Result<()> {
-    super::cancel_chat_with_app(&app, &state.providers, &request_id)
+    let providers = state.providers.shared();
+    let inner = app.clone();
+    background(app, move || {
+        super::cancel_chat_with_app(&inner, &providers, &request_id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -129,12 +160,26 @@ pub fn list_provider_circuits(
     super::routing::circuits(&state.providers)
 }
 
-#[tauri::command]
-pub fn get_provider_chat(
+// P-068：流式输出期间前端按 150ms 节流拉取整条请求（output/reasoning
+// 累计上限 1 MiB），每次都要开库取整行并做 MB 级序列化——原先同步命令
+// 在主线程执行，长输出阶段持续占用主线程导致打字与动画掉帧；移后台
+#[tauri::command(async)]
+pub async fn get_provider_chat<R: Runtime + 'static>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
     request_id: String,
 ) -> Result<super::ProviderRequest> {
-    super::get_chat(&state.providers, &request_id)
+    let providers = state.providers.shared();
+    let practice = state.practice.shared();
+    background(app, move || {
+        let mut request = super::get_chat(&providers, &request_id)?;
+        // P-010：主观评分的模型原始终回文本按反馈公开口径遮蔽——判分 JSON
+        // 含逐项得分与总体反馈，公开前回传即等于提前泄题（deferred 练习与
+        // 模拟考试的自测效度依赖该遮蔽）
+        super::super::practice::mask_grading_output(&practice, &mut request)?;
+        Ok(request)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -144,20 +189,32 @@ pub fn get_routing_settings(
     super::routing::settings(&state.providers)
 }
 
-#[tauri::command]
-pub fn save_routing_settings<R: Runtime>(
+// P-067：保存路由设置先枚举全部档案（逐个读密钥库），再做写事务与事件
+// 落盘——原先同步命令在主线程执行；移后台
+#[tauri::command(async)]
+pub async fn save_routing_settings<R: Runtime + 'static>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     settings: super::routing::RoutingSettings,
 ) -> Result<super::routing::RoutingSettings> {
-    super::routing::save_settings(&app, &state.providers, settings)
+    let providers = state.providers.shared();
+    let inner = app.clone();
+    background(app, move || {
+        super::routing::save_settings(&inner, &providers, settings)
+    })
+    .await
 }
 
-#[tauri::command]
-pub fn list_provider_route_logs(
+// P-067：路由日志取 100 行运行后逐行再查 attempts（约 101 次
+// prepare/query）——原先同步命令在主线程执行，路由事件密集期占用主线程；
+// 移后台
+#[tauri::command(async)]
+pub async fn list_provider_route_logs<R: Runtime + 'static>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
 ) -> Result<Vec<super::routing::RouteLog>> {
-    super::routing::logs(&state.providers)
+    let providers = state.providers.shared();
+    background(app, move || super::routing::logs(&providers)).await
 }
 
 #[tauri::command(async)]

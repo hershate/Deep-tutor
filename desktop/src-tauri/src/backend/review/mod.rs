@@ -35,7 +35,8 @@ impl ReviewState {
         })
     }
 
-    #[cfg(test)]
+    // P-069：评分命令移后台需要与练习域同款的 owned 副本（LearningState
+    // 内的共享句柄随之克隆）——原先仅测试构建可用
     pub fn shared(&self) -> Self {
         Self {
             database_path: self.database_path.clone(),
@@ -444,8 +445,11 @@ pub fn grade<R: Runtime>(
     }
     let previous_interval = card.interval_days;
     // 47#3：ease/间隔为库内 f64，被外部改库成 NaN/巨值时直接参与乘法会经
-    // seconds_f64 与日期加法 panic（同步命令=主线程崩溃）——先校验有限与
-    // 合法域（ease 更新规则本就收敛到 1.3..=3.0），毒数据显式报错而非崩溃
+    // seconds_f64 与日期加法 panic——先校验有限与合法域（ease 更新规则本就
+    // 收敛到 1.3..=3.0），毒数据显式报错而非让 panic 逃出命令体。P-069 起
+    // grade_review_card 是 #[tauri::command(async)]，命令体在阻塞线程执行，
+    // panic 只会变成笼统的 internal_error（见 commands.rs 的 background），
+    // 不再直接终止主线程——校验的收益从「不崩窗口」变为「错误可定位」
     if !previous_interval.is_finite()
         || previous_interval < 0.0
         || !card.ease.is_finite()
@@ -549,7 +553,8 @@ pub(crate) fn stats_with(store: &super::store::Store) -> Result<ReviewStats> {
     )?;
     let tomorrow_start = end.clone();
     // 47#3：next_day 在 9999-12-31 边界返回 None——同明日边界显式转类型化
-    // 错误，不 panic（同步命令=主线程）
+    // 错误，不让 panic 逃出命令体（P-069 起命令体在阻塞线程执行，panic
+    // 只会变成笼统的 internal_error，类型化错误才能定位到「持久化时间非法」）
     let day_after = day_start(
         tomorrow
             .next_day()
@@ -943,5 +948,22 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(rejected.code, "invalid_card_scope");
+    }
+
+    // P-069：评分写事务用 BEGIN IMMEDIATE 取写锁——备份导入/VACUUM/重置
+    // 的长写事务期间，同步命令在主线程上等待 busy_timeout（10 秒），
+    // 窗口被系统标记「未响应」。回归守卫盯住命令声明本身（运行时无法从
+    // 返回值观察执行线程）。
+    #[test]
+    fn review_grade_command_is_declared_async() {
+        let source = include_str!("commands.rs");
+        let declaration = source
+            .split("#[tauri::command")
+            .find(|chunk| chunk.contains("pub async fn grade_review_card"))
+            .unwrap_or_else(|| panic!("未找到 grade_review_card 的命令声明"));
+        assert!(
+            declaration.starts_with("(async)]"),
+            "grade_review_card 必须标注 #[tauri::command(async)]，否则按 Tauri 2 语义在主线程同步执行，实际：{declaration}"
+        );
     }
 }

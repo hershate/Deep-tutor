@@ -44,6 +44,10 @@ export default function Practice({ notify, target, onTargetConsumed, onNavigate 
   // 活跃期间事件密集刷新与用户切换练习集交错时，后到的旧响应不得回写，
   // 否则选中集被静默回退（A 切 B 后界面跳回 A、直播流串台）
   const refreshSequence = useRef(0)
+  // P-068 复核：get_provider_chat 改为 async 后并发拉取不再按发起顺序返回——
+  // 旧输出后到会盖掉新输出（直播文本回退）。与 refreshSequence 分开：后者
+  // 守练习集切换，前者守同一次生成内的多次直播读取
+  const liveChatSequence = useRef(0)
   const refresh = useCallback(async () => {
     const ticket = ++refreshSequence.current
     setLoadError('')
@@ -67,9 +71,11 @@ export default function Practice({ notify, target, onTargetConsumed, onNavigate 
     if (['generating', 'cancelling'].includes(next.set.status) && next.set.requestId) {
       // 32#14：附加直播流单独捕获（read 口径不冒泡）——题目数据已加载成功，
       // 直播流的 database_busy 等瞬态错误不该夸大为整页「练习数据读取失败」
+      // P-068 复核：直播读取与 delta 节流读取共用序号，旧响应不得回写
+      const liveTicket = ++liveChatSequence.current
       try {
         const live = await backend.getProviderChat(next.set.requestId)
-        if (ticket === refreshSequence.current) setGenerationOutput(live.output)
+        if (ticket === refreshSequence.current && liveTicket === liveChatSequence.current) setGenerationOutput(live.output)
       }
       catch (error) {
         if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'not_found') reportBackendError(error, 'read')
@@ -99,7 +105,15 @@ export default function Practice({ notify, target, onTargetConsumed, onNavigate 
       }
       if (event.kind === 'provider.chat_delta' && logical !== null && !disposed && typeof event.payload.requestId === 'string' && (event.payload.requestId === logical || upstreams.get(event.payload.requestId) === logical)) {
         // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
-        throttledFetch(() => void backend.getProviderChat(logical).then(request => setGenerationOutput(request.output)).catch(reportBackendError))
+        // P-068 复核：读命令异步化后两次拉取可能乱序返回——序号守卫只放行
+        // 最后一次，旧输出不得回写（直播文本回退）
+        throttledFetch(() => {
+          const liveTicket = ++liveChatSequence.current
+          void backend.getProviderChat(logical).then(request => {
+            if (liveTicket !== liveChatSequence.current) return
+            setGenerationOutput(request.output)
+          }).catch(reportBackendError)
+        })
       }
     }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
     // 113#1 同款：cancel 原先排在 return 之后是不可达死代码——76#7 声称的

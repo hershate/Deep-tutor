@@ -2215,3 +2215,21 @@ fn oversized_provider_tool_call_id_is_repaired_before_the_next_request() {
         "tool 回复必须与声明同 id"
     );
 }
+
+// P-070：Agent 工作区发送按钮按 DESIGN.md 的 44px 触屏下限提至 44px
+// （原先 36px）。
+#[test]
+fn agent_send_button_meets_the_touch_target_floor() {
+    let source = include_str!("../../../../src/styles.css");
+    let needle = "\n.agent-composer > div > button {";
+    let start = source
+        .find(needle)
+        .unwrap_or_else(|| panic!("样式表缺少 .agent-composer > div > button 规则"));
+    let rest = &source[start + 1..];
+    let end = rest.find('}').expect("规则未闭合");
+    let rule = &rest[..=end];
+    assert!(
+        rule.contains("width: 44px") && rule.contains("height: 44px"),
+        "Agent 发送按钮须不小于 44px（DESIGN.md 触屏路径下限），实际：{rule}"
+    );
+}

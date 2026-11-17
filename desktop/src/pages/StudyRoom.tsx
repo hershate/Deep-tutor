@@ -105,6 +105,10 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   }, [plan])
   // 正在阅读的讲义版本：事件刷新时保持同一版本，生成新版本期间不被拉回
   const readingVersionRef = useRef<number | undefined>(undefined)
+  // P-068 复核：get_provider_chat 改为 async 后并发拉取不再按发起顺序返回——
+  // 旧输出后到会盖掉新输出（直播预览回退）。讲义刷新与 delta 节流两路读取
+  // 共用同一序号，只有最后一次发起的读取可写入直播预览
+  const liveChatSeq = useRef(0)
   const refreshLecture = useCallback(async (version?: number) => {
     if (version !== undefined) setLiveRequest(null)
     if (!plan || !stageId) { setLecture(null); return }
@@ -121,7 +125,11 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       if (version === undefined) {
         const runningUnit = next.units.find(unit => unit.status === 'running' && unit.requestId)
         if (runningUnit?.requestId) {
-          void backend.getProviderChat(runningUnit.requestId).then(setLiveRequest).catch(() => { /* 取不到预览不阻断讲义流程 */ })
+          const ticket = ++liveChatSeq.current
+          void backend.getProviderChat(runningUnit.requestId).then(next => {
+            if (ticket !== liveChatSeq.current) return
+            setLiveRequest(next)
+          }).catch(() => { /* 取不到预览不阻断讲义流程 */ })
         }
       }
       // 144#5：catch 补同款复查——切换后旧阶段的失败不再归因到新内容页
@@ -213,7 +221,15 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
           : runningUnit && (requestId === runningUnit.requestId || requestId.startsWith(`${runningUnit.requestId}-f`)) ? runningUnit.requestId : null
         if (matched) {
           // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
-          throttledFetch(() => void backend.getProviderChat(matched).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause))))
+          // P-068 复核：读命令异步化后两次拉取可能乱序返回——序号守卫只
+          // 放行最后一次，旧输出与旧错误都不再落到直播预览上
+          throttledFetch(() => {
+            const ticket = ++liveChatSeq.current
+            void backend.getProviderChat(matched).then(next => {
+              if (ticket !== liveChatSeq.current) return
+              setLiveRequest(next)
+            }).catch(cause => { if (ticket === liveChatSeq.current) setError(backendErrorMessage(cause)) })
+          })
         }
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(reportBackendError)

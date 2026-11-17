@@ -1342,8 +1342,10 @@ fn graded_answer_id(request_id: &str) -> Option<i64> {
 /// 开库只发生在「模型请求已完成」时：作答行在模型请求完成之前不可能是
 /// done（主观评分写回发生在 stream_chat 返回 done 之后，
 /// practice/subjective.rs），进行中的评分请求必然尚未公开反馈。前端在
-/// 评分期间按 150ms 轮询本命令（同步命令，落在主线程），每次开库都要
-/// 重跑建表检查与 schema 指纹——热路径不再为此开库。
+/// 评分期间按 150ms 节流轮询 get_provider_chat（P-068 起该命令是
+/// #[tauri::command(async)]，命令体在阻塞线程执行，不占主线程），本函数
+/// 只在模型请求完成时开库；每次开库都要重跑建表检查与 schema 指纹——
+/// 热路径不再为此开库。
 pub(crate) fn mask_grading_output(
     state: &PracticeState,
     request: &mut providers::ProviderRequest,

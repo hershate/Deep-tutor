@@ -2154,3 +2154,29 @@ fn provider_model_list_over_the_limit_is_rejected_with_a_dedicated_message() {
         200
     );
 }
+
+// P-067/P-068：供应商档案列表逐档案读一次系统密钥库、路由设置保存同
+// 命令内再枚举档案与写事务、路由日志逐行再查 attempts、取消请求要开库
+// 写状态，get_provider_chat 更是流式期间每 150ms 一次的 MB 级载荷
+// 拉取——原先均为同步命令，命令体在主线程执行。回归守卫盯住命令声明
+// 本身（运行时无法从返回值观察执行线程）。
+#[test]
+fn provider_read_write_commands_are_declared_async() {
+    let source = include_str!("commands.rs");
+    for name in [
+        "list_provider_profiles",
+        "save_routing_settings",
+        "cancel_provider_chat",
+        "list_provider_route_logs",
+        "get_provider_chat",
+    ] {
+        let declaration = source
+            .split("#[tauri::command")
+            .find(|chunk| chunk.contains(&format!("pub async fn {name}")))
+            .unwrap_or_else(|| panic!("未找到 {name} 的命令声明"));
+        assert!(
+            declaration.starts_with("(async)]"),
+            "{name} 必须标注 #[tauri::command(async)]，否则按 Tauri 2 语义在主线程同步执行，实际：{declaration}"
+        );
+    }
+}

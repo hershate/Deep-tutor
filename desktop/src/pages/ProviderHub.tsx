@@ -163,6 +163,9 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
     let unlisten: (() => void) | undefined
     // 03#4：每条 delta 都全量重放是 O(n²)——150ms 窗口内合并为一次拉取
     const throttledChatRefresh = deltaThrottle()
+    // P-068 复核：读命令异步化后两次拉取可能乱序返回——序号守卫只放行最后
+    // 一次，旧输出与旧错误都不再落到直播视图上
+    let liveChatSeq = 0
     void onBackendEvent(event => {
       if (disposed) return
       if (event.kind === 'provider.route_attempt' && event.payload.requestId === requestIdRef.current && typeof event.payload.upstreamRequestId === 'string') upstreamRequestIdRef.current = event.payload.upstreamRequestId
@@ -171,7 +174,11 @@ export default function ProviderHub({ notify, embedded = false }: { notify: (mes
         const requestId = event.payload.requestId
         if (typeof requestId === 'string' && (requestId === requestIdRef.current || requestId === upstreamRequestIdRef.current)) {
           throttledChatRefresh(() => {
-            void backend.getProviderChat(requestId).then(setLiveRequest).catch(error => setStreamError(backendErrorMessage(error)))
+            const ticket = ++liveChatSeq
+            void backend.getProviderChat(requestId).then(request => {
+              if (ticket !== liveChatSeq) return
+              setLiveRequest(request)
+            }).catch(error => { if (ticket === liveChatSeq) setStreamError(backendErrorMessage(error)) })
           })
         }
       }

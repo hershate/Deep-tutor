@@ -108,8 +108,12 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
     if (!activeRequest) { setOutput(''); return }
     const requestId = activeRequest
     let active = true
+    // P-068 复核：读命令异步化后两次拉取可能乱序返回——序号守卫只放行最后
+    // 一次，旧输出不得回写（考试生成直播文本回退）
+    let liveChatSeq = 0
     const update = () => {
-      void backend.getProviderChat(requestId).then(request => { if (active) setOutput(request.output) }).catch(error => {
+      const ticket = ++liveChatSeq
+      void backend.getProviderChat(requestId).then(request => { if (active && ticket === liveChatSeq) setOutput(request.output) }).catch(error => {
         if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'not_found') reportBackendError(error)
       })
     }
@@ -235,7 +239,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
           {['short', 'essay'].includes(question.kind) && <textarea rows={question.kind === 'essay' ? 8 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} disabled={recorded || busy || expired} onChange={event => { const next = clampToBytes(event.target.value, 30000); if (question) draftByQuestion.current[question.id] = next; setDraft(next) }} placeholder="组织自己的回答，交卷后由后端按评分要点评分" aria-label={`${question?.kind === 'essay' ? '论述' : '简答'}作答：${question?.prompt ?? ''}`} />}
           {question.rubric.length > 0 && <div className="rubric-preview"><strong>评分要点</strong>{question.rubric.map(criterion => <div key={criterion.id}><span>{criterion.description}</span><small>{criterion.points.toFixed(2)} 分</small></div>)}</div>}
           {recorded && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>交卷后统一显示得分与解析。</p></div>}
-          {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>正在按评分要点判分</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancelAnswer()} disabled={busy || answer.status === 'cancelling'}>{busy ? '正在取消…' : '取消评分'}</Button></div>}
+          {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>正在按评分要点判分</h3>{/* P-010：评分模型的原始输出在反馈公开前不再回传（后端按遮蔽口径清空），此处只提示进度，不展示判分原文 */}<pre className="streaming-output">{output || '作答已保存，正在按评分要点判分；判分结果将在反馈公开后显示。'}</pre><Button variant="secondary" onClick={() => void cancelAnswer()} disabled={busy || answer.status === 'cancelling'}>{busy ? '正在取消…' : '取消评分'}</Button></div>}
           {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><h3>评分未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分已停止'}</p><p>可恢复评分重试；模型持续失败时可放弃该题按 0 分交卷。</p><Button onClick={() => void resumeAnswer()}>恢复评分<RefreshCw size={17} /></Button><Button variant="secondary" onClick={() => setAbandonOpen(true)} disabled={busy}>放弃本题，按 0 分计<XCircle size={17} /></Button></div>}
           {completed && answer && <div className="subjective-rubric"><div><CheckCircle2 size={20} /><h3>{answer.feedback?.unanswered ? '未作答，按 0 分计' : answer.correct ? '达到本题掌握阈值' : '本题仍需巩固'}</h3>{answer.score !== null && <strong>{answer.score.toFixed(2)} / {answer.maxScore?.toFixed(2)}</strong>}</div>
             {answer.feedback?.overallFeedback && <p>{answer.feedback.overallFeedback}</p>}

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { AlertTriangle, ArrowLeft, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Circle, Clipboard, Clock3, CloudUpload, File, FileText, Globe2, Hash, LoaderCircle, RefreshCw, Route, ShieldCheck, Sparkles, Square, Trash2, Upload, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Circle, Clipboard, Clock3, CloudUpload, File, FileText, Globe2, Hash, LoaderCircle, RefreshCw, Route, ShieldCheck, Sparkles, Square, Trash2, Upload, Zap } from '../components/icons'
 import type { PageId, GeneratorDraft } from '../data'
 import { Badge, Button, ConfirmDialog, IconButton, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import SharePlanDialog from '../components/SharePlanDialog'
@@ -80,8 +80,20 @@ export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavi
   // 37#2：删除资料同 Library 页口径——不可恢复操作，确认后再执行
   const [pendingDelete, setPendingDelete] = useState<number | null>(null)
   const planRef = useRef<LearningPlan | null>(null)
+  // P-135：当前步骤 ref——事件回调里据此判断「用户是否已离开生成/结果步」。
+  // 32#3 的守卫只按方案 id 过滤过期响应，未考虑用户主动回退到第 0/1 步
+  // 填写新方案的情况
+  const stepRef = useRef(step)
   const routeUpstreams = useRef<Record<string, string>>({})
+  // P-059 复核：get_learning_plan 与 get_provider_chat 改为 async 后（命令体在
+  // 阻塞线程执行），同一参数的并发读取不再按发起顺序返回——旧快照可能后到并
+  // 覆盖新快照。两路读取各用一次序号，只有最后一次发起的读取可写入状态
+  const planEventSeq = useRef(0)
+  const liveChatSeq = useRef(0)
   useEffect(() => { planRef.current = plan }, [plan])
+  // 35#9 同款：useLayoutEffect 在提交后同步刷新——passive effect 有微任务
+  // 窗口，步骤回退与事件到达交错时守卫会读到旧步骤
+  useLayoutEffect(() => { stepRef.current = step }, [step])
   useEffect(() => {
     if (step !== 0 || sourceTab !== '文件上传') { setDragOver(false); return }
     let disposed = false
@@ -124,12 +136,21 @@ export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavi
     return () => { active = false }
   }, [])
 
-  const refreshMaterials = useCallback(async () => {
+  // P-099 同型：事件驱动的只读拉取失败不得在页面顶部钉住红色横幅——
+  // material.* 事件触发的节流刷新与 plan.started 触发的方案拉取都是
+  // 只读路径，瞬时 database_busy/store_busy 由下一轮事件自愈
+  // （与本页 :201/:215 的 getLearningPlan/getProviderChat 同口径）。
+  // eventDriven=true 只用于事件路径；写操作后的刷新失败仍页面内提示，
+  // 用户已付出操作成本，不能只留一条 toast
+  const refreshMaterials = useCallback(async (eventDriven = false) => {
     try {
       const items = await backend.listMaterials()
       setMaterials(items)
       setSelectedIds(current => current.filter(id => items.some(material => material.id === id)))
-    } catch (cause) { setError(backendErrorMessage(cause)) }
+    } catch (cause) {
+      if (eventDriven) reportBackendError(cause)
+      else setError(backendErrorMessage(cause))
+    }
   }, [])
   const refreshPlans = useCallback(async () => {
     try {
@@ -156,7 +177,11 @@ export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavi
       setStep(next.result ? 3 : 2)
       setLiveRequest(null)
       setError('')
-    } catch (cause) { if (ticket === selectSeq.current) setError(backendErrorMessage(cause)) }
+    } catch (cause) {
+      // P-099 同型：plan.started 事件与用户切换方案共用本读取路径——瞬时
+      // database_busy/store_busy 不在页面顶部钉住红色横幅
+      if (ticket === selectSeq.current) reportBackendError(cause)
+    }
   }, [])
 
   useEffect(() => {
@@ -173,20 +198,27 @@ export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavi
     const throttledMaterials = deltaThrottle()
     void onBackendEvent(event => {
       if (disposed) return
-      if (event.kind.startsWith('material.')) throttledMaterials(() => void refreshMaterials())
+      if (event.kind.startsWith('material.')) throttledMaterials(() => void refreshMaterials(true))
       if (event.kind.startsWith('plan.')) {
         const id = event.payload.planId
         if (typeof id !== 'string') return
         if (!planRef.current && event.kind === 'plan.started') void selectPlan(id)
         if (planRef.current?.id === id) {
           setLastEventId(event.id)
+          // P-059 复核：读命令异步化后并发响应可能乱序——序号守卫挡掉旧快照
+          const ticket = ++planEventSeq.current
           void backend.getLearningPlan(id).then(next => {
             // 32#3：响应返回时用户可能已手动切换到历史方案——过期响应
             // 不得覆盖当前选择或强行拉回第 3 步
-            if (disposed || planRef.current?.id !== next.id) return
+            if (disposed || ticket !== planEventSeq.current || planRef.current?.id !== next.id) return
             setPlan(next)
-            if (next.result) setStep(3)
-          }).catch(cause => setError(backendErrorMessage(cause)))
+            // P-135：用户已回退到第 0/1 步填写新方案时，不得把视图拉回旧
+            // 方案的结果页——草稿仍在组件状态里，但正在输入的视图被切走
+            if (next.result && stepRef.current === 2) setStep(3)
+          // P-099：事件驱动的只读拉取失败走 reportBackendError——瞬时
+          // database_busy/store_busy 属争用，下一轮事件自愈，不在页面
+          // 顶部钉住红色横幅（与 Practice/Projects 的同款 delta 拉取同口径）
+          }).catch(reportBackendError)
         }
       }
       if (event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string') {
@@ -200,7 +232,15 @@ export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavi
         if (active && typeof logicalId === 'string') {
           setLastEventId(event.id)
           // 多条 delta 合并为一次全量拉取，避免长回答期间逐条重放
-          throttledFetch(() => void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause))))
+          // P-068 复核：get_provider_chat 异步化后两次拉取可能乱序返回，
+          // 旧输出会盖掉新输出（直播预览回退）——序号守卫只放行最后一次
+          throttledFetch(() => {
+            const ticket = ++liveChatSeq.current
+            void backend.getProviderChat(logicalId).then(next => {
+              if (ticket !== liveChatSeq.current) return
+              setLiveRequest(next)
+            }).catch(reportBackendError)
+          })
         }
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(reportBackendError)
@@ -343,10 +383,12 @@ export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavi
   const reread = async () => {
     if (!plan) return
     setBusy('reread')
+    // P-059 复核：读命令异步化后并发读取可能乱序——序号守卫只放行最后一次
+    const ticket = ++planEventSeq.current
     try {
       const next = await backend.getLearningPlan(plan.id)
       // 32#3：响应返回时用户可能已切换到其他方案
-      if (planRef.current?.id !== next.id) return
+      if (ticket !== planEventSeq.current || planRef.current?.id !== next.id) return
       setPlan(next)
       if (next.result) setStep(3)
       setError('')
@@ -368,8 +410,10 @@ export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavi
     setBusy('adopt')
     try {
       await backend.adoptLearningPlan(plan.id)
+      // P-059 复核：读命令异步化后并发读取可能乱序——序号守卫只放行最后一次
+      const ticket = ++planEventSeq.current
       const next = await backend.getLearningPlan(plan.id)
-      setPlan(next)
+      if (ticket === planEventSeq.current) setPlan(next)
       notify(next.adoptedProjectId !== null ? `方案已采用，已创建项目 #${next.adoptedProjectId} 与原生学习任务` : '方案已采用，已创建原生学习任务')
       onNavigate('plan')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
@@ -378,7 +422,7 @@ export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavi
   return <div className="page generator-page">
     <div className="page-heading"><div><h1>AI 方案生成</h1><p>资料先暂存，目标再澄清；每一步都由原生后端执行并保存。</p></div><div className="heading-actions"><select aria-label="查看历史方案" value={plan?.id || ''} onChange={event => { if (event.target.value) void selectPlan(event.target.value); else { setPlan(null); setStep(0) } }}><option value="">新建方案</option>{plans.map(item => <option key={item.id} value={item.id}>{item.id} · {item.goal.slice(0, 36)} · v{item.version}</option>)}</select><Badge tone="green"><ShieldCheck size={14} />原生任务与事件</Badge></div></div>
     {error && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}<Button variant="ghost" size="sm" onClick={() => setError('')}>关闭</Button></div>}
-    <div className="generator-stepper">{phaseNames.map((name, index) => <button key={name} className={`${step === index ? 'active' : ''} ${step > index ? 'done' : ''}`} onClick={() => { if (index < step) setStep(index) }} disabled={index > step}><span>{step > index ? <Check size={15} /> : index + 1}</span><strong>{name}</strong>{index < 3 && <ChevronRight size={15} />}</button>)}</div>
+    <div className="generator-stepper">{phaseNames.map((name, index) => <button key={name} className={`${step === index ? 'active' : ''} ${step > index ? 'done' : ''}`} onClick={() => { if (index < step) { stepRef.current = index; setStep(index) } }} disabled={index > step}><span>{step > index ? <Check size={15} /> : index + 1}</span><strong>{name}</strong>{index < 3 && <ChevronRight size={15} />}</button>)}</div>
 
     {step === 0 && <div className="generator-source-layout"><main className="surface source-workspace"><SectionHeader title="辅助资料（可选）" description="可添加文件、纯文本或网页；没有资料也能仅根据目标与当前基础制定计划。" action={<Badge tone="neutral">{selected.length} / 8 份已选择</Badge>} /><div className="source-tabs">{sourceTabs.map(item => <button className={sourceTab === item ? 'active' : ''} key={item} onClick={() => setSourceTab(item)}>{item === '文件上传' ? <Upload size={16} /> : item === '纯文本' ? <FileText size={16} /> : item === 'URL 抓取' ? <Globe2 size={16} /> : <Clipboard size={16} />}{item}</button>)}</div>
       {sourceTab === '文件上传' && <button type="button" className={dragOver ? 'source-dropzone is-drag-over' : 'source-dropzone'} onClick={() => void importFiles()} disabled={Boolean(busy)} aria-label="选择本地学习资料文件"><CloudUpload size={28} /><strong>选择本地学习资料，或将文件拖入窗口</strong>{/* P-108：<button> 的内容模型只允许 phrasing content——原先的块级 <p> 属无效 HTML，改用带类的 <span>（样式沿用原 .source-dropzone > p 规则） */}<span className="dropzone-line">PDF / DOCX / PPTX / EPUB / TXT / Markdown，单文件不超过 50 MB</span><span>文档由原生文本解析；音视频与图片仅作原件预览，不提供 OCR 或内容识别。ZIP 由 Rust 预检后逐项暂存。</span>{/* P-108：整块拖放区此前只有 pointer 光标与「选择本地学习资料」文案，区域本身无点击处理——改为真正的按钮（区域即文件选择入口），内部动作标记降级为非交互的视觉元素，避免嵌套可交互控件与重复打开文件对话框 */}<span className="btn btn-primary btn-md" aria-live="polite">{busy === 'files' ? <LoaderCircle size={16} className="spin" /> : <Upload size={16} />}{busy === 'files' ? `正在导入${importCount ? ` ${importCount}` : ''}…` : '选择文件'}</span></button>}

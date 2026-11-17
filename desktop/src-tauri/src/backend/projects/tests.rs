@@ -347,4 +347,56 @@ fn completed_feedback_respects_late_cancellation() {
         |row| row.get(0),
     ).unwrap();
     assert_eq!(cancelled_events, 1, "取消交叠终态必须发 feedback_cancelled");
+    // P-030：取消交叠的评价结果照存——迭代笔记的门禁须按「有真实评价
+    // 结果」判定。此前按 status == 'done' 必拒，用户看着完整量规评价
+    // 却存不了笔记，前端按钮（只看 feedback 是否存在）却可点
+    let note = ipc(
+        &app,
+        "save_project_iteration_note",
+        json!({"input":{"versionId":cancelling_id,"content":"下一版补充真实对照实验"}}),
+    )
+    .unwrap();
+    assert_eq!(note["notes"][0]["title"], "真实项目 · v2 迭代笔记");
+    assert_eq!(note["notes"][0]["content"], "下一版补充真实对照实验");
+    // 仍在评价中的版本不开放——结果未出
+    store
+        .conn
+        .execute(
+            "UPDATE project_versions SET status = 'running' WHERE id = ?1",
+            params![cancelling_id],
+        )
+        .unwrap();
+    assert_eq!(
+        ipc(
+            &app,
+            "save_project_iteration_note",
+            json!({"input":{"versionId":cancelling_id,"content":"评价进行中不得写入"}})
+        )
+        .unwrap_err()["code"],
+        "project_feedback_not_ready"
+    );
+}
+
+// P-060：四个写命令的返回值都经 workspace() 重建（≤200 版本逐行
+// feedback_json 反序列化，103#7 认定必须移后台），iteration_note 收尾
+// 还要聚合全量 app_state——原先同步命令在主线程执行。回归守卫盯住命令
+// 声明本身（运行时无法从返回值观察执行线程）。
+#[test]
+fn project_write_commands_are_declared_async() {
+    let source = include_str!("commands.rs");
+    for name in [
+        "submit_project_version",
+        "cancel_project_feedback",
+        "resume_project_feedback",
+        "save_project_iteration_note",
+    ] {
+        let declaration = source
+            .split("#[tauri::command")
+            .find(|chunk| chunk.contains(&format!("pub async fn {name}")))
+            .unwrap_or_else(|| panic!("未找到 {name} 的命令声明"));
+        assert!(
+            declaration.starts_with("(async)]"),
+            "{name} 必须标注 #[tauri::command(async)]，否则按 Tauri 2 语义在主线程同步执行，实际：{declaration}"
+        );
+    }
 }

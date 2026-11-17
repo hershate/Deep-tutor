@@ -2,6 +2,24 @@ use super::super::{error::Result, BackendState};
 use super::{Plan, PlanInput};
 use tauri::{AppHandle, Runtime, State};
 
+/// P-059/P-066：学习域的重读命令与采用命令原为同步命令——命令体在主线程
+/// 执行：get_learning_plan 反序列化整份 artifacts/result JSON（artifacts
+/// 的 step0 快照内含资料解析正文，单份上限 5 MiB、方案最多 8 份），
+/// get_lecture 先重解析整份方案再取全部单元正文并逐单元读用量，
+/// adopt 按排期条目逐条建任务（条目数随方案总分钟数放大）。
+/// 移后台执行（61#3 返工同款 guard::scoped：命令体在阻塞线程上重新取
+/// 工作区切换读锁并解析 principal，写入始终落在该用户自己的工作区）
+async fn background<R: Runtime + 'static, T: Send + 'static>(
+    app: AppHandle<R>,
+    task: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(move || super::super::security::guard::scoped(&app, task))
+        .await
+        .map_err(|_| {
+            super::super::error::BackendError::new("internal_error", "学习任务执行异常终止")
+        })?
+}
+
 #[tauri::command]
 pub fn start_learning_plan<R: Runtime>(
     app: AppHandle<R>,
@@ -31,9 +49,17 @@ pub async fn list_learning_plans<R: Runtime + 'static>(
     })?
 }
 
-#[tauri::command]
-pub fn get_learning_plan(state: State<'_, BackendState>, id: String) -> Result<Plan> {
-    super::get(&state.learning, &id)
+// P-059：方案读取要反序列化整份 input/artifacts/result JSON（step0 快照
+// 内含资料解析正文）——原先同步命令在主线程执行，方案生成期每条 plan.* 事件
+// 都全量拉一次，窗口间歇卡顿；移后台
+#[tauri::command(async)]
+pub async fn get_learning_plan<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    state: State<'_, BackendState>,
+    id: String,
+) -> Result<Plan> {
+    let learning = state.learning.shared();
+    background(app, move || super::get(&learning, &id)).await
 }
 
 #[tauri::command]
@@ -54,13 +80,19 @@ pub fn resume_learning_plan<R: Runtime>(
     super::resume(&app, &state.learning, &id)
 }
 
-#[tauri::command]
-pub fn adopt_learning_plan<R: Runtime>(
+// P-066：采用方案按排期条目逐条建任务（每条一次 next_free_id 聚合扫描
+// + 两条 INSERT），条目数随方案总分钟数与每日时长放大（极端约 3600 条）
+// ——原先同步命令在主线程执行，点击「采用此方案」冻结窗口数秒且中途
+// 不可取消；移后台
+#[tauri::command(async)]
+pub async fn adopt_learning_plan<R: Runtime + 'static>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     id: String,
 ) -> Result<serde_json::Value> {
-    super::actions::adopt(&app, &state.learning, &id)
+    let learning = state.learning.shared();
+    let inner = app.clone();
+    background(app, move || super::actions::adopt(&inner, &learning, &id)).await
 }
 
 #[tauri::command]
@@ -122,14 +154,23 @@ pub fn set_reading_progress<R: Runtime>(
     super::knowledge::set_reading(&app, &state.learning, &id, &stage_id, completed, bookmarked)
 }
 
-#[tauri::command]
-pub fn get_lecture(
+// P-059：讲义读取先重解析整份方案，再取全部单元正文并对每个带
+// request_id 的单元单独取一次用量（单元内容上限 12 段 × 20000 字符）
+// ——原先同步命令在主线程执行，前端每条 lecture.* 事件都调一次；
+// 移后台
+#[tauri::command(async)]
+pub async fn get_lecture<R: Runtime + 'static>(
+    app: AppHandle<R>,
     state: State<'_, BackendState>,
     id: String,
     stage_id: String,
     version: Option<u32>,
 ) -> Result<super::lecture::Lecture> {
-    super::lecture::get(&state.learning, &id, &stage_id, version)
+    let learning = state.learning.shared();
+    background(app, move || {
+        super::lecture::get(&learning, &id, &stage_id, version)
+    })
+    .await
 }
 
 #[tauri::command]

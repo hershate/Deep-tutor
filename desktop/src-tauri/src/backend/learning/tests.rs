@@ -1694,3 +1694,342 @@ fn reading_the_running_lecture_version_reports_progress_instead_of_not_found() {
     let missing = lecture::get(&state, &started.id, "stage-1", Some(7)).unwrap_err();
     assert_eq!(missing.code, "not_found");
 }
+
+// P-059/P-066：方案与讲义读取（整份方案 JSON 反序列化、全部单元正文与
+// 用量）、采用方案（逐排期条目建任务）原为同步命令——命令体在主线程
+// 执行，事件刷新与「采用此方案」期间窗口冻结。回归守卫盯住命令声明
+// 本身（运行时无法从返回值观察执行线程）。
+#[test]
+fn heavy_learning_commands_are_declared_async() {
+    let source = include_str!("commands.rs");
+    for name in ["get_learning_plan", "get_lecture", "adopt_learning_plan"] {
+        let declaration = source
+            .split("#[tauri::command")
+            .find(|chunk| chunk.contains(&format!("pub async fn {name}")))
+            .unwrap_or_else(|| panic!("未找到 {name} 的命令声明"));
+        assert!(
+            declaration.starts_with("(async)]"),
+            "{name} 必须标注 #[tauri::command(async)]，否则按 Tauri 2 语义在主线程同步执行，实际：{declaration}"
+        );
+    }
+}
+
+// P-070/P-071：辅导面板发送按钮与大字模式下的视口锚定层——前者按
+// DESIGN.md 的 44px 触屏下限，后者的 100dvh 必须按 zoom 折算，否则
+// 大字模式下抽屉输入区与专注层退出提示落到视口外。
+#[test]
+fn tutor_send_button_and_large_text_layers_meet_the_viewport_contract() {
+    let source = include_str!("../../../../src/styles.css");
+    let rule = |selector: &str| -> String {
+        let needle = format!("\n{selector} {{");
+        let start = source
+            .find(&needle)
+            .unwrap_or_else(|| panic!("样式表缺少规则 {selector}"));
+        let rest = &source[start + 1..];
+        let end = rest
+            .find('}')
+            .unwrap_or_else(|| panic!("规则 {selector} 未闭合"));
+        rest[..=end].to_string()
+    };
+    let send = rule(".composer-bottom > button");
+    assert!(
+        send.contains("width: 44px") && send.contains("height: 44px"),
+        "辅导面板发送按钮须不小于 44px（DESIGN.md 触屏路径下限），实际：{send}"
+    );
+    let drawer = rule(".global-tutor");
+    assert!(
+        drawer.contains("height: calc(100dvh / var(--ui-zoom))"),
+        "导师抽屉高度须按 zoom 折算，否则大字模式下绘制到视口 112%，输入区落到视口外，实际：{drawer}"
+    );
+    let focus = rule(".focus-overlay");
+    assert!(
+        focus.contains("height: calc(100dvh / var(--ui-zoom))")
+            && focus.contains("min-height: calc(100dvh / var(--ui-zoom))"),
+        "专注层高度须按 zoom 折算，否则大字模式下底部退出提示落到视口外，实际：{focus}"
+    );
+    assert!(
+        source.contains("--ui-zoom: 1;") && source.contains("--ui-zoom: 1.12;"),
+        "--ui-zoom 必须同时声明常规值与大字模式值"
+    );
+}
+
+// P-071 复核：视口锚定长度一律按 zoom 折算。大字模式对 body 施加
+// zoom 1.12，未折算的 100dvh 会画到视口的 112%——固定层（抽屉/专注层）
+// 内容落到视口外，页面级 min-height 则多出约 12% 的可滚动高度。折算顺序
+// 按「局部高度（122px 顶栏）也在缩放坐标系内」定：先折算视口再减去局部
+// 高度，粘性偏移同理保持局部值。
+#[test]
+fn viewport_anchored_lengths_are_zoom_folded() {
+    let source = include_str!("../../../../src/styles.css");
+    for (index, line) in source.lines().enumerate() {
+        if !line.contains("100dvh") || !line.contains("height") {
+            continue;
+        }
+        assert!(
+            line.contains("var(--ui-zoom)"),
+            "styles.css:{} 的视口锚定长度未按 zoom 折算——大字模式下会画到视口 112%：{}",
+            index + 1,
+            line.trim()
+        );
+    }
+    // 导师面板：高度先折算视口再减去 122px 局部顶栏高度，粘性偏移保持局部值
+    // （媒体查询内的缩进规则，与基线 .tutor-panel 区分）
+    let rule = |needle: &str| -> String {
+        let start = source
+            .find(needle)
+            .unwrap_or_else(|| panic!("样式表缺少规则 {needle}"));
+        let rest = &source[start + 1..];
+        let end = rest
+            .find('}')
+            .unwrap_or_else(|| panic!("规则 {needle} 未闭合"));
+        rest[..=end].to_string()
+    };
+    let panel = rule("\n  .tutor-panel {");
+    assert!(
+        panel.contains("calc(100dvh / var(--ui-zoom) - 122px)") && panel.contains("top: 122px"),
+        "导师面板须按「先折算视口再减去局部顶栏高度」计算，粘性偏移保持局部值——否则大字模式下压住顶栏或底部留空，实际：{panel}"
+    );
+    for selector in [
+        "\nbody {",
+        "\n.app-shell {",
+        "\n.study-page {",
+        "\n.agent-workspace-page {",
+    ] {
+        let rule = rule(selector);
+        assert!(
+            rule.contains("calc(100dvh / var(--ui-zoom)"),
+            "{selector} 的视口锚定高度须按 zoom 折算，否则整页多出约 12% 的可滚动高度，实际：{rule}"
+        );
+    }
+}
+
+// P-059/P-068 复核：读命令改为 async（命令体在阻塞线程执行）后，同参数的
+// 并发读取不再按发起顺序返回——旧快照后到会覆盖新快照（直播输出回退、
+// 方案状态回退）。回归守卫盯住每个 getProviderChat / getLearningPlan 调用
+// 点附近必须带序号守卫。
+#[test]
+fn async_read_commands_keep_response_order_guards() {
+    let guarded = |source: &str, call: &str, tokens: &[&str], label: &str| -> usize {
+        let mut rest = source;
+        let mut count = 0usize;
+        while let Some(at) = rest.find(call) {
+            count += 1;
+            let mut end = (at + 320).min(rest.len());
+            while end > at && !rest.is_char_boundary(end) {
+                end -= 1;
+            }
+            let window = &rest[at..end];
+            assert!(
+                tokens.iter().any(|token| window.contains(token)),
+                "{label} 的第 {count} 处 {call} 缺少响应序号守卫（{tokens:?}）——读命令异步化后旧响应会覆盖新响应"
+            );
+            rest = &rest[at + call.len()..];
+        }
+        assert!(count > 0, "{label} 未找到 {call} 调用点");
+        count
+    };
+    let generator = include_str!("../../../../src/pages/PlanGenerator.tsx");
+    guarded(
+        generator,
+        "getProviderChat(",
+        &["liveChatSeq"],
+        "PlanGenerator.tsx",
+    );
+    guarded(
+        generator,
+        "getLearningPlan(",
+        &["planEventSeq", "selectSeq"],
+        "PlanGenerator.tsx",
+    );
+    let study = include_str!("../../../../src/pages/StudyRoom.tsx");
+    guarded(study, "getProviderChat(", &["liveChatSeq"], "StudyRoom.tsx");
+    let practice = include_str!("../../../../src/pages/Practice.tsx");
+    guarded(
+        practice,
+        "getProviderChat(",
+        &["liveChatSequence"],
+        "Practice.tsx",
+    );
+    let projects = include_str!("../../../../src/pages/Projects.tsx");
+    guarded(
+        projects,
+        "getProviderChat(",
+        &["liveChatSeq"],
+        "Projects.tsx",
+    );
+    let provider_hub = include_str!("../../../../src/pages/ProviderHub.tsx");
+    guarded(
+        provider_hub,
+        "getProviderChat(",
+        &["liveChatSeq"],
+        "ProviderHub.tsx",
+    );
+    let exam = include_str!("../../../../src/components/ExamWorkspace.tsx");
+    guarded(
+        exam,
+        "getProviderChat(",
+        &["liveChatSeq"],
+        "ExamWorkspace.tsx",
+    );
+    let wiki = include_str!("../../../../src/components/WikiPanel.tsx");
+    guarded(wiki, "getProviderChat(", &["liveChatSeq"], "WikiPanel.tsx");
+    let subjective = include_str!("../../../../src/components/SubjectivePractice.tsx");
+    guarded(
+        subjective,
+        "getProviderChat(",
+        &["liveChatSeq"],
+        "SubjectivePractice.tsx",
+    );
+}
+
+#[test]
+fn plan_provider_rebinds_to_an_available_profile_when_the_pinned_one_is_disabled() {
+    // P-095：方案创建时绑定的供应商档案被停用/删除后，模型步骤恒用旧
+    // 档案会让失败方案的每次恢复都止步于 provider_disabled（方案成为
+    // 死路）——档案失效时按当前路由解析可用档案并回写方案
+    let (app, learning) = setup();
+    let store = learning.store().unwrap();
+    let profile_input = |id: Option<String>, name: &str, enabled: bool| ProfileInput {
+        id,
+        name: name.into(),
+        preset: Some("custom".into()),
+        kind: "本地模型".into(),
+        protocol: "OpenAI Chat".into(),
+        base_url: "http://127.0.0.1:9".into(),
+        default_model: "test-model".into(),
+        models: vec!["test-model".into()],
+        enabled: Some(enabled),
+        note: None,
+        api_key: Some("learning-test-token".into()),
+    };
+    let pinned = providers::upsert(
+        app.handle(),
+        &learning.providers,
+        profile_input(None, "停用档案", true),
+    )
+    .unwrap();
+    let available = providers::upsert(
+        app.handle(),
+        &learning.providers,
+        profile_input(None, "可用档案", true),
+    )
+    .unwrap();
+    providers::set_active(app.handle(), &learning.providers, &available.id).unwrap();
+    // 停用方案绑定的档案——恢复路径原先恒用它，每次都止步于 provider_disabled
+    providers::upsert(
+        app.handle(),
+        &learning.providers,
+        profile_input(Some(pinned.id.clone()), "停用档案", false),
+    )
+    .unwrap();
+    let mut plan_input = input(0);
+    plan_input.provider_id = Some(pinned.id.clone());
+    store
+        .conn
+        .execute(
+            "INSERT INTO learning_plans (status, provider_id, input_json, artifacts_json, current_step, version, created_at, updated_at) VALUES ('failed', ?1, ?2, '{}', 0, 1, 'now', 'now')",
+            params![
+                pinned.id,
+                serde_json::to_string(&plan_input).unwrap()
+            ],
+        )
+        .unwrap();
+    let rebound = crate::backend::learning::rebind_plan_provider(&learning, 1, plan_input).unwrap();
+    assert_eq!(
+        rebound.provider_id.as_deref(),
+        Some(available.id.as_str()),
+        "档案失效后应改用当前可用档案"
+    );
+    let stored: String = store
+        .conn
+        .query_row(
+            "SELECT provider_id FROM learning_plans WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        stored, available.id,
+        "方案绑定的档案须回写，界面显示才与实际一致"
+    );
+    let stored_input: String = store
+        .conn
+        .query_row(
+            "SELECT input_json FROM learning_plans WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let stored_input: PlanInput = serde_json::from_str(&stored_input).unwrap();
+    assert_eq!(
+        stored_input.provider_id.as_deref(),
+        Some(available.id.as_str())
+    );
+}
+
+#[test]
+fn lecture_provider_rebinds_when_the_plan_profile_is_disabled() {
+    // P-095 同型：方案已完成、其绑定档案随后被停用/删除时，讲义生成不再
+    // 止步于 provider_disabled——按当前路由解析可用档案并回写方案
+    let (app, learning) = setup();
+    let store = learning.store().unwrap();
+    let profile_input = |id: Option<String>, name: &str, enabled: bool| ProfileInput {
+        id,
+        name: name.into(),
+        preset: Some("custom".into()),
+        kind: "本地模型".into(),
+        protocol: "OpenAI Chat".into(),
+        base_url: "http://127.0.0.1:9".into(),
+        default_model: "test-model".into(),
+        models: vec!["test-model".into()],
+        enabled: Some(enabled),
+        note: None,
+        api_key: Some("learning-test-token".into()),
+    };
+    let pinned = providers::upsert(
+        app.handle(),
+        &learning.providers,
+        profile_input(None, "停用档案", true),
+    )
+    .unwrap();
+    let available = providers::upsert(
+        app.handle(),
+        &learning.providers,
+        profile_input(None, "可用档案", true),
+    )
+    .unwrap();
+    providers::set_active(app.handle(), &learning.providers, &available.id).unwrap();
+    providers::upsert(
+        app.handle(),
+        &learning.providers,
+        profile_input(Some(pinned.id.clone()), "停用档案", false),
+    )
+    .unwrap();
+    let mut plan_input = input(0);
+    plan_input.provider_id = Some(pinned.id.clone());
+    store
+        .conn
+        .execute(
+            "INSERT INTO learning_plans (status, provider_id, input_json, artifacts_json, current_step, version, created_at, updated_at) VALUES ('done', ?1, ?2, '{}', 0, 1, 'now', 'now')",
+            params![
+                pinned.id,
+                serde_json::to_string(&plan_input).unwrap()
+            ],
+        )
+        .unwrap();
+    let plan = crate::backend::learning::get(&learning, "plan-1").unwrap();
+    let resolved = crate::backend::learning::lecture::lecture_provider(&learning, &plan).unwrap();
+    assert_eq!(resolved, available.id, "档案失效后讲义应改用当前可用档案");
+    let stored: String = store
+        .conn
+        .query_row(
+            "SELECT provider_id FROM learning_plans WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        stored, available.id,
+        "方案绑定的档案须回写，界面显示才与实际一致"
+    );
+}

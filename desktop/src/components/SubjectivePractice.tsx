@@ -68,9 +68,13 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
       return
     }
     let active = true
+    // P-068 复核：读命令异步化后两次拉取可能乱序返回——序号守卫只放行最后
+    // 一次，旧输出不得回写（主观评分直播文本回退）
+    let liveChatSeq = 0
     const update = () => {
+      const ticket = ++liveChatSeq
       void backend.getProviderChat(requestId).then(request => {
-        if (active) setOutput(request.output)
+        if (active && ticket === liveChatSeq) setOutput(request.output)
       }).catch(error => {
         if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'not_found') reportBackendError(error)
       })
@@ -116,7 +120,10 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     try {
       onUpdated(await practiceBackend.resumeAnswer(answer.id))
       notify('已从保存的作答恢复评分')
-    } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
+    // P-093：评分状态已翻成 grading 或内存活跃表命中时后端回
+    // grading_active——评分实际已在进行，属竞态而非失败，不弹红色错误
+    // （与 ExamWorkspace.resumeAnswer 的 isCancelRace 守卫同口径）
+    } catch (error) { if (!isCancelRace(error)) reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   // 123#7：评分永久失败的终局出口——放弃该题按 0 分计（不可逆，确认后执行）
   const [abandonOpen, setAbandonOpen] = useState(false)
@@ -161,7 +168,7 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
       <div className="rubric-preview"><strong>评分要点（合计 1 分）</strong>{question.rubric.map(criterion => <div key={criterion.id}><span>{criterion.description}</span><small>{criterion.points.toFixed(2)} 分</small></div>)}</div>
       <textarea rows={question.kind === 'essay' ? 9 : 5} value={recorded && typeof answer?.response === 'string' ? answer.response : draft} onChange={event => { const next = clampToBytes(event.target.value, 30000); if (question) draftByQuestion.current[question.id] = next; setDraft(next) }} disabled={recorded || busy} placeholder="先组织自己的回答，再由后端按评分要点评价…" aria-label={`作答：${question.prompt}`} />
       {hint && !recorded && <div className="hint-box"><Lightbulb size={17} /><p>{question.hint}</p></div>}
-      {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>{answer.status === 'cancelling' ? '正在取消评分' : '正在按评分要点判分'}</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancel()} disabled={busy || answer.status === 'cancelling'}>取消评分</Button></div>}
+      {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>{answer.status === 'cancelling' ? '正在取消评分' : '正在按评分要点判分'}</h3>{/* P-010：评分模型的原始输出在反馈公开前不再回传（后端按遮蔽口径清空），此处只提示进度，不展示判分原文 */}<pre className="streaming-output">{output || '作答已保存，正在按评分要点判分；判分结果将在反馈公开后显示。'}</pre><Button variant="secondary" onClick={() => void cancel()} disabled={busy || answer.status === 'cancelling'}>取消评分</Button></div>}
       {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><CircleAlert size={21} /><h3>评分尚未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分任务已停止'}</p><p>原始作答已保留，恢复不会重复提交答案；模型持续失败时可放弃该题按 0 分计。</p><Button onClick={() => void resume()} disabled={busy}>恢复评分<RefreshCw size={17} /></Button><Button variant="secondary" onClick={() => setAbandonOpen(true)} disabled={busy}>放弃本题，按 0 分计<XCircle size={17} /></Button></div>}
       {recorded && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>本组全部题目判分完成后统一显示得分、要点与解析。</p></div>}
       {answer?.status === 'done' && <div className="subjective-rubric"><div><CheckCircle2 size={20} /><h3>{answer.score === null ? '评分已保存，按当前设置仅显示提示' : answer.correct ? '达到本题掌握阈值' : '本题仍需巩固'}</h3>{answer.score !== null && <strong>{answer.score.toFixed(2)} / {answer.maxScore?.toFixed(2)}</strong>}</div>

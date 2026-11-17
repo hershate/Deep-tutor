@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowUp, BookOpen, Check, ChevronRight, CircleAlert, FileText, History, Search, ShieldCheck, Trash2 } from 'lucide-react'
+import { ArrowUp, BookOpen, Check, ChevronRight, CircleAlert, FileText, History, Search, ShieldCheck, Trash2 } from './icons'
 import type { Resource } from '../data'
 import { Badge, Button, ConfirmDialog, EmptyState, Modal } from './UI'
 import { clampToBytes } from '../limits'
@@ -62,8 +62,12 @@ export default function WikiPanel({ resources, notify, selected, onSelectedChang
     const requestId = current?.requestId
     if (!requestId || !current || !['running', 'cancelling'].includes(current.status)) { setOutput(''); return }
     let active = true
+    // P-068 复核：读命令异步化后两次拉取可能乱序返回——序号守卫只放行最后
+    // 一次，旧输出不得回写（Wiki 生成直播文本回退）
+    let liveChatSeq = 0
     const update = () => {
-      void backend.getProviderChat(requestId).then(request => { if (active) setOutput(request.output) }).catch(error => {
+      const ticket = ++liveChatSeq
+      void backend.getProviderChat(requestId).then(request => { if (active && ticket === liveChatSeq) setOutput(request.output) }).catch(error => {
         if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'not_found') reportBackendError(error)
       })
     }
