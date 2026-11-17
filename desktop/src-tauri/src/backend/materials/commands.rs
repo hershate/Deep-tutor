@@ -3,8 +3,8 @@ use super::super::{
     BackendState,
 };
 use super::{
-    cancel, delete, detail, enqueue, export_original, import_files, list, ImportOutcome,
-    IngestResult, JobAccepted, Material, MaterialDetail,
+    cancel, detail, enqueue, export_original, import_files, list, ImportOutcome, IngestResult,
+    JobAccepted, Material, MaterialDetail,
 };
 use serde_json::Value;
 use std::path::Path;
@@ -35,14 +35,27 @@ pub async fn import_material_files<R: Runtime>(
     .map_err(|_| BackendError::new("internal_error", "导入任务执行异常终止"))?
 }
 
-#[tauri::command]
-pub fn import_material_text<R: Runtime>(
+// P-063：文本导入走 stage_validated 全链路——写临时文件并 fsync、算
+// SHA-256、写 SQLite 事务、sync_resources 全量重建 resources 快照；正文
+// 上限 500 KB。原先是同步命令，整条链路在主线程完成，导入大段文本期间
+// 窗口冻结。移后台（44#1 同款）；23#7：阻塞线程须带 principal，否则生产
+// 分支的 Store::new 直接拒绝。
+#[tauri::command(async)]
+pub async fn import_material_text<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     title: String,
     content: String,
 ) -> Result<IngestResult> {
-    super::import_text(&app, &state.materials, title, content)
+    let materials = state.materials.shared();
+    let principal = super::super::security::session_principal(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            super::import_text(&app, &materials, title, content)
+        })
+    })
+    .await
+    .map_err(|_| BackendError::new("internal_error", "资料导入任务执行异常终止"))?
 }
 
 #[tauri::command]
@@ -88,14 +101,29 @@ pub fn cancel_material_parse<R: Runtime>(
     cancel(&app, &state.materials, id)
 }
 
-#[tauri::command]
-pub fn delete_material<R: Runtime>(
+// P-063：删除要开新连接、对 agent_artifacts 全表跑 json_each 引用扫描、
+// 走删除事务与 sync_resources、再删最多 50 MB 原件——原先是同步命令，整条
+// 链路在主线程完成，删除期间窗口冻结。移后台（44#1 同款）；23#7：阻塞
+// 线程须带 principal。
+// 回执仍是删除后的 app_state 快照（契约不变：backend/commands.rs 的既有
+// 测试按 resources 快照断言同步结果）；前端两处调用未消费该返回值，但改
+// 返回值属跨端契约变更，不在本次修复范围内。
+#[tauri::command(async)]
+pub async fn delete_material<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     id: i64,
 ) -> Result<Value> {
-    delete(&app, &state.materials, id)?;
-    state.materials.store()?.app_state()
+    let materials = state.materials.shared();
+    let principal = super::super::security::session_principal(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            super::delete(&app, &materials, id)?;
+            materials.store()?.app_state()
+        })
+    })
+    .await
+    .map_err(|_| BackendError::new("internal_error", "资料删除任务执行异常终止"))?
 }
 
 // 73#8：原件导出整读 ≤50MB + SHA256 + 写盘——原先同步命令在主线程执行，

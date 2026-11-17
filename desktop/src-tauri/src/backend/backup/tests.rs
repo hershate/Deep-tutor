@@ -952,6 +952,18 @@ fn dangling_request_column_on_user_content_rows_is_nulled_and_kept() {
             .any(|warning| warning.as_str().unwrap_or_default().contains("置空保留")),
         "导入回执应包含置空警告：{import_warnings:?}"
     );
+    // P-035：置空是不可逆的数据降级，重启不会补跑——不得出现在「重启后
+    // 自动重试」那一类里，否则前端会给出与事实相反的提示
+    let retry_warnings = state["backupImportRetryWarnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !retry_warnings
+            .iter()
+            .any(|warning| warning.as_str().unwrap_or_default().contains("置空保留")),
+        "数据降级不得被归入重启自动重试：{retry_warnings:?}"
+    );
 }
 
 #[test]

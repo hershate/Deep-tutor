@@ -40,10 +40,19 @@
   110#7：`desktop/package.json` 的 katex override（59#8 有意决策）退出条件——
   rehype-katex 发布声明支持 katex ^0.19 的版本后移除。110#9：dialog 2.8.4
   传递编译 tauri-plugin-fs 2.7.1（未注册、零权限，仅体积名义条目）。
-  146#20：生产 CSP 保留 `style-src 'unsafe-inline'`——收紧前须安装包实测
-  KaTeX/mark 是否走 `setAttribute('style', …)` 内联属性路径（该路径会被
-  去掉 unsafe-inline 的 CSP 拦截，CSSOM 设置不受限）；实测前不动，避免
-  公式渲染失效且没有错误提示。
+  146#20：生产 CSP 的 `style-src`——收紧前须安装包实测 KaTeX/mark 是否走
+  `setAttribute('style', …)` 内联属性路径（该路径会被去掉 unsafe-inline 的
+  CSP 拦截，CSSOM 设置不受限）；实测前不动，避免公式渲染失效且没有错误提示。
+  P-155：该项实测已完成（2026-11-17）——KaTeX 走 CSSOM：rehype-katex 以
+  `katex.renderToString` 产出 HTML 字符串，hast-util-to-jsx-runtime 把 style
+  字符串转成 React style prop，react-dom 的 setValueForStyles 走
+  `style.setProperty`/`style[name]`，全程不经 setAttribute 内联属性路径；
+  `desktop/src` 全量无 `<style>`、setAttribute、dangerouslySetInnerHTML 与
+  `style="…"` 通道，运行时依赖也无样式注入。据此生产 CSP 的 style-src 已
+  收紧为 `'self'`（devCsp 仍保留 `'unsafe-inline'`——Vite dev 的 HMR 样式以
+  `<style>` 标签注入）。此后若引入运行时注入样式的通道，须改走 CSSOM 或
+  重新评估该收紧。公式渲染失败另有中文提示（P-043，
+  `desktop/src/markdown/rehypeKatexError.ts`），不再静默失效。
   跑 cargo 一律带：`export PATH="/f/DevCache/toolchains/winlibs-16.2.0-ucrt/mingw64/bin:$PATH"`
   （gnu 工具链链接需要 dlltool）与 `CARGO_HOME=F:/DevCache/cargo`、
   `RUSTUP_HOME=F:/DevCache/rustup`（Git Bash 里用正斜杠）；rustfmt 已装于该工具链。

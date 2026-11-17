@@ -52,11 +52,17 @@ export default function BackupPanel({ onImport, counts, notify }: { onImport: (p
     try {
       const snapshot = await onImport(preview.path)
       setPreview(null)
-      // A-20：部分域 recover 失败被后端降级为警告——此前恒报成功 toast，
-      // 用户不知道有功能待重启后由常规 recover 兜底
-      const warnings = snapshot.backupImportWarnings ?? []
-      notify(warnings.length
-        ? `导入完成，但 ${warnings.length} 项恢复未完成（重启后自动重试）：${warnings[0]}`
+      // P-035：后端把告警分两类——数据降级（跳行、请求列置空、账号合并、
+      // 原件缺失）重启也不会变，只有部分域 recover 失败才会在重启时补跑。
+      // 原实现对整个数组套用「重启后自动重试」，把不可逆的降级也说成会自动
+      // 重试，用户据此重复导入仍会跳同一行
+      const degradations = snapshot.backupImportWarnings ?? []
+      const retries = snapshot.backupImportRetryWarnings ?? []
+      const notes: string[] = []
+      if (degradations.length) notes.push(`${degradations.length} 项数据降级（重启不会自动恢复，需人工核对）：${degradations[0]}`)
+      if (retries.length) notes.push(`${retries.length} 项恢复未完成（重启后自动重试）：${retries[0]}`)
+      notify(notes.length
+        ? `导入完成，但 ${notes.join('；')}`
         : '备份已重新校验并追加导入；现有数据未被覆盖')
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy('') }
   }

@@ -64,22 +64,83 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 `
 
-function generatedNotice(meta) {
+// 165#1：Apache-2.0 条款全文取自仓库根 LICENSE（标准 Apache-2.0 文本，同
+// 目录随包分发）——为声明 Apache-2.0 的产物补出条款正文，不另造文本
+const APACHE_TEXT = readFileSync(join(root, 'LICENSE'), 'utf8')
+
+// 165#1：SPDX 标签值文件（*.spdx）只是元数据清单，不含任何条款正文——
+// 命中的包不能把存根当许可全文随包分发，改走 package.json 元数据生成分支
+function isSpdxStub(name) {
+  return name.toLowerCase().endsWith('.spdx')
+}
+
+// 165#1：读 SPDX 存根里声明的许可标识与版权行，随声明一并披露
+function readSpdxFacts(path) {
+  try {
+    const text = readFileSync(path, 'utf8')
+    const declared = [...text.matchAll(/^PackageLicenseDeclared:\s*(.+)$/gm)].map(match => match[1].trim())
+    const copyright = [...text.matchAll(/^PackageCopyrightText:\s*(.+)$/gm)].map(match => match[1].trim())
+    return { declared, copyright }
+  } catch {
+    return { declared: [], copyright: [] }
+  }
+}
+
+// 165#1：SPDX 表达式（"MIT OR Apache-2.0" 等）拆出许可标识
+function licenseIdentifiers(spdx) {
+  const ids = new Set()
+  for (const token of spdx.replace(/[()]/g, ' ').split(/[\s,]+/)) {
+    if (!token || /^(AND|OR|WITH)$/i.test(token)) continue
+    ids.add(token)
+  }
+  return [...ids]
+}
+
+// 165#1：版权持有人取 author/authors 字段——部分包（如 @tauri-apps/plugin-opener）
+// 只在 authors 数组里写作者，原先只认 author 字段会把持有人丢成「见上游仓库」
+function authorHolder(meta) {
+  const raw = typeof meta.author === 'string'
+    ? meta.author
+    : meta.author && typeof meta.author === 'object'
+      ? meta.author.name
+      : Array.isArray(meta.authors)
+        ? meta.authors.map(entry => (typeof entry === 'string' ? entry : entry && entry.name)).filter(Boolean).join('、')
+        : null
+  return raw ? String(raw).replace(/\s*[<（(].*$/, '').trim() : null
+}
+
+function generatedNotice(meta, spdxFacts = { declared: [], copyright: [] }) {
   const spdx = typeof meta.license === 'string' ? meta.license.trim() : null
   if (!spdx) return null
-  const authorRaw = typeof meta.author === 'string' ? meta.author : (meta.author && meta.author.name) || null
-  const holder = authorRaw ? authorRaw.replace(/\s*[<（(].*$/, '').trim() : null
+  const holder = authorHolder(meta)
   const repoRaw = typeof meta.repository === 'string' ? meta.repository : (meta.repository && meta.repository.url) || null
+  const identifiers = licenseIdentifiers(spdx)
   const lines = [
     `# 许可声明（构建时依据包内 package.json 元数据生成）`,
     '',
     `${meta.name}@${meta.version} 声明 ${spdx} 许可；作者：${holder ?? '见上游仓库'}；上游仓库：${repoRaw ?? '见 npm registry'}。`,
-    '该包发布物内未随附许可全文文件，本声明由 collect-licenses.mjs 生成以随包披露来源。',
+    spdxFacts.declared.length
+      ? '该包发布物内未随附许可全文文件（仅有 SPDX 元数据标签文件），本声明由 collect-licenses.mjs 生成以随包披露来源。'
+      : '该包发布物内未随附许可全文文件，本声明由 collect-licenses.mjs 生成以随包披露来源。',
   ]
-  if (spdx.toUpperCase() === 'MIT' && holder) {
+  if (spdxFacts.declared.length) {
+    lines.push('', `包内 SPDX 元数据另声明：${spdxFacts.declared.join('、')}。`)
+  }
+  if (spdxFacts.copyright.length) {
+    lines.push('', `包内 SPDX 元数据声明的版权：${spdxFacts.copyright.join('、')}。`)
+  }
+  // 165#1：双许可（MIT OR Apache-2.0）两类条款都要复现——只附其中一份
+  // 仍让接收方读不全该产物的授权条款
+  let terms = false
+  if (identifiers.includes('MIT') && holder) {
+    terms = true
     lines.push('', '----- MIT License -----', '', 'MIT License', '', `Copyright (c) ${holder}`, '', MIT_TEXT)
   }
-  return { spdx, text: `${lines.join('\n')}\n` }
+  if (identifiers.includes('Apache-2.0')) {
+    terms = true
+    lines.push('', '----- Apache License 2.0 -----', '', '（标准 Apache-2.0 条款全文，与同目录 LICENSE 为同一文本）', '', APACHE_TEXT)
+  }
+  return { spdx, terms, text: `${lines.join('\n')}\n` }
 }
 
 // 49#3：开发依赖不进安装包（vite/typescript 等仅构建期使用）；读 package-lock
@@ -161,9 +222,12 @@ if (!existsSync(modules)) {
       // 146#15：statSync 兜底——断链符号链接（部分包 postinstall/junction
       // 拷贝产生）抛 ENOENT 会让整个许可收集在 NSIS 前崩溃，报 Node 堆栈
       // 而非许可语义错误；异常按非普通文件处理
-      const license = pickFromNames(names, name => {
+      const picked = pickFromNames(names, name => {
         try { return statSync(join(dir, name)).isFile() } catch { return false }
       })
+      // 165#1：SPDX 存根不作数——它只声明许可标识、没有条款正文，随包分发
+      // 等于让接收方读不到该产物的授权条款；改走元数据生成分支补出正文
+      const license = picked && !isSpdxStub(picked) ? picked : null
       if (license) {
         const name = (nested ? `nested_${relative(modules, dirname(dir)).replace(/[\\/]/g, '__')}__${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
         copyFileSync(join(dir, license), join(outDir, `npm-${name}-${license}`))
@@ -173,13 +237,14 @@ if (!existsSync(modules)) {
       // 49#3：无许可文件不再静默跳过——元数据可生成声明则生成，否则计入缺失
       try {
         const meta = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-        const notice = generatedNotice(meta)
+        const notice = generatedNotice(meta, picked ? readSpdxFacts(join(dir, picked)) : { declared: [], copyright: [] })
         if (notice) {
           const name = (nested ? `nested_${relative(modules, dirname(dir)).replace(/[\\/]/g, '__')}__${basename(dir)}` : scopeDir ? `${entry.name}__${basename(dir)}` : entry.name).replace(/[^a-z0-9._@-]/gi, '_')
           writeFileSync(join(outDir, `npm-${name}-LICENSE.generated.txt`), notice.text)
           copied.push(`npm:${name}`)
-          if (notice.spdx.toUpperCase() !== 'MIT') npmMissing += 1
-          else npmGenerated += 1
+          // 165#1：声明里带出条款正文的才算复现了授权条款，否则仍计缺失
+          if (notice.terms) npmGenerated += 1
+          else npmMissing += 1
           continue
         }
       } catch {
@@ -220,7 +285,10 @@ function licenseFromCrateArchive(name, version) {
       const name = longName || rawName
       longName = ''
       const typeflag = String.fromCharCode(header[156])
-      const size = parseInt(header.subarray(248, 256).toString('utf8').replace(/\0.*$/, '').trim() || '0', 8) || 0
+      // 29#1：POSIX tar 的 size 字段在偏移 124-136；原先读 248-256（linkname
+      // 区，标准 tar 头恒为 NUL）使 size 恒为 0——抽取出的许可文件恒是 0 字节
+      // 空文件却照常计入「已收录」，且头部遍历不推进数据区而失去同步
+      const size = parseInt(header.subarray(124, 136).toString('utf8').replace(/\0.*$/, '').trim() || '0', 8) || 0
       offset += 512
       if (typeflag === 'L') {
         longName = tar.subarray(offset, offset + size).toString('utf8').replace(/\0.*$/, '')
@@ -261,7 +329,9 @@ try {
       // 源码目录缺失或无许可文件：回退 .crate 归档直读（sparse registry
       // 仅在构建时解包 src；cache 归档在 cargo metadata 时已下载）
       const archived = licenseFromCrateArchive(pkg.name, pkg.version)
-      if (archived) {
+      // 29#1：空文件不得计为已收录——0 字节的「许可文件」随包分发等于没有
+      // 条款正文，计入收录会让 COLLECTED.md 的数字掩盖真实的许可缺口
+      if (archived && archived.bytes.length > 0) {
         const name = `${pkg.name}-${pkg.version}`.replace(/[^a-z0-9._-]/gi, '_')
         writeFileSync(join(outDir, `cargo-${name}-${archived.base}`), archived.bytes)
         copied.push(`cargo:${pkg.name}`)

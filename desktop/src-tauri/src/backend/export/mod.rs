@@ -147,16 +147,34 @@ pub(crate) struct ExportDocument {
     pub cards: Vec<ExportCard>,
     pub rows: Vec<ExportRow>,
     pub events: Vec<ExportEvent>,
+    /// 157#1：累计字节的增量计数（已计入的条目数与字节数）——文档只追加不
+    /// 删改，计数可随条目增长单调累加
+    size: DocumentSize,
+}
+
+/// 157#1：导出文档的累计字节计数——原先 guard_document_size 每次调用都从
+/// 头遍历全部已累积条目，第 i 次调用代价 O(i)，整体 Θ(n²)（导出耗时随条目
+/// 数平方增长）。改为只计新增条目，整体 O(n)。
+#[derive(Debug, Clone, Default)]
+struct DocumentSize {
+    bytes: usize,
+    sections: usize,
+    rows: usize,
+    cards: usize,
+    events: usize,
 }
 
 impl ExportDocument {
     fn new(title: String) -> Self {
+        let mut size = DocumentSize::default();
+        size.bytes = title.len();
         Self {
             title,
             sections: vec![],
             cards: vec![],
             rows: vec![],
             events: vec![],
+            size,
         }
     }
 }
@@ -165,31 +183,40 @@ impl ExportDocument {
 /// 才检查，大库导出先吃满数百 MB 瞬时内存/CPU 才被拒绝。
 /// 124#5：五个构建器全部接入（原先仅 knowledge/review 调用，plan/lecture/
 /// schedule 的巨型方案仍全量物化后才被渲染后上限拒绝）
-fn guard_document_size(document: &ExportDocument) -> Result<()> {
-    let mut bytes = document.title.len();
-    for section in &document.sections {
-        bytes += section.heading.len();
-        bytes += section
+/// 157#1：改为增量计数——每次只累加上次之后新增的条目，不再全量重扫
+fn guard_document_size(document: &mut ExportDocument) -> Result<()> {
+    let size = &mut document.size;
+    let section_start = size.sections.min(document.sections.len());
+    for section in &document.sections[section_start..] {
+        size.bytes += section.heading.len();
+        size.bytes += section
             .paragraphs
             .iter()
             .map(|paragraph| paragraph.len() + 1)
             .sum::<usize>();
-        bytes += section
+        size.bytes += section
             .bullets
             .iter()
             .map(|bullet| bullet.len() + 1)
             .sum::<usize>();
     }
-    for row in &document.rows {
-        bytes += row.title.len() + row.content.len() + row.detail.len() + row.date.len();
+    size.sections = document.sections.len();
+    let row_start = size.rows.min(document.rows.len());
+    for row in &document.rows[row_start..] {
+        size.bytes += row.title.len() + row.content.len() + row.detail.len() + row.date.len();
     }
-    for card in &document.cards {
-        bytes += card.front.len() + card.back.len() + card.tag.len();
+    size.rows = document.rows.len();
+    let card_start = size.cards.min(document.cards.len());
+    for card in &document.cards[card_start..] {
+        size.bytes += card.front.len() + card.back.len() + card.tag.len();
     }
-    for event in &document.events {
-        bytes += event.date.len() + event.title.len() + event.description.len();
+    size.cards = document.cards.len();
+    let event_start = size.events.min(document.events.len());
+    for event in &document.events[event_start..] {
+        size.bytes += event.date.len() + event.title.len() + event.description.len();
     }
-    if bytes > MAX_EXPORT_BYTES {
+    size.events = document.events.len();
+    if size.bytes > MAX_EXPORT_BYTES {
         return Err(BackendError::new(
             "export_size_invalid",
             "导出内容超过 64 MB 上限",
@@ -277,7 +304,7 @@ fn plan_document(plan: &Plan) -> Result<ExportDocument> {
             minutes: Some(stage.minutes),
         });
         // 124#5：巨型方案构建期熔断（原先渲染后 64MB 检查才拒绝）
-        guard_document_size(&document)?;
+        guard_document_size(&mut document)?;
     }
     let mut checks = vec![];
     for (name, check) in [
@@ -321,14 +348,14 @@ fn plan_document(plan: &Plan) -> Result<ExportDocument> {
     }
     // 135#5：校验明细与关联资料两段补接构建期熔断（124#5 主面之外的缺口，
     // 外部改库塞大内容时不再等渲染后 64MB 检查才拒绝）
-    guard_document_size(&document)?;
+    guard_document_size(&mut document)?;
     for node in &result.graph.nodes {
         document.cards.push(ExportCard::new(
             format!("请解释：{}", node.title),
             node.summary.clone(),
             result.goal.clone(),
         ));
-        guard_document_size(&document)?;
+        guard_document_size(&mut document)?;
     }
     Ok(document)
 }
@@ -368,7 +395,7 @@ fn lecture_document(state: &LearningState, input: &ExportInput) -> Result<Export
             minutes: None,
         });
         // 124#5：巨型讲义构建期熔断
-        guard_document_size(&document)?;
+        guard_document_size(&mut document)?;
     }
     document.sections.push(section(
         "示例".into(),
@@ -407,7 +434,7 @@ fn lecture_document(state: &LearningState, input: &ExportInput) -> Result<Export
         ));
     }
     // 135#5：示例/检查理解/原文引用/检查点卡片四段补接构建期熔断（同上）
-    guard_document_size(&document)?;
+    guard_document_size(&mut document)?;
     Ok(document)
 }
 
@@ -444,7 +471,7 @@ fn knowledge_document(state: &LearningState) -> Result<ExportDocument> {
         document
             .cards
             .push(ExportCard::new(title.into(), content.into(), tag.into()));
-        guard_document_size(&document)?;
+        guard_document_size(&mut document)?;
     }
     let mut statement = store.conn.prepare("SELECT materials.title, materials.kind, material_text.content FROM material_text JOIN materials ON materials.id = material_text.material_id ORDER BY materials.id")?;
     let rows = statement
@@ -471,7 +498,7 @@ fn knowledge_document(state: &LearningState) -> Result<ExportDocument> {
             date: String::new(),
             minutes: None,
         });
-        guard_document_size(&document)?;
+        guard_document_size(&mut document)?;
     }
     Ok(document)
 }
@@ -511,7 +538,7 @@ fn review_document(state: &LearningState) -> Result<ExportDocument> {
             lapses: card.lapses,
             suspended: card.suspended,
         });
-        guard_document_size(&document)?;
+        guard_document_size(&mut document)?;
     }
     Ok(document)
 }
@@ -561,7 +588,7 @@ fn schedule_document(state: &LearningState, input: &ExportInput) -> Result<Expor
             ),
         });
         // 124#5：巨型日程构建期熔断
-        guard_document_size(&document)?;
+        guard_document_size(&mut document)?;
     }
     Ok(document)
 }

@@ -33,8 +33,10 @@ export type AppSnapshot = {
   versions: Record<CollectionNamespace | 'drafts', number>
   lastEventId: number
   workspaceId: number
-  /** A-20：备份导入后部分域 recover 失败的降级警告（无失败时不出现） */
+  /** A-20：备份导入后不会自动恢复的数据降级警告（跳行、请求列置空、账号合并、原件缺失；无降级时不出现） */
   backupImportWarnings?: string[]
+  /** P-035：备份导入后重启时由常规 recover 补跑的恢复失败警告（无失败时不出现） */
+  backupImportRetryWarnings?: string[]
 }
 export type BackendEvent = {
   id: number
@@ -322,7 +324,9 @@ export type AgentArtifact = {
   stageId: string
   unitIndex: number
   status: string
-  content: LectureContent
+  /** 31#1：后端 75#3 对无法反序列化的 content_json 降级为 null 并保留该行，
+   * 故 content 可为 null；guardAgentArtifact 会把 null 归一为空产物 */
+  content: LectureContent | null
   createdAt: string
   expiresAt: string
 }
@@ -358,9 +362,19 @@ export type AgentSession = {
 // 以可定位的错误暴露而非渲染层 undefined 空白
 // 109#8：守卫文案用户向——原先开发者术语（「后端 JSON 键变更？」）直达
 // 整页错误横幅，普通用户无从行动；技术细节留 console
+// 31#1：后端 75#3 对损坏的 content_json 有意降级为 null 并保留该行
+// （「content 为 null 时产物详情按空处理，行本身保留」）——守卫原先对
+// null 直接 throw，getAgentSession 的 promise 整体 reject，会话的消息、
+// 运行与审批全部无法查看，后端特意保住的会话视图在前端被重新炸掉。
+// null 按空产物降级；非 null 但形状不对（键漂移）仍抛可定位错误。
+const emptyLectureContent: LectureContent = { title: '', overview: '', sections: [], examples: [], checkpoints: [], citations: [] }
 function guardAgentArtifact(artifact: AgentArtifact): AgentArtifact {
-  const content = artifact.content as unknown as Record<string, unknown> | undefined
-  if (artifact.status !== 'cancelled' && (!content || typeof content.title !== 'string' || !Array.isArray(content.sections))) {
+  const content = artifact.content as unknown as Record<string, unknown> | null | undefined
+  if (content === null || content === undefined) {
+    console.warn(`guardAgentArtifact: 产物 ${artifact.id} 内容为空（后端已降级），按空产物展示`, artifact)
+    return { ...artifact, content: emptyLectureContent }
+  }
+  if (artifact.status !== 'cancelled' && (typeof content.title !== 'string' || !Array.isArray(content.sections))) {
     console.error(`guardAgentArtifact: 产物 ${artifact.id} 形状断言失败（title/sections 缺失，后端 JSON 键变更？）`, artifact.content)
     throw new Error(`产物 ${artifact.id} 的本地数据结构与当前应用版本不兼容，请更新应用后再查看。`)
   }
@@ -456,7 +470,9 @@ export const backend = {
   // 92#4：Agent 域 id 的 Rust 侧为 String（serde 期望 JSON string）而视图层
   // 为 number——封装层统一 String()，调用方免手工转换（漏写不再于运行时
   // 以整条命令反序列化失败暴露）；92#3：产物内容运行时守卫
-  getAgentSession: (id: number | string) => invoke<AgentSession>('get_agent_session', { id: String(id) }).then(session => { session.artifacts.forEach(guardAgentArtifact); return session }),
+  // 92#3：产物内容运行时守卫；31#1：守卫对 null content 归一为空产物，
+  // 故用 map 承接返回值（原先 forEach 丢弃返回值，降级结果不会生效）
+  getAgentSession: (id: number | string) => invoke<AgentSession>('get_agent_session', { id: String(id) }).then(session => { session.artifacts = session.artifacts.map(guardAgentArtifact); return session }),
   sendAgentMessage: (sessionId: number | string, content: string) => invoke<AgentRun>('send_agent_message', { sessionId: String(sessionId), content }),
   cancelAgentRun: (id: number | string) => invoke<AgentRun>('cancel_agent_run', { id: String(id) }),
   resumeAgentRun: (id: number | string) => invoke<AgentRun>('resume_agent_run', { id: String(id) }),

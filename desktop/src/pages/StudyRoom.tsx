@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
+import rehypeKatexError from '../markdown/rehypeKatexError'
 import type { PageId } from '../data'
 import { Badge, Button, ConfirmDialog, IconButton, MarkdownLink, Modal, ProgressBar } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
@@ -16,11 +17,13 @@ const lectureStatus: Record<string, string> = { empty: '尚未生成', running: 
 
 // 80#2：讲义区块 memo 化——直播 tick 引发的整页重渲染不再对全文
 // Markdown/KaTeX 逐次重解析（内容引用不变即跳过）
+// P-043：rehypeKatexError 必须在 rehypeKatex 之后——把 KaTeX 解析失败的
+// 红色源码改写为中文错误说明
 const MemoMarkdown = memo(function MemoMarkdown({ text }: { text: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ a: MarkdownLink }}>{text}</ReactMarkdown>
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeKatexError]} components={{ a: MarkdownLink }}>{text}</ReactMarkdown>
 })
 
-export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext, notify }: { target?: { planId: string; stageId: string; nonce: number } | null; onFocus: () => void; onNavigate: (page: PageId) => void; onTutorContext: (context: { planId: string; label: string } | null) => void; notify: (message: string) => void }) {
+export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext, notify, onTargetConsumed }: { target?: { planId: string; stageId: string; nonce: number } | null; onFocus: () => void; onNavigate: (page: PageId) => void; onTutorContext: (context: { planId: string; label: string } | null) => void; notify: (message: string) => void; onTargetConsumed?: () => void }) {
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [plan, setPlan] = useState<LearningPlan | null>(null)
   const [stageId, setStageId] = useState('')
@@ -106,6 +109,15 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       if (stageRef.current.planId !== requested.planId || stageRef.current.stageId !== requested.stageId) return
       readingVersionRef.current = version ?? next.version
       setLecture(next)
+      // 150#8：切回正在生成的阶段时立刻恢复直播预览——上游 id 映射随切换
+      // 被清，后续 delta 携带上游 id 无法再对齐逻辑 id。改为按运行中单元的
+      // 逻辑请求 id 直接取回真实输出（后端 latest_chat 会解析到最新上游）
+      if (version === undefined) {
+        const runningUnit = next.units.find(unit => unit.status === 'running' && unit.requestId)
+        if (runningUnit?.requestId) {
+          void backend.getProviderChat(runningUnit.requestId).then(setLiveRequest).catch(() => { /* 取不到预览不阻断讲义流程 */ })
+        }
+      }
       // 144#5：catch 补同款复查——切换后旧阶段的失败不再归因到新内容页
     } catch (cause) { if (stageRef.current.planId === requested.planId && stageRef.current.stageId === requested.stageId) setError(backendErrorMessage(cause)) }
   }, [plan, stageId])
@@ -128,11 +140,20 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
   // 28#6：nonce 让同阶段的重复导航（⌘K 再点同一结果）也能触发跳转——
   // consumedTarget 只增不减会静默吞掉重复目标
   const targetKey = target ? `${target.planId}:${target.stageId}:${target.nonce}` : ''
+  // 150#2：消费回调经 ref 取最新——App 侧传的是内联函数，身份每次渲染都变，
+  // 直接进依赖会让消费 effect 每次渲染重跑
+  const onTargetConsumedRef = useRef(onTargetConsumed)
+  useEffect(() => { onTargetConsumedRef.current = onTargetConsumed })
   useEffect(() => {
     const stages = plan?.result?.stages || []
     if (target && targetKey !== consumedTarget.current && target.planId === plan?.id && stages.some(stage => stage.id === target.stageId)) {
       consumedTarget.current = targetKey
       setStageId(target.stageId)
+      // 150#2：一次性消费语义——组件内 consumedTarget 随卸载丢失，重挂载后
+      // 会把很久以前的跳转目标再消费一次，用户每次进入学习空间都被拉回。
+      // 与知识地图（onFocusConsumed）、练习页（onTargetConsumed）同口径：
+      // 消费即通知 App 清除目标，之后页内手动选择不再被覆盖
+      onTargetConsumedRef.current?.()
       return
     }
     setStageId(current => stages.some(stage => stage.id === current)
@@ -176,9 +197,17 @@ export default function StudyRoom({ target, onFocus, onNavigate, onTutorContext,
       if (event.kind === 'provider.chat_delta' && typeof event.payload.requestId === 'string') {
         const requestId = event.payload.requestId
         const logicalId = routeUpstreams.current[requestId] ?? requestId
-        if (lectureUnitsRef.current?.some(unit => unit.status === 'running' && unit.requestId === logicalId)) {
+        // 150#8：映射被清（切走再切回阶段/课程）后 delta 携带的是上游 id，
+        // 查表必 miss——退化为按运行中单元的逻辑请求 id 取回真实输出。
+        // 上游 id 形态为「逻辑 id」或「逻辑 id-fN」（routing.rs 上游请求
+        // 标识生成规则），据此判定该 delta 属于本讲义的运行中单元
+        const runningUnit = lectureUnitsRef.current?.find(unit => unit.status === 'running' && unit.requestId)
+        const matched = lectureUnitsRef.current?.some(unit => unit.status === 'running' && unit.requestId === logicalId)
+          ? logicalId
+          : runningUnit && (requestId === runningUnit.requestId || requestId.startsWith(`${runningUnit.requestId}-f`)) ? runningUnit.requestId : null
+        if (matched) {
           // 多条 delta 合并为一次全量拉取，长回答期间不再逐条重放
-          throttledFetch(() => void backend.getProviderChat(logicalId).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause))))
+          throttledFetch(() => void backend.getProviderChat(matched).then(setLiveRequest).catch(cause => setError(backendErrorMessage(cause))))
         }
       }
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(reportBackendError)

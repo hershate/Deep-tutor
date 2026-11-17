@@ -23,6 +23,8 @@ desktop/src-tauri/licenses/*
 .idea/
 .vscode/
 .codegraph/
+# 插件运行时产物（plugin_root 指向 zcode 插件缓存目录），非本仓代码
+.video_agent/
 
 # JavaScript and Rust build outputs
 node_modules/

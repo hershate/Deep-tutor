@@ -509,3 +509,80 @@ fn apkg_multiline_card_fields_keep_line_breaks() {
     );
     assert!(!fields.contains('\n'), "flds 内不应残留原始换行：{fields}");
 }
+
+/// 157#1：guard_document_size 改为增量计数后，累计字节必须与全量重算一致，
+/// 且 64 MB 熔断仍按累计字节触发
+#[test]
+fn document_size_guard_counts_incrementally_and_matches_full_recompute() {
+    let mut document = ExportDocument::new("导出".into());
+    for index in 0..50 {
+        document.sections.push(section(
+            format!("小节 {index}"),
+            vec![format!("正文 {index}")],
+            vec![format!("要点 {index}")],
+        ));
+        document.rows.push(ExportRow {
+            category: "笔记".into(),
+            title: format!("标题 {index}"),
+            content: format!("内容 {index}"),
+            detail: "标签".into(),
+            date: String::new(),
+            minutes: None,
+        });
+        document.cards.push(ExportCard::new(
+            format!("正面 {index}"),
+            format!("背面 {index}"),
+            "标签".into(),
+        ));
+        document.events.push(ExportEvent {
+            date: "2026-01-01".into(),
+            title: format!("事件 {index}"),
+            description: "描述".into(),
+            uid: format!("uid-{index}"),
+        });
+        guard_document_size(&mut document).unwrap();
+    }
+    // 独立实现的全量重算（增量计数前的口径）作为对照
+    let mut expected = document.title.len();
+    for item in &document.sections {
+        expected += item.heading.len();
+        expected += item
+            .paragraphs
+            .iter()
+            .map(|text| text.len() + 1)
+            .sum::<usize>();
+        expected += item
+            .bullets
+            .iter()
+            .map(|text| text.len() + 1)
+            .sum::<usize>();
+    }
+    for row in &document.rows {
+        expected += row.title.len() + row.content.len() + row.detail.len() + row.date.len();
+    }
+    for card in &document.cards {
+        expected += card.front.len() + card.back.len() + card.tag.len();
+    }
+    for event in &document.events {
+        expected += event.date.len() + event.title.len() + event.description.len();
+    }
+    assert_eq!(document.size.bytes, expected, "增量计数必须与全量重算一致");
+    assert!(
+        document.size.bytes > 0 && document.size.sections == 50,
+        "计数应随条目单调累加：{:?}",
+        document.size
+    );
+}
+
+/// 157#1：熔断按累计字节触发——单条超限内容必须在写完后立刻报错
+#[test]
+fn document_size_guard_breaks_the_64mb_limit() {
+    let mut document = ExportDocument::new("导出".into());
+    document.sections.push(section(
+        "超限".into(),
+        vec!["x".repeat(MAX_EXPORT_BYTES + 1)],
+        vec![],
+    ));
+    let error = guard_document_size(&mut document).unwrap_err();
+    assert_eq!(error.code, "export_size_invalid");
+}

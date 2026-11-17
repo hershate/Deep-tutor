@@ -42,8 +42,12 @@ pub fn import<R: Runtime>(
 ) -> Result<Value> {
     let mut backup = archive::open(path, state)?;
     let (counts, import_warnings) = transfer::import(&mut backup, store, state)?;
-    let mut reindex_warning: Option<String> = None;
-    let mut recover_warnings: Vec<String> = import_warnings;
+    // P-035：导入告警分两类，原实现把两类混入同一数组——transfer 层的
+    // 跳行/请求列置空/同名账号合并与原件缺失是不可逆的数据降级（重启不会
+    // 改变），只有九域 recover 失败才会在重启时由常规 recover 补跑。前端
+    // 对整个数组套用「重启后自动重试」模板，与事实相反。
+    let mut degradation_warnings: Vec<String> = import_warnings;
+    let mut retry_warnings: Vec<String> = Vec::new();
     // 57#3：导入后校验资料行有对应原件（随档携带或本机已有）——导出时的
     // 缺失只留在导出回执，恢复方原先拿到「数据行在、文件缺」的档案毫无
     // 提示；现在按 backupImportWarnings 显式列出
@@ -85,7 +89,7 @@ pub fn import<R: Runtime>(
                 .take(3)
                 .map(String::as_str)
                 .collect();
-            recover_warnings.push(format!(
+            degradation_warnings.push(format!(
                 "{} 份资料的原件不在备份与本机（导出时缺失或内容不符被跳过），预览与导出该原件会失败：{}{}",
                 missing_originals.len(),
                 preview.join("、"),
@@ -93,8 +97,10 @@ pub fn import<R: Runtime>(
             ));
         }
     }
+    // P-035：分享索引重建只在导入路径里跑（启动流程不调用），失败后不会
+    // 被重启补跑——归入「不会自动恢复」一类
     if let Err(error) = super::sharing::reindex(&super::sharing::SharingState::new(state)) {
-        reindex_warning = Some(format!("分享索引重建失败：{}", error.message));
+        degradation_warnings.push(format!("分享索引重建失败：{}", error.message));
     }
     let files = backup.manifest.files.len();
     let event = Store::event(
@@ -166,22 +172,18 @@ pub fn import<R: Runtime>(
         ),
     ] {
         if let Err(error) = result {
-            recover_warnings.push(format!("{name} 恢复未完成：{}", error.message));
+            // P-035：这九域的失败才会在重启时被常规 recover 补跑
+            retry_warnings.push(format!("{name} 恢复未完成：{}", error.message));
         }
     }
     let mut snapshot = store.app_state()?;
-    if let Some(warning) = reindex_warning {
-        snapshot["backupImportWarnings"] = json!([warning]);
+    // P-035：两类告警分列两个键——backupImportWarnings 是不会自动恢复的
+    // 数据降级，backupImportRetryWarnings 是重启后自动重试的恢复失败
+    if !degradation_warnings.is_empty() {
+        snapshot["backupImportWarnings"] = json!(degradation_warnings);
     }
-    if !recover_warnings.is_empty() {
-        snapshot["backupImportWarnings"] = match snapshot.get("backupImportWarnings") {
-            Some(Value::Array(existing)) => {
-                let mut combined = existing.clone();
-                combined.extend(recover_warnings.iter().cloned().map(Value::String));
-                Value::Array(combined)
-            }
-            _ => json!(recover_warnings),
-        };
+    if !retry_warnings.is_empty() {
+        snapshot["backupImportRetryWarnings"] = json!(retry_warnings);
     }
     Ok(snapshot)
 }
