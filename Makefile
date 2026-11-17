@@ -38,7 +38,15 @@ lint:
 	cd desktop && $(NPM) run build
 	# 110#1：依赖审计入门禁——vite/esbuild dev 侧通告（含 Windows 命令
 	# 执行族）原先无任何检出通道；runtime 与 dev 全量要求零漏洞
-	cd desktop && $(NPM) audit --omit=dev && $(NPM) audit
+	# runtime 口径保持严格零漏洞、不带任何例外
+	cd desktop && $(NPM) audit --omit=dev
+	# dev 全量口径改由例外感知脚本判定（110#10）：只放行白名单中的确切
+	# 通告 ID——当前仅 GHSA-fc5q-39xc-vjpf / CVE-2026-112366（picomatch，
+	# 上游无修复版；理由、可达性与退出条件见 scripts/audit-exceptions.mjs
+	# 与 AGENTS.md）；白名单外的任何通告一律以非零退出码失败。
+	# 退出条件：picomatch 发布含上游修复的 ≥4.0.8 且 vite 依赖链取用后，
+	# 删除脚本内白名单条目并把本行恢复为 `cd desktop && $(NPM) audit`
+	node scripts/audit-exceptions.mjs
 
 test:
 	# 前端回归测试：Markdown 预处理（公式定界符改写）与主题缓存分区此前
