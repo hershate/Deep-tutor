@@ -55,6 +55,8 @@ export type PracticeAnswer = {
   error: BackendError | null
   requestId: string | null
   response: number | string | null
+  /** P-005：反馈载荷可能为 null（后端解析失败时降级为 null）——读取其属性
+   * 必须做空值防护，否则渲染期抛 TypeError 整页落进错误页 */
   feedback: {
     answer?: number | string
     explanation?: string
@@ -64,7 +66,7 @@ export type PracticeAnswer = {
     overallFeedback?: string
     criteria?: { id: string; description: string; score: number; maxScore: number; evidence: string; feedback: string }[]
     citations?: { materialId: number; quote: string }[]
-  }
+  } | null
 }
 export type PracticeDetail = {
   set: PracticeSet
@@ -113,6 +115,9 @@ export type PracticeTarget = { planId: string; stageId: string; nodeId: string; 
 export const practiceBackend = {
   generate: (input: PracticeInput) => invoke<PracticeDetail>('generate_practice', { input }),
   detail: (id: number) => invoke<PracticeDetail>('get_practice_set', { id }),
+  // P-009：考试计时从首次打开试卷起算——读取详情不再起算，只有试卷真正
+  // 呈现时才调用本命令
+  startExamTimer: (id: number) => invoke<PracticeDetail>('start_practice_exam_timer', { id }),
   history: () => invoke<PracticeSet[]>('list_practice_history'),
   cancel: (id: number) => invoke<PracticeDetail>('cancel_practice_generation', { id }),
   resume: (id: number) => invoke<PracticeDetail>('resume_practice_generation', { id }),

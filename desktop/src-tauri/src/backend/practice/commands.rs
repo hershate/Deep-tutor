@@ -18,11 +18,22 @@ pub fn get_practice_set<R: Runtime>(
     state: State<'_, BackendState>,
     id: i64,
 ) -> Result<PracticeSetDetail> {
-    // 47#1：考试计时从首次拉卷起算（生成完成不再吃掉考试时长）
-    super::start_exam_timer(&state.practice, id)?;
     // 13#24：考试到期不再永久停留 ready——读取详情时惰性收卷
-    //（未答按 0 分落定），遗忘交卷的试卷不会悬空成绩与错题
+    // （未答按 0 分落定），遗忘交卷的试卷不会悬空成绩与错题
     super::lazy_finalize_expired_exam(&app, &state.practice, id)?;
+    super::detail(&state.practice, id)
+}
+
+/// P-009：考试计时从学生首次打开试卷起算——读取详情不再起算。原先
+/// get_practice_set 无条件起算，而前端在挂载与每次 practice.* 事件后
+/// 自动拉详情，学生还没开卷限时已在流逝，到期后惰性收卷按 0 分落定。
+/// 本命令只在试卷真正呈现时调用，重复调用沿用已起算的计时。
+#[tauri::command]
+pub fn start_practice_exam_timer(
+    state: State<'_, BackendState>,
+    id: i64,
+) -> Result<PracticeSetDetail> {
+    super::start_exam_timer(&state.practice, id)?;
     super::detail(&state.practice, id)
 }
 

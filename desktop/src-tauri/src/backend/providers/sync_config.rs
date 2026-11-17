@@ -98,6 +98,19 @@ fn parse(bytes: &[u8]) -> Result<RemoteConfig> {
                 "远端配置包含重复的档案标识",
             ));
         }
+        // 远端标识须为本地行号形态（pN）——它同时是 provider_profiles 的
+        // 行号，形态非法说明配置被外部改写或来自其他实现。此处在导入流程
+        // 之前拒绝，并把问题指到「远端 id 格式」：原口径「供应商档案标识无效」
+        // 指向本地档案，用户无从判断该改远端配置还是本地配置
+        if super::numeric_id(&profile.id).is_err() {
+            return Err(BackendError::new(
+                "invalid_sync_payload",
+                &format!(
+                    "远端配置包含无效的档案标识「{}」（应为 pN 形态，如 p1）",
+                    profile.id
+                ),
+            ));
+        }
         super::validate_input(&ProfileInput {
             id: Some(profile.id.clone()),
             name: profile.name.clone(),
@@ -312,6 +325,34 @@ fn drop_import_snapshot(conn: &rusqlite::Connection) -> Result<()> {
     Ok(())
 }
 
+/// 本地是否已有该 id 的档案行——P-003：远端 id 只是来源标识，本地没有
+/// 对应行时按新建导入（换机/重装后的恢复）。
+/// 形态非法的远端标识在本地不可能有对应行（本地行号恒为 pN 形态），
+/// 按「本地无此行」处理，而不是把解析失败抛成整单导入失败。
+fn local_profile_exists(state: &ProviderState, id: &str) -> Result<bool> {
+    let Ok(numeric) = super::numeric_id(id) else {
+        return Ok(false);
+    };
+    let store = state.store()?;
+    store
+        .conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM provider_profiles WHERE id = ?1)",
+            rusqlite::params![numeric],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+}
+
+/// 远端档案在本地落库时使用的 id——本地有对应行才沿用其 id 做更新，否则
+/// 按新建导入（新建得到的本地 id 由调用方做 old_id → 新 id 映射）。
+/// 停用约束预检与实际写入必须同口径：远端 id 在本地不存在时新建的是新
+/// 档案，不受本地激活档案与路由引用约束（否则会拿远端 id 去比对本地
+/// 激活档案/路由引用，误判成「引用了不能停用的档案」而整单拒绝）。
+fn effective_local_id(state: &ProviderState, remote_id: &str) -> Result<Option<String>> {
+    Ok(local_profile_exists(state, remote_id)?.then(|| remote_id.to_string()))
+}
+
 pub fn import<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
@@ -325,7 +366,7 @@ pub fn import<R: Runtime>(
         super::check_disable_constraints(
             state,
             &ProfileInput {
-                id: Some(profile.id.clone()),
+                id: effective_local_id(state, &profile.id)?,
                 name: profile.name.clone(),
                 preset: Some(profile.preset.clone()),
                 kind: profile.kind.clone(),
@@ -382,8 +423,12 @@ fn apply_import<R: Runtime>(
     let mut applied = 0;
     for profile in config.providers {
         let old_id = profile.id.clone();
+        // P-003：远端 id 在本地不存在时按新建档案导入——upsert 对带 id 的
+        // 输入只执行 UPDATE，本地无该行时报 not_found 并整单回滚，换机、
+        // 重装或清空配置后的恢复必然失败。远端 id 只作来源标识，新建得到
+        // 的本地 id 由下方映射改写路由与默认档案引用
         let input = ProfileInput {
-            id: Some(profile.id),
+            id: effective_local_id(state, &profile.id)?,
             name: profile.name,
             preset: Some(profile.preset),
             kind: profile.kind,

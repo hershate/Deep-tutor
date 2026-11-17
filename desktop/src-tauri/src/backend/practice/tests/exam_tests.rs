@@ -130,7 +130,13 @@ fn exam_config_deferred_feedback_unanswered_scores_and_idempotent_finish_are_rea
             .iter()
             .all(|answer| answer.score.is_none()
                 && answer.correct.is_none()
-                && answer.feedback.is_null()),
+                // P-005：遮蔽期载荷保持对象形态（原先为 null，前端按非空
+                // 对象读取其属性时抛 TypeError 整页落进错误页），但不含
+                // 任何判分信息
+                && answer.feedback.is_object()
+                && answer.feedback.get("answer").is_none()
+                && answer.feedback.get("explanation").is_none()
+                && answer.feedback.get("correct").is_none()),
         "交卷前不得泄露判分信息"
     );
     assert_eq!(
@@ -284,7 +290,13 @@ fn exam_waits_for_subjective_grading_before_finishing() {
             .iter()
             .all(|answer| answer.score.is_none()
                 && answer.correct.is_none()
-                && answer.feedback.is_null()),
+                // P-005：遮蔽期载荷保持对象形态（原先为 null，前端按非空
+                // 对象读取其属性时抛 TypeError 整页落进错误页），但不含
+                // 任何判分信息
+                && answer.feedback.is_object()
+                && answer.feedback.get("answer").is_none()
+                && answer.feedback.get("explanation").is_none()
+                && answer.feedback.get("correct").is_none()),
         "交卷前不得泄露判分信息"
     );
     let finished = exams::finalize(app.handle(), &state, generated.set.id).unwrap();
@@ -386,4 +398,57 @@ fn abandoning_a_permanently_failed_grading_unblocks_finalize() {
         .unwrap();
     assert_eq!(scores.len(), 2);
     assert!(scores.iter().all(|score| *score == 0.0));
+}
+
+#[test]
+fn reading_the_exam_detail_does_not_start_the_timer() {
+    // P-009：读取详情不再起算考试计时——前端在挂载与每次 practice.* 事件后
+    // 自动拉详情，学生未开卷限时已流逝，到期后惰性收卷按 0 分落定
+    let (app, state, _server, plan_id) = prepare();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let started = generate(
+        app.handle(),
+        &state,
+        exam_input(&plan_id, 2, vec!["choice", "fill"]),
+    )
+    .unwrap();
+    let generated = wait_set(&state, started.set.id);
+    assert_eq!(generated.set.status, "ready");
+    // 前端自动拉取的读取路径不得起算
+    let read = ipc(&window, "get_practice_set", json!({"id": generated.set.id})).unwrap();
+    assert!(read["set"]["examStartedAt"].is_null());
+    assert!(read["set"]["examDeadline"].is_null());
+    assert!(read["examRemainingSeconds"].is_null());
+    ipc(&window, "get_practice_set", json!({"id": generated.set.id})).unwrap();
+    let store = state.store().unwrap();
+    let started_at: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT exam_started_at FROM practice_sets WHERE id = ?1",
+            params![generated.set.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(started_at.is_none(), "读取详情不得起算考试计时");
+    // 只有打开试卷才起算，且重复打开沿用同一计时
+    let opened = ipc(
+        &window,
+        "start_practice_exam_timer",
+        json!({"id": generated.set.id}),
+    )
+    .unwrap();
+    assert!(!opened["set"]["examStartedAt"].is_null());
+    assert!(!opened["set"]["examDeadline"].is_null());
+    let again = ipc(
+        &window,
+        "start_practice_exam_timer",
+        json!({"id": generated.set.id}),
+    )
+    .unwrap();
+    assert_eq!(
+        again["set"]["examStartedAt"], opened["set"]["examStartedAt"],
+        "重复打开试卷不得重置计时"
+    );
 }

@@ -200,17 +200,25 @@ pub fn get(
     let selected = match version {
         Some(version) => {
             let exists: bool = store.conn.query_row("SELECT EXISTS(SELECT 1 FROM learning_lecture_versions WHERE plan_id = ?1 AND stage_id = ?2 AND version = ?3)", params![id, stage_id, version], |row| row.get(0))?;
-            if !exists {
-                return Err(BackendError::new("not_found", "讲义历史版本不存在"));
+            if exists {
+                (
+                    version,
+                    "done".into(),
+                    stage.node_ids.len(),
+                    None,
+                    None,
+                    None,
+                )
+            } else {
+                // P-008：版本行只在全部单元完成后写入（finish_lecture），
+                // 生成中/失败/取消的当前版本没有版本行——按版本号读取一律
+                // not_found，生成全程弹错误横幅并把真实失败原因盖成
+                // 「讲义历史版本不存在」。当前版本按其真实状态返回
+                match current {
+                    Some(current) if current.0 == version => current,
+                    _ => return Err(BackendError::new("not_found", "讲义历史版本不存在")),
+                }
             }
-            (
-                version,
-                "done".into(),
-                stage.node_ids.len(),
-                None,
-                None,
-                None,
-            )
         }
         None => current.unwrap_or((0, "empty".into(), 0, None, None, None)),
     };
@@ -785,10 +793,15 @@ pub(crate) fn fail_lecture<R: Runtime>(
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
     // 119#2：fail 路径同补活跃态守卫——防止覆写并发路径已落的终态
-    let changed = tx.execute("UPDATE learning_lectures SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, now()?, id, stage_id])?;
+    let timestamp = now()?;
+    let changed = tx.execute("UPDATE learning_lectures SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status IN ('running', 'cancelling')", params![status, error.code, error.message, timestamp, id, stage_id])?;
     if changed == 0 {
         return Ok(());
     }
+    // P-132：同 fail_plan——panic 路径不经 fail_unit，running 单元会残留；
+    // 恢复时 begin_unit 按原 attempt 与 request_id 复用残骸请求，首次恢复
+    // 必在该单元失败一次。单元翻 failed 后恢复即换新请求重发
+    tx.execute("UPDATE learning_lecture_units SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE plan_id = ?5 AND stage_id = ?6 AND status = 'running'", params![status, error.code, error.message, timestamp, id, stage_id])?;
     let event = Store::event(
         &tx,
         if status == "cancelled" {

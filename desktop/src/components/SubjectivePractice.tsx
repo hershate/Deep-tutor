@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { ArrowRight, CheckCircle2, CircleAlert, Lightbulb, PenLine, RefreshCw, SlidersHorizontal, XCircle } from 'lucide-react'
+import { ArrowRight, CheckCircle2, CircleAlert, Clock3, Lightbulb, PenLine, RefreshCw, SlidersHorizontal, XCircle } from './icons'
 import { Badge, Button, ConfirmDialog, Modal, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type LearningPlan, isCancelRace, deltaThrottle } from '../backend/client'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeSet } from '../backend/practice'
@@ -15,6 +15,8 @@ type Props = {
   onUpdated: (detail: PracticeDetail) => void
   onGenerated: (detail: PracticeDetail) => void
   onShowObjective: () => void
+  /** P-009：当前选中的是模拟考试卷时的跳转入口——考试只在「模拟考试」标签作答 */
+  onShowExam?: () => void
   /** 115#12：无方案指引的死端文案补跳转动作（StudyRoom 同场景同款） */
   onNavigate?: (page: PageId) => void
   notify: (message: string) => void
@@ -22,7 +24,7 @@ type Props = {
   draftByQuestion: MutableRefObject<Record<number, string>>
 }
 
-export default function SubjectivePractice({ detail, history, plans, onUpdated, onGenerated, onShowObjective, onNavigate, notify, draftByQuestion }: Props) {
+export default function SubjectivePractice({ detail, history, plans, onUpdated, onGenerated, onShowObjective, onShowExam, onNavigate, notify, draftByQuestion }: Props) {
   const [index, setIndex] = useState(0)
   // 28#2：草稿按题暂存——翻题不再静默丢弃未提交的长文作答
   const [draft, setDraft] = useState('')
@@ -148,7 +150,11 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
     } catch (error) { reportBackendError(error) } finally { setSelecting(false) }
   }
 
-  const body = question && detail ? <>
+  const body = detail?.set.mode === 'exam'
+    // P-009：模拟考试卷不在此作答——首次打开试卷才开始计时，这里没有
+    // 倒计时提示，作答会静默计入考试
+    ? <div className="practice-result"><span className="result-mark"><Clock3 size={32} /></span><h2>这是模拟考试卷</h2><p>模拟考试只在「模拟考试」标签作答，首次打开试卷才开始计时；这里不提供答题入口。</p>{onShowExam && <Button onClick={onShowExam}>打开模拟考试<ArrowRight size={17} /></Button>}</div>
+    : question && detail ? <>
     <div className="question-top"><div><Badge tone="blue">{question.kind === 'short' ? '简答题' : '论述题'}</Badge><span>{plan?.goal ?? detail.set.planId}</span></div><span>{index + 1} / {questions.length}</span></div>
     <ProgressBar value={questions.filter(item => detail.answeredQuestionIds.includes(item.id)).length / questions.length * 100} srLabel={`作答进度 ${questions.filter(item => detail.answeredQuestionIds.includes(item.id)).length} / ${questions.length} 题`} />
     <div className="subjective-body"><PenLine size={24} /><h2>{question.prompt}</h2>
@@ -159,12 +165,12 @@ export default function SubjectivePractice({ detail, history, plans, onUpdated, 
       {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><CircleAlert size={21} /><h3>评分尚未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分任务已停止'}</p><p>原始作答已保留，恢复不会重复提交答案；模型持续失败时可放弃该题按 0 分计。</p><Button onClick={() => void resume()} disabled={busy}>恢复评分<RefreshCw size={17} /></Button><Button variant="secondary" onClick={() => setAbandonOpen(true)} disabled={busy}>放弃本题，按 0 分计<XCircle size={17} /></Button></div>}
       {recorded && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>本组全部题目判分完成后统一显示得分、要点与解析。</p></div>}
       {answer?.status === 'done' && <div className="subjective-rubric"><div><CheckCircle2 size={20} /><h3>{answer.score === null ? '评分已保存，按当前设置仅显示提示' : answer.correct ? '达到本题掌握阈值' : '本题仍需巩固'}</h3>{answer.score !== null && <strong>{answer.score.toFixed(2)} / {answer.maxScore?.toFixed(2)}</strong>}</div>
-        {answer.feedback.overallFeedback && <p>{answer.feedback.overallFeedback}</p>}
-        {answer.feedback.criteria?.map(criterion => <div className="rubric-result" key={criterion.id}><span>{criterion.description}</span><strong>{criterion.score.toFixed(2)} / {criterion.maxScore.toFixed(2)}</strong><p>{criterion.feedback}</p><small>评分依据：{criterion.evidence}</small></div>)}
-        {answer.feedback.answer !== undefined && <div><span>参考答案</span><p>{answer.feedback.answer}</p></div>}
-        {answer.feedback.explanation && <p>{answer.feedback.explanation}</p>}
-        {answer.feedback.hint && <p>{answer.feedback.hint}</p>}
-        {(answer.feedback.citations ?? question.citations).map((citation, citationIndex) => <small key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</small>)}
+        {answer.feedback?.overallFeedback && <p>{answer.feedback.overallFeedback}</p>}
+        {answer.feedback?.criteria?.map(criterion => <div className="rubric-result" key={criterion.id}><span>{criterion.description}</span><strong>{criterion.score.toFixed(2)} / {criterion.maxScore.toFixed(2)}</strong><p>{criterion.feedback}</p><small>评分依据：{criterion.evidence}</small></div>)}
+        {answer.feedback?.answer !== undefined && <div><span>参考答案</span><p>{answer.feedback.answer}</p></div>}
+        {answer.feedback?.explanation && <p>{answer.feedback.explanation}</p>}
+        {answer.feedback?.hint && <p>{answer.feedback.hint}</p>}
+        {(answer.feedback?.citations ?? question.citations).map((citation, citationIndex) => <small key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</small>)}
       </div>}
       {question.citations.length > 0 && <div className="practice-citations"><strong>资料依据</strong>{question.citations.map((citation, citationIndex) => <p key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</p>)}</div>}
     </div>

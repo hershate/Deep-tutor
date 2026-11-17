@@ -180,6 +180,98 @@ fn profiles_events_and_exports_never_contain_credentials() {
 }
 
 #[test]
+fn sync_config_import_creates_remote_profiles_missing_locally() {
+    // P-003：远端 id 在本地不存在时按新建档案导入——upsert 对带 id 的输入
+    // 只执行 UPDATE，空库/新机器（id 序列不复用）恢复原本必然 not_found
+    // 中断并整单回滚，灾备与跨设备恢复能力不可用
+    let (app, state) = setup();
+    let local = upsert(app.handle(), &state, input("http://127.0.0.1:8000/v1")).unwrap();
+    let payload = serde_json::to_vec(&json!({
+        "version": 1,
+        "activeProvider": "p7",
+        "routing": {"mode": "direct"},
+        "providers": [{
+            "id": "p7",
+            "name": "远端档案",
+            "preset": "custom",
+            "kind": "本地模型",
+            "protocol": "OpenAI Chat",
+            "baseUrl": "http://127.0.0.1:8010/v1",
+            "models": ["remote-model"],
+            "defaultModel": "remote-model",
+            "hasKey": false,
+            "health": "unknown",
+            "latencyMs": null,
+            "enabled": true,
+            "note": null
+        }],
+        "notice": "API keys are never exported."
+    }))
+    .unwrap();
+    let preview = sync_config::import(app.handle(), &state, &payload).unwrap();
+    assert_eq!(preview.profiles, 1);
+    let profiles = list(&state).unwrap();
+    assert_eq!(profiles.len(), 2, "远端档案必须落到本地");
+    let imported = profiles
+        .iter()
+        .find(|profile| profile.name == "远端档案")
+        .expect("远端档案已导入");
+    assert_ne!(imported.id, "p7", "本地没有对应 id 时必须新建档案");
+    assert_ne!(imported.id, local.id);
+    assert_eq!(imported.base_url, "http://127.0.0.1:8010/v1");
+    // 默认档案引用按 old_id → 新本地 id 映射改写
+    assert_eq!(
+        active(&state).unwrap().as_deref(),
+        Some(imported.id.as_str())
+    );
+}
+
+#[test]
+fn sync_config_import_reports_a_malformed_remote_id_as_a_remote_format_problem() {
+    // P-003：远端标识非 pN 形态时（配置被外部改写或来自其他实现），报错必须
+    // 指向「远端 id 格式」——原口径「供应商档案标识无效」指向本地档案，
+    // 用户无从判断该改远端配置还是本地配置
+    let (app, state) = setup();
+    let local = upsert(app.handle(), &state, input("http://127.0.0.1:8000/v1")).unwrap();
+    let payload = serde_json::to_vec(&json!({
+        "version": 1,
+        "activeProvider": "远端档案",
+        "routing": {"mode": "direct"},
+        "providers": [{
+            "id": "远端档案",
+            "name": "远端档案",
+            "preset": "custom",
+            "kind": "本地模型",
+            "protocol": "OpenAI Chat",
+            "baseUrl": "http://127.0.0.1:8010/v1",
+            "models": ["remote-model"],
+            "defaultModel": "remote-model",
+            "hasKey": false,
+            "health": "unknown",
+            "latencyMs": null,
+            "enabled": true,
+            "note": null
+        }],
+        "notice": "API keys are never exported."
+    }))
+    .unwrap();
+    let error = sync_config::import(app.handle(), &state, &payload).unwrap_err();
+    assert_eq!(error.code, "invalid_sync_payload");
+    assert!(
+        error.message.contains("档案标识") && error.message.contains("pN"),
+        "报错必须指向远端 id 格式，实际为：{}",
+        error.message
+    );
+    // 预演（dry run）同口径报错，不做半套写入
+    let preview_error = sync_config::preview(&payload).unwrap_err();
+    assert_eq!(preview_error.code, "invalid_sync_payload");
+    // 本地配置未被触碰
+    let profiles = list(&state).unwrap();
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0].id, local.id);
+}
+
+#[test]
 fn failed_database_writes_restore_the_previous_credential() {
     let (app, state) = setup();
     let saved = upsert(app.handle(), &state, input("http://127.0.0.1:8000/v1")).unwrap();

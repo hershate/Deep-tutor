@@ -33,6 +33,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
         .invoke_handler(tauri::generate_handler![
             super::commands::generate_practice,
             super::commands::get_practice_set,
+            super::commands::start_practice_exam_timer,
             super::commands::list_practice_history,
             super::commands::cancel_practice_generation,
             super::commands::resume_practice_generation,
@@ -282,6 +283,7 @@ fn prepare_with_gate(
             provider_id: None,
             milestone: None,
             milestone_date: None,
+            intensity: None,
         },
     )
     .unwrap();
@@ -355,6 +357,7 @@ fn no_material_plan_generates_and_scores_objective_practice() {
             provider_id: None,
             milestone: None,
             milestone_date: None,
+            intensity: None,
         },
     )
     .unwrap();
@@ -568,8 +571,20 @@ fn deferred_and_hint_feedback_do_not_reveal_answers_early() {
             .iter()
             .all(|answer| answer.score.is_none()
                 && answer.correct.is_none()
-                && answer.feedback.is_null()),
+                && answer.feedback.get("answer").is_none()
+                && answer.feedback.get("explanation").is_none()
+                && answer.feedback.get("correct").is_none()),
         "遮蔽期内不得泄露判分信息"
+    );
+    // P-005：遮蔽期的反馈载荷保持对象形态（与 submit 响应的
+    // {"status":"submitted"} 同口径）——原为 null，前端按非空对象读取其
+    // 属性时抛 TypeError，整页落进错误页
+    assert!(
+        deferred_view
+            .answers
+            .iter()
+            .all(|answer| answer.feedback.is_object()),
+        "遮蔽期反馈载荷必须是对象，不能是 null"
     );
     assert_eq!(
         detail(&state, deferred.set.id)
@@ -609,6 +624,68 @@ fn deferred_and_hint_feedback_do_not_reveal_answers_early() {
     assert_eq!(masked.set.status, "completed");
     assert_eq!(masked.set.score, None);
     assert_eq!(masked.set.max_score, None);
+}
+
+#[test]
+fn hints_mode_echoes_the_hint_while_the_set_is_still_running() {
+    // P-006：hints 模式进行中 detail 必须回显提示——原先遮蔽分支把已答
+    // 记录的 feedback 固定为 null 且不带 hint，提示只在整组完成后才出现，
+    // 「只给一点提示」的承诺在作答后至整组完成前不可兑现
+    let (app, state, _server, plan_id) = prepare();
+    let hints = generate(
+        app.handle(),
+        &state,
+        input(&plan_id, 2, vec!["choice", "fill"], "hints"),
+    )
+    .unwrap();
+    let questions = wait_set(&state, hints.set.id).questions;
+    assert_eq!(detail(&state, hints.set.id).unwrap().set.status, "ready");
+    let graded = submit(
+        app.handle(),
+        &state,
+        hints.set.id,
+        questions[0].id,
+        json!(0),
+    )
+    .unwrap();
+    assert_eq!(
+        graded.answer.feedback.get("hint"),
+        Some(&json!("注意证据出现之前的时间点"))
+    );
+    // 整组尚未完成：进行中的详情同样带提示
+    let view = detail(&state, hints.set.id).unwrap();
+    assert_eq!(view.set.status, "ready");
+    let answer = view
+        .answers
+        .iter()
+        .find(|answer| answer.question_id == questions[0].id)
+        .expect("已答记录必须回显");
+    assert_eq!(
+        answer.feedback.get("hint"),
+        Some(&json!("注意证据出现之前的时间点"))
+    );
+    assert!(
+        answer.feedback.get("answer").is_none(),
+        "提示模式不得公布标准答案"
+    );
+    assert!(
+        answer.feedback.get("explanation").is_none(),
+        "提示模式不得公布解析"
+    );
+}
+
+#[test]
+fn frontend_practice_feedback_reads_are_null_safe() {
+    // P-005：详情载荷的 feedback 允许为 null——渲染代码直接取属性会在
+    // deferred/hints 模式下抛 TypeError，整页落进错误页
+    let practice = include_str!("../../../../src/pages/Practice.tsx");
+    let subjective = include_str!("../../../../src/components/SubjectivePractice.tsx");
+    assert!(practice.contains("answer.feedback?.explanation"));
+    assert!(practice.contains("answer.feedback?.hint"));
+    assert!(practice.contains("answer?.feedback?.answer"));
+    assert!(subjective.contains("answer.feedback?.overallFeedback"));
+    assert!(subjective.contains("answer.feedback?.criteria?.map"));
+    assert!(subjective.contains("answer.feedback?.hint"));
 }
 
 #[test]
@@ -823,6 +900,46 @@ fn recovery_reuses_completed_model_output_without_another_provider_call() {
     assert_eq!(server.request_count(), calls + 1);
     assert_eq!(resume(app.handle(), &state, 1).unwrap().set.status, "ready");
     assert_eq!(server.request_count(), calls + 1);
+}
+
+// P-016：取消与模型完成的毫秒竞态——上游输出与用量已完整落库，集合终态
+// 却是 cancelled（不是 interrupted）。恢复必须复用已完成的模型输出，不得
+// 重新请求上游（否则同一批练习被完整重跑一遍并重复计费）
+#[test]
+fn cancelled_generation_reuses_the_completed_provider_output() {
+    let (app, state, server, plan_id) = prepare();
+    let plan = learning::get(&state.learning, &plan_id).unwrap();
+    let timestamp = now().unwrap();
+    let store = state.store().unwrap();
+    store.conn.execute(
+        "INSERT INTO practice_sets (mode, status, plan_id, stage_id, provider_id, difficulty, feedback_mode, kinds_json, total_questions, request_id, error_code, error_message, created_at, updated_at) VALUES ('targeted', 'cancelled', 1, NULL, ?1, 'adaptive', 'immediate', ?2, 2, 'practice-1-1', 'cancelled', '练习生成已取消，未写入模型结果', ?3, ?3)",
+        params![plan.provider_id, serde_json::to_string(&vec!["choice", "fill"]).unwrap(), timestamp],
+    ).unwrap();
+    drop(store);
+    let calls = server.request_count();
+    // 竞态终态：模型请求已完成并落库，题目被取消窗口丢弃
+    let result = providers::stream_chat(
+        app.handle(),
+        &state.providers,
+        "practice-1-1",
+        &plan.provider_id,
+        &[ChatMessage {
+            role: "system".into(),
+            content: GENERATION_SYSTEM.into(),
+            ..Default::default()
+        }],
+        8192,
+    )
+    .unwrap();
+    assert_eq!(result.status, "done");
+    assert_eq!(server.request_count(), calls + 1);
+    resume(app.handle(), &state, 1).unwrap();
+    let recovered = wait_set(&state, 1);
+    assert_eq!(recovered.set.status, "ready");
+    assert_eq!(recovered.set.attempt, 1);
+    assert_eq!(recovered.set.request_id.as_deref(), Some("practice-1-1"));
+    assert_eq!(recovered.questions.len(), 2);
+    assert_eq!(server.request_count(), calls + 1, "恢复不得再次请求上游");
 }
 
 #[test]

@@ -28,6 +28,9 @@ export type PlanOverview = {
   weeklyHours: number
   loadPercent: number
   intensity: '稳妥' | '标准' | '冲刺'
+  /** P-002：方案的排期基数是强度记录引入前的历史值（库内无缩放因子记录），
+   *  强度切换以库内现有分钟为基数，界面须明示该口径 */
+  intensityLegacy: boolean
   unscheduled: ScheduleEvent[]
 }
 export type PlanAlternative = { intensity: '稳妥' | '标准' | '冲刺'; weeklyMinutes: number; loadPercent: number }

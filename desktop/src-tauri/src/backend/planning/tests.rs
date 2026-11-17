@@ -255,3 +255,159 @@ fn scaled_keeps_small_entries_and_clamps_only_daily() {
     assert_eq!(scaled_daily(2, "标准", "冲刺").unwrap(), 10);
     assert_eq!(scaled_daily(600, "标准", "冲刺").unwrap(), 600);
 }
+
+#[test]
+fn intensity_switch_scales_from_the_plan_own_base_not_the_global_preference() {
+    // P-002：新建方案的排期从未乘过强度因子——全局偏好只是上一次强度切换
+    // 留下的遗留值，拿它当缩放基数会把新建方案按遗留强度错缩（×0.833/×1.2）
+    let (app, learning) = setup();
+    insert_plan(&learning.store().unwrap());
+    let store = learning.store().unwrap();
+    let record = store.collection("preferences").unwrap();
+    let mut preferences = record.value;
+    preferences["planIntensity"] = json!("冲刺");
+    store
+        .replace_collection("preferences", record.revision, &preferences)
+        .unwrap();
+    // 遗留强度不得被显示为当前方案的强度
+    let overview = ipc(&app, "get_plan_overview", json!({"weekStart":"2026-11-04"})).unwrap();
+    assert_eq!(overview["intensity"], "标准");
+    // 切到「标准」不得按遗留的冲刺缩小（20 → 17 是旧行为）
+    let updated = ipc(
+        &app,
+        "apply_plan_intensity",
+        json!({"intensity":"标准","weekStart":"2026-11-02"}),
+    )
+    .unwrap();
+    assert_eq!(updated["weeklyMinutes"], 20);
+    assert_eq!(updated["intensity"], "标准");
+    assert_eq!(store.collection("tasks").unwrap().value[0]["duration"], 20);
+    let plan = crate::backend::learning::get(&learning, "plan-1").unwrap();
+    assert_eq!(plan.daily_minutes, 30);
+    assert_eq!(plan.result.unwrap().schedule.total_minutes, 20);
+}
+
+#[test]
+fn intensity_switch_records_the_plan_own_intensity_for_the_next_switch() {
+    // P-002：强度切换把生效强度记到方案自身，下一次切换按它换算——
+    // 往返切换必须回到原基数，不得在错误基数上累积漂移
+    let (app, learning) = setup();
+    insert_plan(&learning.store().unwrap());
+    let store = learning.store().unwrap();
+    let up = ipc(
+        &app,
+        "apply_plan_intensity",
+        json!({"intensity":"冲刺","weekStart":"2026-11-02"}),
+    )
+    .unwrap();
+    assert_eq!(up["weeklyMinutes"], 24);
+    assert_eq!(up["intensity"], "冲刺");
+    let input: Value = serde_json::from_str(
+        &store
+            .conn
+            .query_row(
+                "SELECT input_json FROM learning_plans WHERE id = 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(input["intensity"], "冲刺");
+    let down = ipc(
+        &app,
+        "apply_plan_intensity",
+        json!({"intensity":"标准","weekStart":"2026-11-02"}),
+    )
+    .unwrap();
+    assert_eq!(down["weeklyMinutes"], 20);
+    assert_eq!(down["intensity"], "标准");
+    assert_eq!(store.collection("tasks").unwrap().value[0]["duration"], 20);
+}
+
+#[test]
+fn legacy_plan_without_intensity_record_declares_the_stored_minutes_as_the_base() {
+    // P-002：强度记录（input_json.intensity）引入前创建的方案，库内没有
+    // 任何字段记录旧版 apply_intensity 当时用的缩放因子——真实基数不可反推。
+    // 口径显式声明为「库内现有分钟即基数」：总览标记 intensity_legacy 供
+    // 界面明示，首次切换以库内现有分钟换算并把生效强度写回方案自身，
+    // 之后不再在未知因子上累积
+    let (app, learning) = setup();
+    insert_plan(&learning.store().unwrap());
+    let store = learning.store().unwrap();
+    // insert_plan 写入的 input_json 无 intensity 键 = 强度记录引入前的形态
+    let overview = ipc(&app, "get_plan_overview", json!({"weekStart":"2026-11-02"})).unwrap();
+    assert_eq!(overview["intensity"], "标准");
+    assert_eq!(
+        overview["intensityLegacy"], true,
+        "无强度记录的方案必须标记为遗留基数"
+    );
+    // 全局偏好只是遗留值：遗留基数的首次切换以库内现有分钟为基准（20 → 24），
+    // 不按全局遗留强度错缩
+    let record = store.collection("preferences").unwrap();
+    let mut preferences = record.value;
+    preferences["planIntensity"] = json!("冲刺");
+    store
+        .replace_collection("preferences", record.revision, &preferences)
+        .unwrap();
+    let updated = ipc(
+        &app,
+        "apply_plan_intensity",
+        json!({"intensity":"冲刺","weekStart":"2026-11-02"}),
+    )
+    .unwrap();
+    assert_eq!(updated["weeklyMinutes"], 24);
+    assert_eq!(
+        updated["intensityLegacy"], false,
+        "切换后强度写回方案自身，基数口径转为显式"
+    );
+    let input: Value = serde_json::from_str(
+        &store
+            .conn
+            .query_row(
+                "SELECT input_json FROM learning_plans WHERE id = 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(input["intensity"], "冲刺");
+    // 新建方案的 input_json 带 intensity 键（null = 从未缩放过）：不是遗留基数
+    store
+        .conn
+        .execute(
+            "UPDATE learning_plans SET input_json = ?1 WHERE id = 1",
+            params![json!({"goal":"真实目标","level":"部分掌握","dailyMinutes":30,"deadline":"2099-01-01","materialIds":[],"intensity":null}).to_string()],
+        )
+        .unwrap();
+    let fresh = ipc(&app, "get_plan_overview", json!({"weekStart":"2026-11-02"})).unwrap();
+    assert_eq!(fresh["intensityLegacy"], false);
+}
+
+#[test]
+fn out_of_range_schedule_date_is_rejected_before_anything_is_saved() {
+    // P-133：assign_task_date 原先先落库再计算周视图——边界周日期越界时
+    // 用户看到「排期失败」，实际排期已经保存，且按同日期重试永远得到
+    // 同样错误
+    let (app, learning) = setup();
+    insert_plan(&learning.store().unwrap());
+    let error = ipc(
+        &app,
+        "assign_task_date",
+        json!({"taskId":2,"dateValue":"9999-12-31"}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "invalid_schedule_date");
+    let rows: i64 = learning
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_plan_schedule_tasks WHERE plan_id = 1 AND task_id = 2",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 0, "越界日期不得留下已保存的排期行");
+}

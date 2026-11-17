@@ -1328,6 +1328,22 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
                 .collect()
         })
         .unwrap_or_default();
+    // P-004：清单缺失（导出时未随档携带）的插件——源 id 集合，用于跳过
+    // 其子表行；plugin_manifests 的键是重映射后的插件 id
+    let skipped_plugin_sources: HashSet<String> = transfer
+        .maps
+        .get("plugins")
+        .map(|map| {
+            map.iter()
+                .filter(|(_, mapped)| {
+                    mapped
+                        .as_str()
+                        .is_some_and(|id| !transfer.plugin_manifests.contains_key(id))
+                })
+                .map(|(source, _)| source.clone())
+                .collect()
+        })
+        .unwrap_or_default();
     import_kv(transfer, tx)?;
     for table in ordered {
         if *table == "kv" {
@@ -1337,6 +1353,37 @@ fn import_rows(transfer: &mut Transfer, tx: &Connection, ordered: &[&'static str
         for row in &mut rows {
             if global_conflict(tx, table, row)? {
                 continue;
+            }
+            // P-004：导出时缺失的插件清单不会随档携带——原先整单
+            // invalid_backup_reference 使唯一一份「导出成功」的备份既不能
+            // 预演也不能导入。按缺失处理：跳过该插件记录并计入警告，
+            // 其余数据照常恢复
+            if *table == "plugins" {
+                if let Some(id) = row.get("id").and_then(Value::as_str) {
+                    if !transfer.plugin_manifests.contains_key(id) {
+                        let name = row
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or(id)
+                            .to_string();
+                        transfer.warnings.push(format!(
+                            "插件「{name}」的清单文件未随备份携带，已跳过该插件记录"
+                        ));
+                        continue;
+                    }
+                }
+            }
+            // P-004：被跳过的插件其子表（订阅/投递/重载）一并跳过——
+            // 子表外键指向插件行，插件不落库时子表整单被拒
+            if matches!(
+                *table,
+                "plugin_subscriptions" | "plugin_deliveries" | "plugin_reloads"
+            ) {
+                if let Some(plugin_id) = row.get("plugin_id").and_then(Value::as_str) {
+                    if skipped_plugin_sources.contains(&key(&Value::from(plugin_id))?) {
+                        continue;
+                    }
+                }
             }
             if table == &"agent_memory" {
                 let original = row

@@ -54,6 +54,11 @@ pub struct PlanOverview {
     pub weekly_hours: u32,
     pub load_percent: u32,
     pub intensity: String,
+    /// P-002：方案的排期基数是强度记录引入前的历史值——库内没有任何字段
+    /// 记录旧版 apply_intensity 当时用的缩放因子，真实基数不可反推。口径
+    /// 声明为「库内现有分钟即基数」，本标记供界面明示该口径（界面显示的
+    /// 强度与库内分钟数的对应关系以此为限）
+    pub intensity_legacy: bool,
     pub unscheduled: Vec<ScheduleEvent>,
 }
 
@@ -104,6 +109,19 @@ fn monday(value: time::Date) -> Result<time::Date> {
     Ok(value - Duration::days(i64::from(value.weekday().number_from_monday() - 1)))
 }
 
+/// 排期周窗口：周一起点 + 7 天。114#5 边界日期类型化报错（77#8/47#3 同型）
+/// ——末周日期（如 9999-12-31 归一到周一后 +7 天）越界时 time 的 Add 实现
+/// 直接 panic，而 planning 命令全部为同步命令属主线程级故障。
+/// 单独成函数供写入前预检复用（P-133：先落库后报错会让用户看到失败提示
+/// 却发现排期其实已保存）
+fn week_bounds(start: time::Date) -> Result<(time::Date, time::Date)> {
+    let week_start = monday(start)?;
+    let week_end = week_start
+        .checked_add(Duration::days(7))
+        .ok_or_else(|| BackendError::new("invalid_schedule_date", "排期周已超出可表示日期范围"))?;
+    Ok((week_start, week_end))
+}
+
 fn latest_plan(state: &PlanningState, id: Option<&str>) -> Result<Option<Plan>> {
     match id {
         Some(id) => Ok(Some(super::learning::get(&state.learning, id)?)),
@@ -128,14 +146,9 @@ fn adopted_first_plan(state: &PlanningState) -> Result<Option<Plan>> {
 
 fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Result<PlanOverview> {
     let mut store = state.store()?;
-    let week_start = monday(start)?;
-    // 114#5：边界日期类型化报错（77#8/47#3 同型）——末周日期（如 9999-12-31
-    // 归一到周一后 +7 天）越界时 time 的 Add 实现直接 panic，而 planning
-    // 命令全部为同步命令属主线程级故障；week_end 一经验证，下方 offset<7
-    // 的逐日加法必不越界
-    let week_end = week_start
-        .checked_add(Duration::days(7))
-        .ok_or_else(|| BackendError::new("invalid_schedule_date", "排期周已超出可表示日期范围"))?;
+    // 114#5：边界日期类型化报错（77#8/47#3 同型）——week_end 一经验证，
+    // 下方 offset<7 的逐日加法必不越界
+    let (week_start, week_end) = week_bounds(start)?;
     let start_text = week_start.to_string();
     let end_text = week_end.to_string();
     let mut events_by_day: BTreeMap<String, Vec<ScheduleEvent>> = BTreeMap::new();
@@ -255,11 +268,19 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
         .get("weeklyHours")
         .and_then(Value::as_u64)
         .unwrap_or(15) as u32;
-    let intensity = preferences
-        .get("planIntensity")
-        .and_then(Value::as_str)
-        .unwrap_or("标准")
-        .to_string();
+    let (intensity, intensity_legacy) = match plan.as_ref() {
+        // P-002：强度条显示方案自身的强度——全局偏好只是遗留值，
+        // 新建方案的排期从未乘过它，按它显示等于宣告一个不存在的基数
+        Some(plan) => plan_intensity_record(&store, plan)?,
+        None => (
+            preferences
+                .get("planIntensity")
+                .and_then(Value::as_str)
+                .unwrap_or("标准")
+                .to_string(),
+            false,
+        ),
+    };
     let load_percent = ((weekly_minutes * 100) / (u64::from(weekly_hours) * 60).max(1)) as u32;
     // 80#3：待排期任务上限 500——任务配额 10000 × 每条 3 DOM 曾无界渲染；
     // 截断按数组序（新任务在前），前端对超限另行提示
@@ -343,6 +364,7 @@ fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Res
         weekly_hours,
         load_percent,
         intensity,
+        intensity_legacy,
         unscheduled,
     })
 }
@@ -375,6 +397,41 @@ fn factor(intensity: &str) -> Result<f64> {
             "学习强度须为稳妥、标准或冲刺",
         )),
     }
+}
+
+/// 方案自身已生效的强度与其基数来源——P-002：
+///
+/// - 强度记录写在 `learning_plans.input_json.intensity`：新建方案为 null
+///   （排期从未乘过强度因子），强度切换后写入本次生效的强度。
+/// - 全局偏好 `planIntensity` 只是最后一次强度切换留下的遗留值，与具体
+///   方案无关；拿它当缩放基数会按遗留强度错缩（±17%~25%）并全链落盘。
+/// - `legacy = true` 表示 input_json 里根本没有 intensity 键：方案创建于
+///   强度记录引入之前，旧版 apply_intensity 可能已按全局遗留强度缩放过
+///   它的排期，而库内没有任何字段记录当时的缩放因子——真实基数不可反推。
+///   口径显式声明为「库内现有分钟即基数」：后续切换以库内现有分钟为基准，
+///   不在未知因子上继续累积，并把该口径回传界面明示。此处不做一次性迁移
+///   ——迁移同样无法反推历史因子，写死一个强度值等于用假数据覆盖历史。
+///   首次切换把生效强度写回方案自身后记录即存在，遗留标记随之消失：此时
+///   界面显示的强度与库内分钟数在「库内现有分钟即基数」口径下相互对应。
+fn plan_intensity_record(store: &Store, plan: &Plan) -> Result<(String, bool)> {
+    let numeric = super::learning::plan_id(&plan.id)?;
+    let raw: String = store.conn.query_row(
+        "SELECT input_json FROM learning_plans WHERE id = ?1",
+        params![numeric],
+        |row| row.get(0),
+    )?;
+    // 键缺失（强度记录引入前的历史方案）与键存在但为 null（新建方案，
+    // 排期从未缩放过）必须区分：前者的排期分钟可能被旧版缩放过
+    let legacy = serde_json::from_str::<Value>(&raw)
+        .ok()
+        .and_then(|value| value.get("intensity").cloned())
+        .is_none();
+    let intensity = serde_json::from_str::<super::learning::PlanInput>(&raw)
+        .ok()
+        .and_then(|input| input.intensity)
+        .filter(|value| matches!(value.as_str(), "稳妥" | "标准" | "冲刺"))
+        .unwrap_or_else(|| "标准".to_string());
+    Ok((intensity, legacy))
 }
 
 /// 强度缩放：条目/任务/阶段分钟按比例取整，不套 10..=600 钳制——
@@ -577,6 +634,9 @@ pub fn apply_intensity<R: Runtime>(
         |row| row.get::<_, String>(0),
     )?)?;
     input.daily_minutes = scaled_daily(input.daily_minutes, &current.intensity, &intensity)?;
+    // P-002：把本次生效的强度记到方案自身——后续切换按它换算，
+    // 不再拿全局偏好（遗留值）当基数
+    input.intensity = Some(intensity.clone());
     // 23#1：within_deadline/within_milestone 是"结束日 <= 截止日"的日期语义
     // （learning/validate.rs），强度切换不改变日期——不得用容量不等式重算，
     // 否则逾期方案会被持久化翻成"在目标日内"；保持生成时的标志不动
@@ -662,11 +722,12 @@ pub fn update_goal<R: Runtime>(
     // 每日分钟 = 基数 × 当前强度因子：保持"排期分钟已含强度"的前提，
     // 否则 goal 更新+重生成后再切强度会按未缩放基数计算（07#7）；
     // 排期步硬校验 10..=600 分钟，派生值整体封顶保证重生成可成功
-    let intensity = preferences
-        .get("planIntensity")
-        .and_then(Value::as_str)
-        .unwrap_or("标准")
-        .to_string();
+    // P-002：强度取方案自身已生效的强度，不用全局偏好——后者只是遗留值，
+    // 别的方案切过强度后套到本方案会让重新规划按错基数排期
+    let intensity = plan_input
+        .intensity
+        .clone()
+        .unwrap_or_else(|| "标准".to_string());
     // 52#2：先乘后除全程浮点（整数除法 60/7=8 向零截断，余数档每周静默
     // 丢 1–4 分钟），钳制只在最终值做一次——基数预钳再乘强度会叠加抬升；
     // 10..=600 为排期步硬校验界，最终值必须落回界内
@@ -738,6 +799,10 @@ pub fn assign_task_date<R: Runtime>(
         .ok_or_else(|| BackendError::new("not_found", "任务不存在"))?;
     let minutes = i64::try_from(task.get("duration").and_then(Value::as_u64).unwrap_or(0))
         .map_err(|_| BackendError::new("invalid_record", "任务分钟数无效"))?;
+    // P-133：先校验排期周可表示，再落库——原先写入提交后才计算周视图，
+    // 边界日期（如 9999-12-31）越界时报错，用户看到「排期失败」却发现
+    // 任务其实已保存到该日期，且按同日期重试永远得到同样错误
+    week_bounds(day)?;
     let tx = store.conn.unchecked_transaction()?;
     tx.execute("INSERT INTO learning_plan_schedule_tasks (plan_id, task_id, date, stage_id, node_ids_json, minutes) VALUES (?1, ?2, ?3, 'custom', '[]', ?4) ON CONFLICT(plan_id, task_id) DO UPDATE SET date = excluded.date, stage_id = excluded.stage_id, node_ids_json = excluded.node_ids_json, minutes = excluded.minutes", params![plan_id, task_id, day.to_string(), minutes])?;
     let event = Store::event(

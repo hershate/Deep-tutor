@@ -390,6 +390,103 @@ fn full_backup_round_trip_remaps_ids_and_restores_real_files_without_secrets() {
 }
 
 #[test]
+fn missing_plugin_manifest_does_not_block_backup_preview_and_import() {
+    // P-004：导出时缺失的插件清单不随档携带（杀毒隔离/同步盘部分同步）——
+    // 原先整单 invalid_backup_reference 使唯一一份「导出成功」的备份既不能
+    // 预演也不能导入，用户只看到「插件记录缺少声明式清单」
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let source = LearningState::for_tests().unwrap();
+    let source_app = setup(&source);
+    seed_source(&source_app, &source);
+    let manifest = source
+        .workspace_path()
+        .parent()
+        .unwrap()
+        .join("plugins/test.events/manifest.json");
+    assert!(manifest.exists(), "插件清单应已落盘");
+    std::fs::remove_file(&manifest).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("missing-plugin.dtbackup");
+    let exported = ipc(
+        &source_app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap();
+    assert!(
+        exported["missingFiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file
+                .as_str()
+                .unwrap_or_default()
+                .contains("plugins/test.events/manifest.json")),
+        "导出回执必须报告缺失文件：{exported}"
+    );
+    let target = LearningState::for_tests().unwrap();
+    let target_app = setup(&target);
+    seed_target(&target_app, &target);
+    // 预演不得被整单拒绝，且必须给出缺件警告
+    let preview = ipc(
+        &target_app,
+        "preview_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    assert!(
+        preview["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap_or_default()
+                .contains("清单文件未随备份携带")),
+        "预演必须报告缺件：{preview}"
+    );
+    // 导入必须成功，其余数据照常恢复
+    let state = ipc(
+        &target_app,
+        "import_full_backup",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    assert!(
+        state["backupImportWarnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap_or_default()
+                .contains("清单文件未随备份携带")),
+        "导入必须报告缺件：{state}"
+    );
+    let plugins: Vec<String> = target
+        .store()
+        .unwrap()
+        .conn
+        .prepare("SELECT name FROM plugins ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        plugins,
+        vec!["目标插件".to_string()],
+        "缺清单的插件记录必须跳过"
+    );
+    assert!(
+        state["notes"].as_array().unwrap().len() >= 3,
+        "其余数据照常恢复"
+    );
+}
+
+#[test]
 fn corrupt_or_incomplete_backups_are_rejected_without_partial_writes() {
     let _lock = crate::backend::sync::tests::TEST_LOCK
         .lock()

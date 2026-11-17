@@ -65,6 +65,7 @@ fn input(material_id: i64) -> PlanInput {
         provider_id: None,
         milestone: Some("完成一次分类练习".into()),
         milestone_date: None,
+        intensity: None,
     }
 }
 
@@ -614,6 +615,78 @@ fn recovery_reuses_a_completed_graph_without_another_upstream_call() {
     assert_eq!(recovered.result.unwrap().graph.nodes.len(), 9);
     assert_eq!(server.request_count(), 3);
     assert_eq!(list(&state).unwrap().len(), 1);
+}
+
+// P-016：取消与模型完成的毫秒竞态——上游输出已完整落库，方案与步骤终态
+// 却是 cancelled（不是 interrupted）。恢复必须复用已完成的模型输出，不得
+// 重新请求上游（否则整条流水线重跑并重复计费）
+#[test]
+fn cancelled_graph_reuses_a_completed_output_without_another_upstream_call() {
+    let (app, state) = setup();
+    state.defer.store(true, Ordering::Release);
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let detail = super::super::materials::detail(&state.materials, material_id).unwrap();
+    let source = Source {
+        id: detail.material.id,
+        title: detail.material.title,
+        sha256: detail.material.sha256,
+        text: detail.text.unwrap(),
+        warning: detail.material.warning,
+    };
+    complete_step(app.handle(), &state, 1, 0, json!({"snapshot": [source]})).unwrap();
+    let persisted_input = super::input(&state, 1).unwrap();
+    complete_step(
+        app.handle(),
+        &state,
+        1,
+        1,
+        json!({"input": persisted_input}),
+    )
+    .unwrap();
+    let (_, request_id) = begin_step(app.handle(), &state, 1, 2).unwrap();
+    let request_id = request_id.unwrap();
+    let graph = providers::stream_chat(
+        app.handle(),
+        &state.providers,
+        &request_id,
+        &started.provider_id,
+        &[ChatMessage {
+            role: "user".into(),
+            content: "构建知识图谱".into(),
+            ..Default::default()
+        }],
+        8192,
+    )
+    .unwrap();
+    assert_eq!(graph.status, "done");
+    assert_eq!(server.request_count(), 1);
+    state.active.lock().unwrap().clear();
+    // 竞态终态：模型输出已落库，方案与步骤终态是 cancelled
+    {
+        let store = state.store().unwrap();
+        store.conn.execute(
+            "UPDATE learning_plans SET status = 'cancelled', error_code = 'cancelled', error_message = '学习方案生成已取消' WHERE id = 1",
+            [],
+        ).unwrap();
+        store.conn.execute(
+            "UPDATE learning_plan_steps SET status = 'cancelled', error_code = 'cancelled', error_message = '学习方案生成已取消' WHERE plan_id = 1 AND step_index = 2",
+            [],
+        ).unwrap();
+    }
+    state.defer.store(false, Ordering::Release);
+    resume(app.handle(), &state, &started.id).unwrap();
+    let recovered = wait_terminal(&state, &started.id);
+    assert_eq!(recovered.status, "degraded");
+    assert_eq!(recovered.steps[2].status, "done");
+    assert_eq!(recovered.steps[2].attempt, 1);
+    assert_eq!(
+        recovered.steps[2].request_id.as_deref(),
+        Some(request_id.as_str())
+    );
+    assert_eq!(server.request_count(), 3, "恢复不得再次请求上游");
 }
 
 fn ipc(
@@ -1401,4 +1474,103 @@ fn frontend_material_import_errors_are_visible_in_plan_generator() {
 fn frontend_auxiliary_font_sizes_respect_design_floor() {
     let source = include_str!("../../../../src/styles.css");
     assert!(!source.contains("font-size: 11px"));
+}
+
+#[test]
+fn failed_plan_and_lecture_flip_their_running_children() {
+    // P-132：panic 路径（launch 的 catch_unwind）只翻主行，子行残留
+    // running——恢复时 begin_step/begin_unit 按原 attempt 与 request_id
+    // 复用残骸请求，命中未完成的上游行走，首次恢复必在该步骤失败一次
+    let (app, state) = setup();
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    store.conn.execute(
+        "INSERT INTO learning_plans (status, provider_id, input_json, current_step, created_at, updated_at) VALUES ('running', 'p1', '{}', 0, ?1, ?1)",
+        params![timestamp],
+    ).unwrap();
+    let plan = store.conn.last_insert_rowid();
+    store.conn.execute(
+        "INSERT INTO learning_plan_steps (plan_id, step_index, status, attempt, request_id, created_at, updated_at) VALUES (?1, 0, 'running', 1, 'plan-1-1-1', ?2, ?2)",
+        params![plan, timestamp],
+    ).unwrap();
+    store.conn.execute(
+        "INSERT INTO learning_lectures (plan_id, stage_id, version, status, current_unit, updated_at) VALUES (?1, 'stage-1', 1, 'running', 0, ?2)",
+        params![plan, timestamp],
+    ).unwrap();
+    store.conn.execute(
+        "INSERT INTO learning_lecture_units (plan_id, stage_id, version, unit_index, node_id, status, attempt, request_id, updated_at) VALUES (?1, 'stage-1', 1, 0, 'prob', 'running', 1, 'lecture-1-stage-1-1-1', ?2)",
+        params![plan, timestamp],
+    ).unwrap();
+    fail_plan(
+        app.handle(),
+        &state,
+        plan,
+        BackendError::new("task_panicked", "学习生成任务异常终止，请从已保存步骤恢复"),
+    )
+    .unwrap();
+    lecture::fail_lecture(
+        app.handle(),
+        &state,
+        plan,
+        "stage-1",
+        BackendError::new("task_panicked", "讲义任务异常终止，请恢复已保存单元"),
+    )
+    .unwrap();
+    let step: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM learning_plan_steps WHERE plan_id = ?1 AND step_index = 0",
+            params![plan],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let unit: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM learning_lecture_units WHERE plan_id = ?1 AND stage_id = 'stage-1' AND version = 1 AND unit_index = 0",
+            params![plan],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(step, "failed", "残留 running 的步骤必须随主行翻终态");
+    assert_eq!(unit, "failed", "残留 running 的单元必须随主行翻终态");
+}
+
+#[test]
+fn reading_the_running_lecture_version_reports_progress_instead_of_not_found() {
+    // P-008：版本行只在全部单元完成后写入——生成中/失败的当前版本没有
+    // 版本行，按版本号读取一律 not_found，生成全程弹错误横幅并把真实
+    // 失败原因盖成「讲义历史版本不存在」
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let started = start(app.handle(), &state, input(material_id)).unwrap();
+    let _ = wait_terminal(&state, &started.id);
+    actions::adopt(app.handle(), &state, &started.id).unwrap();
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    let plan = plan_id(&started.id).unwrap();
+    store.conn.execute(
+        "INSERT INTO learning_lectures (plan_id, stage_id, version, status, current_unit, updated_at) VALUES (?1, 'stage-1', 1, 'running', 1, ?2)",
+        params![plan, timestamp],
+    ).unwrap();
+    store.conn.execute(
+        "INSERT INTO learning_lecture_units (plan_id, stage_id, version, unit_index, node_id, status, attempt, updated_at) VALUES (?1, 'stage-1', 1, 0, 'prob', 'done', 1, ?2)",
+        params![plan, timestamp],
+    ).unwrap();
+    let reading = lecture::get(&state, &started.id, "stage-1", Some(1)).unwrap();
+    assert_eq!(reading.version, 1);
+    assert_eq!(reading.status, "running");
+    assert_eq!(reading.completed_units, 1);
+    // 真正的历史版本（已写入版本行）仍按完成态返回
+    store.conn.execute(
+        "INSERT INTO learning_lecture_versions (plan_id, stage_id, version, created_at) VALUES (?1, 'stage-1', 1, ?2)",
+        params![plan, timestamp],
+    ).unwrap();
+    let historical = lecture::get(&state, &started.id, "stage-1", Some(1)).unwrap();
+    assert_eq!(historical.status, "done");
+    // 不存在的历史版本仍然是 not_found
+    let missing = lecture::get(&state, &started.id, "stage-1", Some(7)).unwrap_err();
+    assert_eq!(missing.code, "not_found");
 }

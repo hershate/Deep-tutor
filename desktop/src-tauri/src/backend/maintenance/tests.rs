@@ -72,6 +72,50 @@ fn write(root: &Path, relative: &str, content: &str) {
 }
 
 #[test]
+fn failed_report_broadcasts_maintenance_failed_and_the_panel_ignores_it() {
+    // P-007：体检失败会广播 maintenance.failed，前端若消费它再去拉报告，
+    // 就形成自激循环（拉报告 → 报告读取失败 → 再写再广播 maintenance.failed
+    // → 再拉报告）：错误提示风暴 + events 表无界增长 + 目录遍历持续空转。
+    // 修复在消费端切断，后端广播语义不变（审计事件仍须落库）——两处都要
+    // 有检出通道，否则任一侧回退都无人发现
+    let (app, learning) = setup();
+    let store = learning.store().unwrap();
+    // 制造真实失败：外键异常让体检报告直接报错
+    store.conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO learning_plan_materials (plan_id, material_id) VALUES (999, 999)",
+            [],
+        )
+        .unwrap();
+    store.conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+    assert_eq!(
+        ipc(&app, "get_maintenance_report", json!({})).unwrap_err()["code"],
+        "foreign_key_violation"
+    );
+    // 后端语义不变：失败仍写入并广播 maintenance.failed
+    let failures: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE kind = 'maintenance.failed'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(failures, 1, "体检失败必须留下 maintenance.failed 审计事件");
+    // 前端消费端必须忽略该事件，且忽略分支早于拉取报告
+    let panel = include_str!("../../../../src/components/MaintenancePanel.tsx");
+    let guard = panel
+        .find("event.kind === 'maintenance.failed'")
+        .expect("面板必须显式忽略 maintenance.failed 事件");
+    let pull = panel
+        .find("void pullReport()")
+        .expect("面板仍在事件回调里拉取报告");
+    assert!(guard < pull, "忽略分支必须早于拉取报告，否则自激循环仍在");
+}
+
+#[test]
 fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
     // 31#3：宽限覆盖置零——刚写入的 backup-work/anki 导出立即视为过期孤儿
     *GRACE_OVERRIDE

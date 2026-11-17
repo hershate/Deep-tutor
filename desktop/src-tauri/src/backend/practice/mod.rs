@@ -1283,13 +1283,22 @@ pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
         let mut statement = store.conn.prepare("SELECT id, question_id, response_json, grader_request_id FROM practice_answers WHERE set_id = ?1 AND status = 'done' ORDER BY id")?;
         let rows = statement.query_map(params![id], |row| {
             let response: String = row.get(2)?;
+            let question_id: i64 = row.get(1)?;
             Ok(AnswerView {
                 id: row.get(0)?,
-                question_id: row.get(1)?,
+                question_id,
                 score: None,
                 max_score: None,
                 correct: None,
-                feedback: Value::Null,
+                // P-005/P-006：遮蔽期内载荷形状保持对象（与 submit 响应的
+                // {"status":"submitted"} 同口径）——原先反馈为 null，前端按
+                // 非空对象读取其属性时抛 TypeError，整页落进错误页；
+                // hints 模式进行中同样回显提示（原先只在整组完成后可见）
+                feedback: if set.feedback_mode == "hints" {
+                    json!({"hint": hints.get(&question_id).cloned().unwrap_or_default()})
+                } else {
+                    json!({"status": "submitted"})
+                },
                 status: "done".into(),
                 error: None,
                 request_id: row.get(3)?,
@@ -1858,7 +1867,9 @@ pub fn resume<R: Runtime>(
         params![id],
         |row| row.get(0),
     ).optional()?.ok_or_else(|| BackendError::new("generation_active", "练习状态已改变，不能重复恢复"))?;
-    let completed = set.status == "interrupted"
+    // P-016：取消与模型完成的毫秒竞态下集合终态是 cancelled 而非 interrupted，
+    // 但上游输出已完整落库——同 interrupted 口径复用，避免重复执行与重复计费
+    let completed = matches!(set.status.as_str(), "interrupted" | "cancelled")
         && providers::completed_chat(&state.providers, previous_request.as_deref())?;
     let attempt = if completed {
         set.attempt
