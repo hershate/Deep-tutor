@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, ShieldCheck } from 'lucide-react'
+import { Download, ShieldCheck } from './icons'
 import { Badge, Button, EmptyState, MiniBars, ProgressBar, RevealExport, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type ProviderProfile } from '../backend/client'
 import { usageBackend, type UsageOverview } from '../backend/usage'
+import { editRateDraft, formatRate, hasSavedRate, rateDisplayValues, rateDraftCommitted, rateKey, savedRateValues, type RateDraft } from '../usageRateDraft'
 
 export default function UsagePanel({ notify }: { notify: (message: string) => void }) {
   const [data, setData] = useState<UsageOverview | null>(null)
@@ -10,8 +11,11 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   const [error, setError] = useState('')
   const [rateProvider, setRateProvider] = useState('')
   const [rateModel, setRateModel] = useState('')
-  const [inputRate, setInputRate] = useState('1')
-  const [outputRate, setOutputRate] = useState('2')
+  // P-087：费率输入框不再写死初值 1/2——按当前档案/模型回填该组合已保存的
+  // 费率；「保存真实费率」是 upsert 语义，写死初值会把已配置费率静默覆盖，
+  // 之后的成本、每日预算使用率与预算防线全按错误费率计算。
+  // 草稿只在当前组合内有效（草稿带组合标识），切换组合即回到该组合的已保存费率
+  const [rateDraft, setRateDraft] = useState<RateDraft | null>(null)
   // 115#2：预算输入改字符串草稿——原先受控值即时 Number()，键入「1.」时
   // type=number 坏输入态被归一成 1/0 回写，小数点被吃（想输 1.5 变 15），
   // 防线数值被静默放大；解析推迟到保存时（费率输入同款模式）
@@ -63,13 +67,44 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
     if (!provider.models.includes(rateModel)) setRateModel(provider.defaultModel || provider.models[0] || '')
   }, [profiles, rateProvider, rateModel])
 
+  // P-087：输入框显示值按当前组合推导——正在编辑的草稿优先，其次该组合
+  // 已保存的费率；该组合没有保存记录时留空，不给兜底初值（初值会参与
+  // upsert，把「新建费率记录」变成静默写入 1/2）
+  const rateSelection = { providerId: rateProvider, model: rateModel }
+  const rateValues = rateDisplayValues(rateDraft, data?.rates ?? [], rateSelection)
+  const savedRate = savedRateValues(data?.rates ?? [], rateSelection)
+  const rateHasSaved = hasSavedRate(data?.rates ?? [], rateSelection)
+  // P-087：该组合尚无保存记录时显式说明「没有记录」，不让用户把输入框里的
+  // 默认数值误当成已保存费率
+  const rateHint = !rateProvider || !rateModel
+    ? '先选择供应商档案与模型，再回填或填写该组合的费率。'
+    : rateHasSaved
+      ? `该组合已保存费率：输入 ${savedRate?.input} / 输出 ${savedRate?.output}（每百万 tokens）——修改后保存将覆盖原值。`
+      : '该档案/模型尚无保存费率：输入框留空，需自行填写真实费率后保存才会新建记录；留空不写入，不会落进默认数值。'
+  const editRate = (field: 'input' | 'output', value: string) => {
+    setRateDraft(current => editRateDraft(current, data?.rates ?? [], rateSelection, field, value))
+  }
+  // P-087：草稿与该组合已保存费率一致时作废——保存落盘后（或手工改回原值）
+  // 让显示值回到「已保存费率」这条唯一事实来源；快照到达前不做，避免回闪旧值
+  useEffect(() => {
+    if (!data || !rateDraft) return
+    const selection = { providerId: rateProvider, model: rateModel }
+    if (rateDraftCommitted(rateDraft, data.rates, selection)) setRateDraft(null)
+  }, [data, rateDraft, rateProvider, rateModel])
+
   const saveRate = async () => {
     if (busy || !rateProvider || !rateModel) return
+    // 费率留空不落盘：空值经 Number() 会变成 0，等于把已配置费率覆盖成 0
+    if (rateValues.input.trim() === '' || rateValues.output.trim() === '') return
     setBusy(true)
     try {
-      // 后端限制费率有限、非负且 ≤1,000,000：提交前按同一区间钳制
+      // 后端限制费率有限、非负且 ≤1,000,000，超区间是拒绝（invalid_usage_rate）
+      // 而不是钳制；前端按同一区间预钳制，避免提交必然被拒的值
       const clampRate = (value: string) => Math.min(1_000_000, Math.max(0, Number(value) || 0))
-      await usageBackend.upsertRate({ providerId: rateProvider, model: rateModel, inputPerMillion: clampRate(inputRate), outputPerMillion: clampRate(outputRate) })
+      const saved = await usageBackend.upsertRate({ providerId: rateProvider, model: rateModel, inputPerMillion: clampRate(rateValues.input), outputPerMillion: clampRate(rateValues.output) })
+      // 以后端落盘值为准回填（前端只钳制、后端只校验，落盘值以命令返回为准），
+      // 刷新快照到达前不回显旧值
+      setRateDraft({ key: rateKey(rateSelection), input: formatRate(saved.inputPerMillion), output: formatRate(saved.outputPerMillion) })
       await refresh()
       notify('实际模型费率已保存，后续台账按该费率计算')
     } catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
@@ -109,7 +144,7 @@ export default function UsagePanel({ notify }: { notify: (message: string) => vo
   return <div className="usage-page">{/* 115#7：事件驱动刷新失败原先完全静默（error 只在无 data 时渲染），用量/台账停留旧值无提示 */}{error && <div className="form-error" role="alert"><span>{error}</span><Button variant="secondary" size="sm" onClick={() => { setError(''); void refresh() }}>重新读取</Button></div>}<div className="usage-metrics"><div><span>今日已计价成本</span><strong>${data.summary.todayCost.toFixed(6)}</strong><small>每日预算使用 {budgetPercent.toFixed(2)}%</small></div><div><span>今日已上报输入 tokens</span><strong>{data.summary.inputTokens}</strong><small>{data.summary.missingUsage} 条记录未完整上报用量</small></div><div><span>今日已上报输出 tokens</span><strong>{data.summary.outputTokens}</strong><small>{data.summary.unpricedRequests} 条记录未计价</small></div><div><span>取消 / 异常已计价</span><strong>${(data.summary.cancelledCost + data.summary.failedCost).toFixed(6)}</strong><small>仅计算实际返回且已配置费率的用量</small></div></div>
     {data.summary.unpricedRequests > 0 && <p className="setting-note">有 {data.summary.unpricedRequests} 条记录因缺少完整用量或费率而未计价；预算只依据已记录费用，不估算未知成本。</p>}
     <div className="usage-grid"><section className="surface usage-trend"><SectionHeader title={`近 ${data.days.length} 日已计价成本`} description="按真实请求日期与本机时区聚合；无用量时不伪造趋势。" /><MiniBars values={data.days.map(day => day.cost)} labels={data.days.map(day => day.date)} /></section><section className="surface usage-by-model"><SectionHeader title={`近 ${data.days.length} 日模型明细`} description="与左侧趋势图同一时间窗口聚合；份额按已上报 tokens 占比（非成本占比）。" />{data.models.map(model => <div key={`${model.providerId}-${model.model}`}><div><strong>{model.model}</strong><span>${model.cost.toFixed(6)}</span></div><ProgressBar value={model.share} srLabel={`${model.model} 用量份额 ${Math.round(model.share)}%`} /><small>{model.providerName} · {model.tokens} tokens · {model.share.toFixed(1)}% 已上报用量{model.unpricedRequests ? ` · ${model.unpricedRequests} 条未计价` : ''}</small></div>)}{!data.models.length && <EmptyState title="尚无真实模型用量" description="完成一次真实模型请求后，这里按模型汇总成本与 tokens。" />}</section></div>
-    <div className="usage-grid"><section className="surface"><SectionHeader title="实际模型费率" description="按每百万 tokens 计价（USD）；这里保存的是你配置的费率，不冒充供应商报价。" /><div className="form-stack"><label>供应商档案<select value={rateProvider} onChange={event => { setRateProvider(event.target.value); setRateModel('') }}><option value="" disabled>选择真实档案</option>{profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>模型<select value={rateModel} onChange={event => setRateModel(event.target.value)}>{profile?.models.map(model => <option key={model} value={model}>{model}</option>)}</select></label><div className="form-grid"><label>输入 / 百万 tokens<input type="number" min="0" step="any" value={inputRate} onChange={event => setInputRate(event.target.value)} /></label><label>输出 / 百万 tokens<input type="number" min="0" step="any" value={outputRate} onChange={event => setOutputRate(event.target.value)} /></label></div><Button onClick={() => void saveRate()} disabled={busy || !rateProvider || !rateModel}>保存真实费率</Button></div>{data.rates.map(rate => <p className="side-copy" key={rate.id}>{rate.providerName} · {rate.model}：输入 {rate.inputPerMillion}，输出 {rate.outputPerMillion} / 百万 tokens</p>)}</section>
+    <div className="usage-grid"><section className="surface"><SectionHeader title="实际模型费率" description="按每百万 tokens 计价（USD）；这里保存的是你配置的费率，不冒充供应商报价。" /><div className="form-stack"><label>供应商档案<select value={rateProvider} onChange={event => { setRateProvider(event.target.value); setRateModel('') }}><option value="" disabled>选择真实档案</option>{profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>模型<select value={rateModel} onChange={event => setRateModel(event.target.value)}>{profile?.models.map(model => <option key={model} value={model}>{model}</option>)}</select></label><div className="form-grid"><label>输入 / 百万 tokens<input type="number" min="0" step="any" value={rateValues.input} onChange={event => editRate('input', event.target.value)} /></label><label>输出 / 百万 tokens<input type="number" min="0" step="any" value={rateValues.output} onChange={event => editRate('output', event.target.value)} /></label></div><Button onClick={() => void saveRate()} disabled={busy || !rateProvider || !rateModel || rateValues.input.trim() === '' || rateValues.output.trim() === '' || Number.isNaN(Number(rateValues.input)) || Number.isNaN(Number(rateValues.output))}>保存真实费率</Button><p className="setting-note">切换供应商档案或模型时，输入框回填该组合已保存的费率。费率留空时不能保存，避免把已配置费率覆盖成 0。</p><p className="setting-note">{rateHint}</p></div>{data.rates.map(rate => <p className="side-copy" key={rate.id}>{rate.providerName} · {rate.model}：输入 {rate.inputPerMillion}，输出 {rate.outputPerMillion} / 百万 tokens</p>)}</section>
       <section className="surface budget-settings"><SectionHeader title="原生预算防线" description="达到已记录预算后不再发起新请求；已有结果仍可读取。" /><label>Agent 会话预算（USD）<input type="number" min="0" step="any" value={sessionUsd} onChange={event => setSessionUsd(event.target.value)} /></label><label>每日预算（USD）<input type="number" min="0" step="any" value={dailyUsd} onChange={event => setDailyUsd(event.target.value)} /></label><label>方案局部重生成上限<select value={regenerationLimit} onChange={event => setRegenerationLimit(Number(event.target.value))}><option value={1}>1 次</option><option value={2}>2 次</option><option value={3}>3 次</option></select></label><div className="budget-rule"><ShieldCheck size={18} /><p>未配置费率的成本无法计入金额预算；请在左侧配置实际费率。Agent 的 tokens 预算仍然独立生效。预算只统计供应商实际上报的用量：不上报 usage 的兼容服务产生的真实计费不会被预算拦截，仅受 25 步工具循环上限约束。</p></div><Button onClick={() => void saveBudget()} disabled={busy || sessionUsd.trim() === '' || dailyUsd.trim() === '' || Number.isNaN(Number(sessionUsd)) || Number.isNaN(Number(dailyUsd))}>保存原生预算</Button></section></div>
     <section className="surface usage-ledger"><SectionHeader title="真实用量台账" description="包括完成、取消、异常与中断状态；最多显示最近 200 条，聚合计量不截断。" action={<><Button variant="secondary" size="sm" disabled={exporting} onClick={() => void exportCsv()}>{exporting ? '正在导出…' : <><Download size={15} />导出真实 CSV</>}</Button>{exportPath && <RevealExport path={exportPath} />}</>} />{data.ledger.length ? <div className="table-wrap"><table><thead><tr><th scope="col">时间</th><th scope="col">供应商 / 任务</th><th scope="col">模型</th><th scope="col">输入 / 输出 tokens</th><th scope="col">成本（USD）</th><th scope="col">状态</th></tr></thead><tbody>{data.ledger.map(entry => <tr key={entry.requestId}><td>{new Date(entry.createdAt).toLocaleString()}</td><td>{entry.providerName} / {entry.task}</td><td>{entry.model}</td><td>{entry.inputTokens ?? '未知'} / {entry.outputTokens ?? '未知'}</td><td>{entry.cost === null ? '未计价' : `$${entry.cost.toFixed(8)}`}</td><td><Badge tone={['cancelled', 'failed', 'interrupted'].includes(entry.status) ? 'amber' : 'green'}>{{ done: '完成', cancelled: '取消', failed: '异常', interrupted: '中断', running: '进行中' }[entry.status] ?? entry.status}</Badge></td></tr>)}</tbody></table></div> : <EmptyState title="尚无真实用量" description="模型请求完成后，这里会显示供应商实际返回的用量与可计价成本。" />}</section>
   </div>

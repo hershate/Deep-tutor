@@ -24,7 +24,7 @@ import rehypeKatex from 'rehype-katex'
 import { prepareMarkdown } from '../src/markdown/prepare.ts'
 import { applyAccountTheme, cacheTheme, readCachedTheme } from '../src/theme.ts'
 import { readableErrorMessage } from '../src/errors.ts'
-import { DEFAULT_RATE_VALUES, editRateDraft, rateDisplayValues, rateDraftCommitted, savedRateValues } from '../src/usageRateDraft.ts'
+import { EMPTY_RATE_VALUES, editRateDraft, hasSavedRate, rateDisplayValues, rateDraftCommitted, savedRateValues } from '../src/usageRateDraft.ts'
 
 /** 读取前端源文件（用于「行为只能靠源码断言」的场景） */
 function readSource(relative) {
@@ -291,11 +291,44 @@ test('P-087：切到已保存费率的档案/模型组合时回填该组合的�
   assert.equal(values.output, '15')
 })
 
-test('P-087：组合没有保存记录时回落初始值，不沿用上一个组合的残留', () => {
+test('P-087：组合没有保存记录时显示空值，不沿用上一个组合的残留', () => {
   const draft = editRateDraft(null, SAVED_RATES, { providerId: 'p1', model: 'model-a' }, 'input', '9')
   const other = rateDisplayValues(draft, SAVED_RATES, { providerId: 'p2', model: 'model-c' })
-  assert.equal(other.input, DEFAULT_RATE_VALUES.input)
-  assert.equal(other.output, DEFAULT_RATE_VALUES.output)
+  assert.equal(other.input, '')
+  assert.equal(other.output, '')
+  assert.equal(EMPTY_RATE_VALUES.input, '')
+  assert.equal(EMPTY_RATE_VALUES.output, '')
+})
+
+test('P-087：尚无保存记录的组合不带默认值参与保存（不会静默写入 1/2）', () => {
+  const selection = { providerId: 'p2', model: 'model-c' }
+  assert.equal(hasSavedRate(SAVED_RATES, selection), false)
+  const values = rateDisplayValues(null, SAVED_RATES, selection)
+  // 空值经 Number() 会变成 0，但面板在留空时禁用保存按钮，落盘前不会提交
+  assert.equal(values.input.trim(), '')
+  assert.equal(values.output.trim(), '')
+  assert.equal(hasSavedRate(SAVED_RATES, { providerId: 'p1', model: 'model-a' }), true)
+})
+
+test('P-087：用量面板对尚无保存记录的组合显式提示，且不留兜底初值', () => {
+  const source = readSource('../src/components/UsagePanel.tsx')
+  assert.ok(
+    source.includes('尚无保存费率'),
+    '没有保存记录的组合必须显式提示，不能让用户以为输入框里的值就是已保存费率',
+  )
+  const module = readSource('../src/usageRateDraft.ts')
+  assert.ok(
+    !/input:\s*'1'/.test(module) && !/output:\s*'2'/.test(module),
+    '费率模块不得再内置 1/2 兜底初值——默认值会参与 upsert 建出错误费率记录',
+  )
+})
+
+test('P-087：面板注释不再声称后端会按上限钳制费率', () => {
+  const source = readSource('../src/components/UsagePanel.tsx')
+  assert.ok(
+    !source.includes('后端可能按上限钳制'),
+    '后端对超区间费率是拒绝（invalid_usage_rate）而非钳制，注释口径必须一致',
+  )
 })
 
 test('P-087：切换到另一个已配置组合时显示那个组合的费率，不串用草稿', () => {
