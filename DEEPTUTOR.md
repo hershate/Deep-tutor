@@ -100,7 +100,10 @@ or authority. Do not claim a security property without an enforcing implementati
 - Feature and acceptance matrix: `note/14-Tauri原生后端覆盖清单.md`.
 - Validation contract: `plan/README.md`.
 - `make lint` checks Rust formatting, cross-file version consistency (`scripts/check-versions.mjs`),
-  the frontend production build and `npm audit` (runtime + dev scopes; 110#1).
+  architecture-document command metrics against source (`scripts/check-doc-metrics.mjs`; 152/153),
+  the frontend production build and `npm audit` (runtime scope, strict zero vulnerabilities)
+  plus the dev-scope audit through the exception-aware script (`scripts/audit-exceptions.mjs`;
+  110#1, 110#10 — one documented advisory exception, see AGENTS.md).
 - `make test` runs `cargo test --release --locked -- --test-threads=1` in `desktop/src-tauri`.
 - The Rust toolchain is pinned to 1.99.1 via `rust-toolchain.toml` (CI pins the same
   version); do not bump it casually — local stable and pinned rustfmt rules may diverge.

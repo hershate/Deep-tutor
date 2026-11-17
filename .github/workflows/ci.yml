@@ -56,8 +56,12 @@ jobs:
         run: bash ../scripts/dev-smoke.sh
       # 110#1：依赖审计入 CI——vite/esbuild dev 侧通告（含 Windows 命令
       # 执行族）原先无任何检出通道；runtime 与 dev 全量要求零漏洞
+      # dev 全量口径与本地 make lint 走同一脚本（scripts/audit-exceptions.mjs）：
+      # CI 不调用 make lint 而是内联同口径命令，故此处直接调用同一脚本；
+      # 例外条目（GHSA-fc5q-39xc-vjpf / picomatch，110#10）与本地一致适用，
+      # 白名单外的任何通告仍以非零退出码失败
       - name: Dependency audit
-        run: npm audit --omit=dev && npm audit
+        run: npm audit --omit=dev && node ../scripts/audit-exceptions.mjs
       - name: Rust format
         working-directory: desktop/src-tauri
         run: cargo fmt --all -- --check

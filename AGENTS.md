@@ -36,10 +36,26 @@
 - 前端：`cd desktop && npm run build`。
 - Rust 按 `rust-toolchain.toml` 钉住 1.99.1（本机解析为 `1.99.1-x86_64-pc-windows-gnu`；
   110#5：CI windows-latest 默认解析 msvc——本地与 CI 是不同 host ABI 的双轨，
-  GNU 专属问题 CI 测不到，反之亦然；`npm audit`（含 dev）已入 make check 与 CI）。
+  GNU 专属问题 CI 测不到，反之亦然；`npm audit`（runtime 口径严格零漏洞）＋
+  dev 口径例外感知审计（`scripts/audit-exceptions.mjs`，见 110#10）已入 make
+  check 与 CI）。
   110#7：`desktop/package.json` 的 katex override（59#8 有意决策）退出条件——
   rehype-katex 发布声明支持 katex ^0.19 的版本后移除。110#9：dialog 2.8.4
   传递编译 tauri-plugin-fs 2.7.1（未注册、零权限，仅体积名义条目）。
+  110#10：dev 口径依赖审计的单条通告例外——`npm audit`（dev 全量）在
+  picomatch 上报 GHSA-fc5q-39xc-vjpf / CVE-2026-112366（ReDoS，受影响区间
+  ≤4.0.7）。上游无修复版（npm registry 最新即 4.0.7 仍受影响，修复 PR
+  micromatch/picomatch#194 未合并）；vite ≥6.3 全部依赖 picomatch，
+  vite ≤6.4.3 自身带 12 条通告（含 Windows `server.fs.deny` 反斜杠绕过族，
+  即 `desktop/vite.config.ts` 注明由 vite 6.4.6 修复的那一族），回退 vite
+  不是解。故 dev 口径由 `scripts/audit-exceptions.mjs` 判定：只放行白名单中
+  的确切通告 ID，其余任何通告（含以后新增）一律非零退出码失败；runtime
+  口径仍是裸 `npm audit --omit=dev` 严格零漏洞、不带例外。可达性：触发需
+  模式本身含单分支重复 extglob（`+(*)`、`+(*a)`），而 vite 的 picomatch
+  模式来源为开发者配置与源码 import 说明符，请求可控值只作被匹配字符串，
+  vite 默认 `server.fs.deny` 模式不含该结构。退出条件：picomatch 发布含
+  上游修复的 ≥4.0.8 且 vite 依赖链取用后，删除脚本内白名单条目并把 dev
+  口径恢复为裸 `npm audit`。
   146#20：生产 CSP 的 `style-src`——收紧前须安装包实测 KaTeX/mark 是否走
   `setAttribute('style', …)` 内联属性路径（该路径会被去掉 unsafe-inline 的
   CSP 拦截，CSSOM 设置不受限）；实测前不动，避免公式渲染失效且没有错误提示。
