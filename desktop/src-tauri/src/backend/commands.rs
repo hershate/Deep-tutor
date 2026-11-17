@@ -255,61 +255,77 @@ pub async fn reset_application<R: Runtime + 'static>(app: AppHandle<R>) -> Resul
     tauri::async_runtime::spawn_blocking(move || {
         super::security::with_principal(principal, || {
             let state = app.state::<BackendState>();
-            // REVIEW：停机在切换写锁之外——stop_all 最坏约 50s（sync 域
-            // deadline，73#9），而 guard 在每条 IPC 派发瞬间都要取
-            // WORKSPACE_SWITCH 读锁，写锁在位期间全应用 IPC 被阻塞，
-            // 重置这种用户日常路径会表现为「整体无响应」
-            super::security::guard::stop_all(&state)?;
-            // 150#9：与登录切换互斥——guard 的 WORKSPACE_SWITCH 读锁只在
-            // IPC 派发瞬间持有，不覆盖本命令体；命令体先 stop_all 再取
-            // store 锁，其间可发生工作区切换，导致清空另一用户的工作区。
-            // 持切换写锁直到重置结束（与 PAT 认证路径同口径）
-            super::security::guard::exclusive(|| -> Result<Value> {
-                // 150#9：进入关键段时复核工作区归属——命令发起后可能发生过
-                // 切换，此时不得清空另一用户的工作区
-                super::security::guard::ensure_workspace(&app, principal)?;
-                let provider_ids = super::providers::credential_ids(&state.providers)?;
-                let backup = super::materials::prepare_reset(&state.materials)?;
-                let result = {
-                    state
-                        .store
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .reset()
-                };
-                match result {
-                    Ok(mutation) => {
-                        let file_result =
-                            super::materials::finish_reset(&state.materials, backup, true);
-                        let credential_result =
-                            super::providers::purge_credentials(&state.providers, &provider_ids);
-                        file_result?;
-                        credential_result?;
-                        super::plugins::reset_files(&state.plugins)?;
-                        // 65#2：reset 清空了 agent/sync 两域表行，但两目录的文件原先
-                        // 不在任何清理面——「数据已清空」后 scratch 产物与同步副本仍
-                        // 在盘上。成功路径尽力删除两目录；失败的残留由孤儿扫描兜底
-                        // 73#10：目录删除（上限 ~10GB）移后台一次性线程——reset
-                        // 返回不等删除完成，失败仅孤儿扫描兜底
-                        if let Some(user_root) = state.learning.workspace_path().parent() {
-                            let agent_dir = user_root.join("agent-workspaces");
-                            let sync_dir = user_root.join("sync");
-                            std::thread::spawn(move || {
-                                let _ = std::fs::remove_dir_all(agent_dir);
-                                let _ = std::fs::remove_dir_all(sync_dir);
-                            });
+            // P-012：停机后的任何失败出口都必须复位闸门并恢复后台（决策
+            // 25：操作失败≠后台停机）——原先 stop_all/凭据枚举/快照/清理任一
+            // 失败即早退，资料解析闸门停在关闭（同会话新导入永远「排队中」）、
+            // 同步调度器停摆、崩溃残留 running 行不翻行，直到进程重启或
+            // 下一次成功重置。失败一律走统一恢复点（与维护/备份同口径）
+            let outcome = (|| -> Result<Value> {
+                // REVIEW：停机在切换写锁之外——stop_all 最坏约 50s（sync 域
+                // deadline，73#9），而 guard 在每条 IPC 派发瞬间都要取
+                // WORKSPACE_SWITCH 读锁，写锁在位期间全应用 IPC 被阻塞，
+                // 重置这种用户日常路径会表现为「整体无响应」
+                super::security::guard::stop_all(&state)?;
+                // 150#9：与登录切换互斥——guard 的 WORKSPACE_SWITCH 读锁只在
+                // IPC 派发瞬间持有，不覆盖本命令体；命令体先 stop_all 再取
+                // store 锁，其间可发生工作区切换，导致清空另一用户的工作区。
+                // 持切换写锁直到重置结束（与 PAT 认证路径同口径）
+                super::security::guard::exclusive(|| -> Result<Value> {
+                    // 150#9：进入关键段时复核工作区归属——命令发起后可能发生过
+                    // 切换，此时不得清空另一用户的工作区
+                    super::security::guard::ensure_workspace(&app, principal)?;
+                    let provider_ids = super::providers::credential_ids(&state.providers)?;
+                    let backup = super::materials::prepare_reset(&state.materials)?;
+                    let result = {
+                        state
+                            .store
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .reset()
+                    };
+                    match result {
+                        Ok(mutation) => {
+                            let file_result =
+                                super::materials::finish_reset(&state.materials, backup, true);
+                            let credential_result = super::providers::purge_credentials(
+                                &state.providers,
+                                &provider_ids,
+                            );
+                            file_result?;
+                            credential_result?;
+                            super::plugins::reset_files(&state.plugins)?;
+                            // 65#2：reset 清空了 agent/sync 两域表行，但两目录的文件原先
+                            // 不在任何清理面——「数据已清空」后 scratch 产物与同步副本仍
+                            // 在盘上。成功路径尽力删除两目录；失败的残留由孤儿扫描兜底
+                            // 73#10：目录删除（上限 ~10GB）移后台一次性线程——reset
+                            // 返回不等删除完成，失败仅孤儿扫描兜底
+                            if let Some(user_root) = state.learning.workspace_path().parent() {
+                                let agent_dir = user_root.join("agent-workspaces");
+                                let sync_dir = user_root.join("sync");
+                                std::thread::spawn(move || {
+                                    let _ = std::fs::remove_dir_all(agent_dir);
+                                    let _ = std::fs::remove_dir_all(sync_dir);
+                                });
+                            }
+                            // 107#1：重置停机后同样走统一恢复点——复位资料解析闸门，
+                            // 同会话内新库可继续解析（原先进程不重启就静默停摆）
+                            super::security::guard::resume_background(&app);
+                            finish(&app, mutation)
                         }
-                        // 107#1：重置停机后同样走统一恢复点——复位资料解析闸门，
-                        // 同会话内新库可继续解析（原先进程不重启就静默停摆）
-                        super::security::guard::resume_background(&app);
-                        finish(&app, mutation)
+                        Err(error) => {
+                            super::materials::finish_reset(&state.materials, backup, false)?;
+                            Err(error)
+                        }
                     }
-                    Err(error) => {
-                        super::materials::finish_reset(&state.materials, backup, false)?;
-                        Err(error)
-                    }
-                }
-            })?
+                })?
+            })();
+            // P-012：失败出口统一恢复后台——成功路径已在临界段内调用
+            // resume_background（107#1），失败路径在此补齐，闸门与调度器
+            // 不因一次失败的重置而永久停摆
+            if outcome.is_err() {
+                super::security::guard::resume_background(&app);
+            }
+            outcome
         })
     })
     .await
@@ -563,6 +579,57 @@ mod tests {
         assert!(cleared, "后台目录删除未在限时内完成");
         assert!(!user_root.join("agent-workspaces").exists());
         assert!(!user_root.join("sync").exists());
+    }
+
+    /// P-012：重置失败出口必须复位闸门并恢复后台（决策 25：操作失败≠后台
+    /// 停机）——原先 stop_all/凭据枚举/快照/清理任一失败即早退，资料解析
+    /// 闸门停在关闭（同会话新导入永远「排队中」）、同步调度器停摆，崩溃
+    /// 残留的 running 行不翻行，直到进程重启或下一次成功重置。
+    #[test]
+    fn reset_failure_restores_the_materials_gate() {
+        // 装配与生产同口径：materials 与 learning 共用同一个 MaterialState
+        // （闸门是 Arc<AtomicBool>，统一恢复点走 learning.material_state()）
+        let guard = tempfile::tempdir().unwrap();
+        let path = guard.path().join("app.db");
+        let materials = crate::backend::materials::MaterialState::new(&path).unwrap();
+        let probe = materials.shared();
+        let providers = crate::backend::providers::ProviderState::for_tests().unwrap();
+        let learning = crate::backend::learning::LearningState::new(&path, &providers, &materials);
+        let app = tauri::test::mock_builder()
+            .manage(BackendState {
+                store: Mutex::new(Store::new(&path).unwrap()),
+                materials: materials.shared(),
+                providers: providers.shared(),
+                learning: learning.shared(),
+                agent: crate::backend::agent::AgentState::new(&path, &providers, &learning),
+                practice: crate::backend::practice::PracticeState::new(
+                    &path, &providers, &learning,
+                ),
+                review: crate::backend::review::ReviewState::new(&path, &learning),
+                knowledge: crate::backend::knowledge::KnowledgeState::new(
+                    &path, &providers, &materials,
+                ),
+                community: crate::backend::community::CommunityState::new(&path),
+                plugins: crate::backend::plugins::PluginState::new(&path).unwrap(),
+                sharing: crate::backend::sharing::SharingState::new(&learning),
+            })
+            .invoke_handler(tauri::generate_handler![reset_application])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        // 注入确定性失败：插件根路径换成普通文件——plugins::reset_files 的
+        // remove_dir_all 必然报错，重置在清库之后失败
+        let plugins_root = app.state::<BackendState>().plugins.root_for_tests();
+        std::fs::remove_dir_all(&plugins_root).unwrap();
+        std::fs::write(&plugins_root, b"not a directory").unwrap();
+        let error = ipc(&app, "reset_application", json!({})).unwrap_err();
+        assert_eq!(error["code"], "storage_failed", "{error}");
+        assert!(
+            probe.accepting_gate(),
+            "重置失败后资料解析闸门必须复位（决策 25：操作失败≠后台停机）"
+        );
     }
 
     // 65#6：被项目版本引用的资料删除须友好拒绝，不得静默 SET NULL 断链

@@ -1103,3 +1103,50 @@ fn image_original_keeps_its_recorded_extension_after_backup_restore() {
         .join(format!("{}.png", material.sha256));
     assert_eq!(std::fs::read(restored).unwrap(), bytes);
 }
+
+/// P-021：导出侧须与读侧同一组上限——清单 1 MiB、归档 20002 条。
+/// 导出侧原先无检查，文件条目多的备份「导出成功、预演与导入双双被拒」。
+#[test]
+fn export_rejects_backups_beyond_manifest_and_entry_limits() {
+    let error = super::archive::ensure_export_limits(1024 * 1024 + 1, 0).unwrap_err();
+    assert_eq!(error.code, "backup_manifest_too_large");
+    assert!(error.message.contains("1 MB"), "{}", error.message);
+    let error = super::archive::ensure_export_limits(16, 20_001).unwrap_err();
+    assert_eq!(error.code, "backup_too_many_files");
+    // 上限之内放行
+    assert!(super::archive::ensure_export_limits(1024 * 1024, 20_000).is_ok());
+}
+
+/// P-021：上限须在真实导出路径上生效——只测辅助函数不能证明 export
+/// 真的调用了检查：超限备份若仍写盘，日后预演与导入照样双双被拒。
+#[test]
+fn export_fails_before_writing_an_archive_whose_manifest_exceeds_the_limit() {
+    let _lock = crate::backend::sync::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let learning = LearningState::for_tests().unwrap();
+    let app = setup(&learning);
+    // 清单条目累积：资料行有记录而原件不在盘（缺失条目同样进清单）
+    let store = learning.store().unwrap();
+    let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+    let tx = store.conn.unchecked_transaction().unwrap();
+    for index in 1..=13_000i64 {
+        tx.execute(
+            "INSERT INTO materials (title, kind, size, sha256, status, created_at, updated_at) VALUES ('累积条目', 'txt', 0, ?1, 'ready', ?2, ?2)",
+            params![format!("{index:064x}"), timestamp],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+    drop(store);
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("too-large.dtbackup");
+    let error = ipc(
+        &app,
+        "export_full_backup",
+        json!({"destination": path.to_string_lossy()}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "backup_manifest_too_large", "{error}");
+    assert!(!path.exists(), "超限导出不得落盘备份文件");
+}

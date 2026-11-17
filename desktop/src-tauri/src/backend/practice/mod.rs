@@ -1326,6 +1326,66 @@ pub fn detail(state: &PracticeState, id: i64) -> Result<PracticeSetDetail> {
     })
 }
 
+/// P-010：评分请求标识 → 作答 id（practice-grade-{answer_id}-{attempt}）。
+/// 前缀由供应商域定义（providers::GRADED_REQUEST_PREFIX），练习域引用
+/// 同一常量，两处不会漂移。
+fn graded_answer_id(request_id: &str) -> Option<i64> {
+    let rest = request_id.strip_prefix(providers::GRADED_REQUEST_PREFIX)?;
+    rest.split_once('-')?.0.parse().ok()
+}
+
+/// P-010：主观评分的模型原始终回文本含逐项得分与总体反馈——反馈公开前
+/// 经 IPC 回传即等于提前泄题（deferred 练习与模拟考试的遮蔽口径见
+/// set_row/detail 的 reveal 判定）。按评分请求标识定位作答，按同一口径
+/// 判定反馈是否已公开；未公开时清空输出与推理文本。
+///
+/// 开库只发生在「模型请求已完成」时：作答行在模型请求完成之前不可能是
+/// done（主观评分写回发生在 stream_chat 返回 done 之后，
+/// practice/subjective.rs），进行中的评分请求必然尚未公开反馈。前端在
+/// 评分期间按 150ms 轮询本命令（同步命令，落在主线程），每次开库都要
+/// 重跑建表检查与 schema 指纹——热路径不再为此开库。
+pub(crate) fn mask_grading_output(
+    state: &PracticeState,
+    request: &mut providers::ProviderRequest,
+) -> Result<()> {
+    let Some(answer_id) = graded_answer_id(&request.request_id) else {
+        return Ok(());
+    };
+    // 进行中的评分请求：作答尚未判分（写回在模型请求完成之后），反馈
+    // 必然未公开——直接遮蔽，不开库
+    if request.status != "done" {
+        request.output.clear();
+        request.reasoning.clear();
+        return Ok(());
+    }
+    let store = state.store()?;
+    let row: Option<(String, String, String)> = store
+        .conn
+        .query_row(
+            "SELECT a.status, s.status, s.feedback_mode FROM practice_answers a JOIN practice_sets s ON s.id = a.set_id WHERE a.id = ?1",
+            params![answer_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((answer_status, set_status, feedback_mode)) = row else {
+        // 作答行已不存在（集合被删、行被清理）：没有可公开的反馈载体，
+        // 按未公开遮蔽（宁可少给，不可泄露）
+        request.output.clear();
+        request.reasoning.clear();
+        return Ok(());
+    };
+    // 反馈公开口径与 detail() 同源：hints 模式永不公开；集合完成
+    // （completed）或 immediate 模式公开；作答本身须已判分
+    let public = answer_status == "done"
+        && feedback_mode != "hints"
+        && (set_status == "completed" || feedback_mode == "immediate");
+    if !public {
+        request.output.clear();
+        request.reasoning.clear();
+    }
+    Ok(())
+}
+
 fn normalize(answer: &str) -> String {
     answer
         .split_whitespace()

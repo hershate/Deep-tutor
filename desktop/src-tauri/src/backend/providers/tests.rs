@@ -1983,6 +1983,130 @@ fn route_cancellation_wins_a_late_success_terminal() {
     assert_eq!(events[0].kind, "provider.route_cancelled");
 }
 
+/// P-019：请求异常路径的终态收尾——provider_requests 与 provider_route_runs
+/// 两张表的 running 行一并翻终态。原先只有 panic 路径收尾 provider_requests，
+/// 路由行无任何收尾：行永久悬挂（本会话内 get_provider_chat 恒为「运行中」、
+/// 同 id 重试被幂等短路），故障转移日志页永远显示「运行中」。
+#[test]
+fn abnormal_exit_closes_the_request_and_route_rows() {
+    let (app, state) = setup();
+    let timestamp = now().unwrap();
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO provider_requests (request_id, provider_id, model, status, output, attempts, created_at, updated_at) VALUES ('practice-grade-1-1', 1, 'test-model', 'running', '', 1, ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES ('practice-grade-1-1', 'practice', 'routing', 'running', 1, 'test-model', ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    let before = store.latest_event_id().unwrap();
+    drop(store);
+    fail_chat_incomplete(
+        app.handle(),
+        &state,
+        "practice-grade-1-1",
+        "failed",
+        &BackendError::new("provider_error", "上游中断"),
+    )
+    .unwrap();
+    let store = state.store().unwrap();
+    let request_status: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM provider_requests WHERE request_id = 'practice-grade-1-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let route_status: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM provider_route_runs WHERE request_id = 'practice-grade-1-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(request_status, "failed", "请求行不得停留在 running");
+    assert_eq!(route_status, "failed", "路由行不得停留在 running");
+    let events = store.events_since(before).unwrap().events;
+    let kinds: Vec<&str> = events.iter().map(|event| event.kind.as_str()).collect();
+    assert!(kinds.contains(&"provider.chat_failed"), "{kinds:?}");
+    assert!(kinds.contains(&"provider.route_failed"), "{kinds:?}");
+    drop(store);
+    // 收尾幂等：重复收尾不改写已落终态的行，也不再发事件
+    fail_chat_incomplete(
+        app.handle(),
+        &state,
+        "practice-grade-1-1",
+        "failed",
+        &BackendError::new("provider_error", "上游中断"),
+    )
+    .unwrap();
+    let store = state.store().unwrap();
+    let request_status: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM provider_requests WHERE request_id = 'practice-grade-1-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(request_status, "failed");
+    let events = store.events_since(before).unwrap().events;
+    assert_eq!(events.len(), 2, "重复收尾不得重复发事件：{events:?}");
+}
+
+/// P-019：panic 兜底路径同样收尾两张表——原先只翻 provider_requests，
+/// 路由行无终态，故障转移日志页永远显示「运行中」。
+#[test]
+fn panic_fallback_closes_the_request_and_route_rows() {
+    let (app, state) = setup();
+    let timestamp = now().unwrap();
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO provider_requests (request_id, provider_id, model, status, output, attempts, created_at, updated_at) VALUES ('practice-grade-1-2', 1, 'test-model', 'running', '', 1, ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES ('practice-grade-1-2', 'practice', 'routing', 'running', 1, 'test-model', ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    drop(store);
+    fail_chat_panicked(app.handle(), &state, "practice-grade-1-2").unwrap();
+    let store = state.store().unwrap();
+    let request_status: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM provider_requests WHERE request_id = 'practice-grade-1-2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let route_status: String = store
+        .conn
+        .query_row(
+            "SELECT status FROM provider_route_runs WHERE request_id = 'practice-grade-1-2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(request_status, "interrupted");
+    assert_eq!(route_status, "interrupted");
+}
+
 #[test]
 fn frontend_provider_secret_is_cleared_only_after_successful_save() {
     let source = include_str!("../../../../src/pages/ProviderHub.tsx");

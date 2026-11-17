@@ -8,7 +8,7 @@ pub mod usage;
 
 use super::commands::emit;
 use super::error::{BackendError, Result};
-use super::store::Store;
+use super::store::{BackendEvent, Store};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -980,6 +980,44 @@ pub fn purge_credentials(state: &ProviderState, ids: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// P-010：主观评分请求的标识前缀——练习域按
+/// `practice-grade-{answer_id}-{attempt}` 生成。评分模型的输出含逐项
+/// 得分与总体反馈，反馈公开前既不得经 IPC 回传，也不得随流式事件广播
+/// 给考生。前缀由本域定义、练习域引用同一常量。
+pub const GRADED_REQUEST_PREFIX: &str = "practice-grade-";
+
+/// 评分请求判定——标识前缀匹配即视为评分请求（练习域生成的标识唯一）。
+pub fn is_graded_request(request_id: &str) -> bool {
+    request_id.starts_with(GRADED_REQUEST_PREFIX)
+}
+
+/// P-010：评分请求的事件广播副本去掉模型原文——判分 JSON 含逐项得分与
+/// 总体反馈，广播给考生即等于提前公布答案。事件照常落库（供断线重建
+/// 与练习域解析），只在广播副本上去掉文本载荷并标记 masked。
+///
+/// 落库行保留原文是刻意的：provider_requests 的 output/reasoning 两列由
+/// 流式冲刷物化，两列皆空时靠事件重放补齐输出（本文件 chat()），练习域
+/// 也从同一份流结果解析判分 JSON——落库即抹原文会让这两条路径同时失去
+/// 数据。代价是 events 表（随备份导出）持有判分原文：当前生产无事件回放
+/// 通道（events_since 仅 #[cfg(test)]），原文不对前端可见；将来若开放
+/// 事件回放或把 events 纳入前端可见接口，必须先按 is_graded_request 遮蔽
+/// 评分请求的文本载荷，否则等于交卷前泄题。
+fn broadcast_event(event: &BackendEvent, request_id: &str) -> BackendEvent {
+    if !is_graded_request(request_id) {
+        return event.clone();
+    }
+    let mut masked = event.clone();
+    let mut payload = masked.payload.as_object().cloned().unwrap_or_default();
+    payload.remove("text");
+    payload.remove("output");
+    // 终态事件的 reasoning 是模型推理原文（增量事件里是布尔标记）——
+    // 同样属于判分信息，不随广播外泄
+    payload.remove("reasoning");
+    payload.insert("masked".into(), Value::Bool(true));
+    masked.payload = Value::Object(payload);
+    masked
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderRequest {
@@ -1289,14 +1327,33 @@ pub fn stream_chat_with_policy<R: Runtime>(
     let Some(_guard) = guard else {
         return chat(state, request_id);
     };
-    let store = state.store()?;
+    // P-019：begin_chat 已把行落为 running——此后的取库失败、取消登记缺失
+    // 原先直接返回 Err，行永久悬挂（本会话内 get_provider_chat 恒为
+    // 「运行中」，同 id 重试被幂等短路）。失败一律先落终态再返回
+    let store = match state.store() {
+        Ok(store) => store,
+        Err(error) => {
+            let _ = fail_request_row(app, state, request_id, "failed", &error);
+            return Err(error);
+        }
+    };
     let cancel = state
         .chat_cancels
         .lock()
-        .map_err(|_| BackendError::new("store_unavailable", "模型请求状态不可用"))?
-        .get(request_id)
-        .cloned()
-        .ok_or_else(|| BackendError::new("request_active", "请求状态已改变"))?;
+        .map_err(|_| BackendError::new("store_unavailable", "模型请求状态不可用"))
+        .and_then(|cancels| {
+            cancels
+                .get(request_id)
+                .cloned()
+                .ok_or_else(|| BackendError::new("request_active", "请求状态已改变"))
+        });
+    let cancel = match cancel {
+        Ok(cancel) => cancel,
+        Err(error) => {
+            let _ = fail_request_row(app, state, request_id, "failed", &error);
+            return Err(error);
+        }
+    };
     let started = Instant::now();
     let result = get(state, provider_id)
         .and_then(|profile| {
@@ -1349,7 +1406,7 @@ pub fn stream_chat_with_policy<R: Runtime>(
                         "provider.chat_delta",
                         json!({"requestId": request_id, "text": buffered_text, "reasoning": false}),
                     )?;
-                    emit(app, &event);
+                    emit(app, &broadcast_event(&event, request_id));
                     buffered_text.clear();
                 }
                 if !buffered_reasoning.is_empty() {
@@ -1358,7 +1415,7 @@ pub fn stream_chat_with_policy<R: Runtime>(
                         "provider.chat_delta",
                         json!({"requestId": request_id, "text": buffered_reasoning, "reasoning": true}),
                     )?;
-                    emit(app, &event);
+                    emit(app, &broadcast_event(&event, request_id));
                     buffered_reasoning.clear();
                 }
                 // 125#8：物化至今的部分输出（UPDATE 限 running 行，终态
@@ -1461,7 +1518,7 @@ pub fn stream_chat_with_policy<R: Runtime>(
         json!({"requestId": request_id, "status": status, "output": output, "reasoning": reasoning, "toolCalls": tool_calls, "usage": usage, "finishReason": finish_reason, "attempts": attempts, "latencyMs": latency, "error": error}),
     )?;
     tx.commit()?;
-    emit(app, &event);
+    emit(app, &broadcast_event(&event, request_id));
     chat(state, request_id)
 }
 
@@ -1495,20 +1552,22 @@ pub(crate) fn cancel_direct_chat(state: &ProviderState, request_id: &str) -> Res
     Ok(())
 }
 
-/// 106#7：流式请求闭包 panic 时把 provider_requests 行落终态——原先
-/// spawn_blocking 的 JoinError 仅映射 task_join_failed，行停留 running，
-/// 本会话内 get_provider_chat 永显「运行中」（其余九域的 catch_unwind
-/// → task_panicked 终态在 providers 域缺席）；仅翻转仍处 running 的行
-pub fn fail_chat_panicked<R: Runtime>(
+/// P-019：直连路径的异常出口——把仍处 running 的 provider_requests 行翻
+/// 终态。begin_chat 已把行落为 running，原先此后的取库失败、取消登记
+/// 缺失直接返回 Err，行永久悬挂（本会话内 get_provider_chat 恒为
+/// 「运行中」，同 id 重试被幂等短路）。终态先落盘再发事件。
+fn fail_request_row<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
     request_id: &str,
+    status: &str,
+    error: &BackendError,
 ) -> Result<()> {
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
     let changed = tx.execute(
-        "UPDATE provider_requests SET status = 'interrupted', error_code = 'task_panicked', error_message = '模型请求异常终止，请重试', updated_at = ?1 WHERE request_id = ?2 AND status = 'running'",
-        params![now()?, request_id],
+        "UPDATE provider_requests SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE request_id = ?5 AND status = 'running'",
+        params![status, error.code, error.message, now()?, request_id],
     )?;
     if changed == 0 {
         return Ok(());
@@ -1516,11 +1575,78 @@ pub fn fail_chat_panicked<R: Runtime>(
     let event = Store::event(
         &tx,
         "provider.chat_failed",
-        json!({"requestId": request_id, "status": "interrupted", "error": {"code": "task_panicked", "message": "模型请求异常终止，请重试"}}),
+        json!({"requestId": request_id, "status": status, "error": error}),
     )?;
     tx.commit()?;
     emit(app, &event);
     Ok(())
+}
+
+/// P-019：请求异常路径的终态收尾——provider_requests 与 provider_route_runs
+/// 两张表的 running 行一并翻终态。原先只在 panic 路径收尾 provider_requests，
+/// 路由行无任何收尾：行永久悬挂，故障转移日志页永远显示「运行中」，
+/// 同 id 重试被幂等短路，用户无法清理该幽灵条目。终态先落盘再发事件。
+pub fn fail_chat_incomplete<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    request_id: &str,
+    status: &str,
+    error: &BackendError,
+) -> Result<()> {
+    let store = state.store()?;
+    let tx = store.conn.unchecked_transaction()?;
+    let timestamp = now()?;
+    let route_changed = tx.execute(
+        "UPDATE provider_route_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE request_id = ?5 AND status IN ('running', 'cancelling')",
+        params![status, error.code, error.message, timestamp, request_id],
+    )?;
+    let request_changed = tx.execute(
+        "UPDATE provider_requests SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE request_id = ?5 AND status = 'running'",
+        params![status, error.code, error.message, timestamp, request_id],
+    )?;
+    if route_changed == 0 && request_changed == 0 {
+        return Ok(());
+    }
+    let mut events = Vec::new();
+    if route_changed > 0 {
+        events.push(Store::event(
+            &tx,
+            "provider.route_failed",
+            json!({"requestId": request_id, "status": status, "error": error}),
+        )?);
+    }
+    if request_changed > 0 {
+        events.push(Store::event(
+            &tx,
+            "provider.chat_failed",
+            json!({"requestId": request_id, "status": status, "error": error}),
+        )?);
+    }
+    tx.commit()?;
+    for event in events {
+        emit(app, &event);
+    }
+    Ok(())
+}
+
+/// 106#7：流式请求闭包 panic 时把 provider_requests 行落终态——原先
+/// spawn_blocking 的 JoinError 仅映射 task_join_failed，行停留 running，
+/// 本会话内 get_provider_chat 永显「运行中」（其余九域的 catch_unwind
+/// → task_panicked 终态在 providers 域缺席）；仅翻转仍处 running 的行
+/// P-019：同一请求在 provider_route_runs 中的 running 行一并收尾——
+/// 路由行原先无任何收尾，故障转移日志页永远显示「运行中」
+pub fn fail_chat_panicked<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &ProviderState,
+    request_id: &str,
+) -> Result<()> {
+    fail_chat_incomplete(
+        app,
+        state,
+        request_id,
+        "interrupted",
+        &BackendError::new("task_panicked", "模型请求异常终止，请重试"),
+    )
 }
 
 pub fn recover_chats<R: Runtime>(app: &AppHandle<R>, state: &ProviderState) -> Result<()> {

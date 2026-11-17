@@ -431,9 +431,61 @@ fn candidate_url(base: &Url, value: &str) -> Result<Url> {
     resolve(url, cfg!(test)).map(|target| target.url)
 }
 
+/// 检索词的字节上限——search 的入参契约（1 到 300 字节）
+const MAX_QUERY_BYTES: usize = 300;
+/// 检索词在搜索地址中的百分号编码长度上限——搜索地址整体不得超过 900
+/// 字节（resolve 的地址长度校验），端点与 kl 参数已占去数十字节。
+/// 中文一字编码后 9 字节，只按字节上限截断仍会超出地址长度校验。
+const MAX_QUERY_ENCODED_BYTES: usize = 700;
+
+/// 检索词截断——按字符边界截到检索层可接受的形态，并回报是否发生截断。
+///
+/// 使用方只有学习流水线的资源检索（learning/pipeline.rs）：学习目标允许
+/// 1000 字节，原样作检索词会被检索层拒绝（方案永久降级且警告指向
+/// 「检索词」而非目标过长），截断结果连同「目标过长」说明一并写进方案
+/// 理由。
+///
+/// Agent 工具的 web.search 不在此列（agent/tools.rs）：那里的检索词是模型
+/// 自己给出的查询词，超长时检索层返回类型化错误 invalid_search_query，
+/// 工具执行把它转成 {"status":"failed"} 回给模型由其自行改写——它不是用户
+/// 输入派生的检索词，不存在「用户目标被静默截断」的问题。
+pub fn truncate_query(query: &str) -> (String, bool) {
+    let trimmed = query.trim();
+    let mut text = trimmed;
+    if text.len() > MAX_QUERY_BYTES {
+        let mut end = MAX_QUERY_BYTES;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text = &text[..end];
+    }
+    while !text.is_empty() && encoded_query_bytes(text) > MAX_QUERY_ENCODED_BYTES {
+        let mut end = text.len() - 1;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text = &text[..end];
+    }
+    let text = text.trim().to_string();
+    let truncated = text != trimmed;
+    (text, truncated)
+}
+
+/// 检索词在查询串中的百分号编码长度——用同一套 url 编码规则测量，避免
+/// 与实际拼出的搜索地址不一致。
+fn encoded_query_bytes(text: &str) -> usize {
+    let Ok(mut url) = Url::parse("http://localhost/") else {
+        return text.len().saturating_mul(3);
+    };
+    url.query_pairs_mut().append_pair("q", text);
+    url.as_str()
+        .len()
+        .saturating_sub("http://localhost/?q=".len())
+}
+
 pub fn search(query: &str, limit: usize) -> Result<Value> {
     let query = query.trim();
-    if query.is_empty() || query.len() > 300 || !(1..=5).contains(&limit) {
+    if query.is_empty() || query.len() > MAX_QUERY_BYTES || !(1..=5).contains(&limit) {
         return Err(BackendError::new(
             "invalid_search_query",
             "检索词须为 1 到 300 字节，结果数须为 1 到 5",
@@ -457,6 +509,10 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
     let parsed = html::parse(&document.body, true)?;
     let mut results = Vec::new();
     let mut rejected = Vec::new();
+    // P-017：说明性 note 与失败明细分列——rejected 原先混装两类条目，
+    // 「预算耗尽，剩余候选已省略」被截断逻辑挤掉后又被「另有 N 个候选
+    // 验证失败」顶替，失实的失败计数直达用户（省略不是失败）
+    let mut notes: Vec<String> = Vec::new();
     let mut seen = BTreeSet::new();
     // 10#20：候选普遍不可达时不再无限串行抓取（单次 12s 超时 × 全部候选
     // 会阻塞分钟级且无中间事件），最多尝试验证 10 个候选
@@ -476,7 +532,7 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
             break;
         }
         if started.elapsed() >= SEARCH_BUDGET {
-            rejected.push(json!({"note": "检索已达 60 秒总额预算，剩余候选已省略"}));
+            notes.push("检索已达 60 秒总额预算，剩余候选已省略".into());
             break;
         }
         fetches += 1;
@@ -492,10 +548,12 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
         }
     }
     // 10#20：rejected 明细只保留前 5 条，其余以计数说明，避免工具结果无上限膨胀
+    // P-017：省略说明进 notes，不再占用 rejected 的失败明细位——原先
+    // 截断会删掉刚写入的预算说明并换成「另有 N 个候选验证失败」
     if rejected.len() > 5 {
         let omitted = rejected.len() - 5;
         rejected.truncate(5);
-        rejected.push(json!({"note": format!("另有 {omitted} 个候选验证失败，已省略")}));
+        notes.push(format!("另有 {omitted} 个候选验证失败，已省略"));
     }
     if results.is_empty() {
         return Err(BackendError::new(
@@ -503,5 +561,7 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
             "公开检索没有返回可验证的网页结果，未生成替代链接",
         ));
     }
-    Ok(json!({"query":query,"provider":"DuckDuckGo HTML","results":results,"rejected":rejected}))
+    Ok(
+        json!({"query":query,"provider":"DuckDuckGo HTML","results":results,"rejected":rejected,"notes":notes}),
+    )
 }

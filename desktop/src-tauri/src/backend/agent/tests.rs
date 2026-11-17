@@ -197,6 +197,7 @@ fn prepare() -> (
             provider_id: None,
             milestone: None,
             milestone_date: None,
+            intensity: None,
         },
     )
     .unwrap();
@@ -1349,6 +1350,65 @@ fn web_tools_use_real_http_persist_results_and_replay_without_another_request() 
     let failed = tools::execute(app.handle(), &state, run_id, &session, &failed_call, 0).unwrap();
     assert_eq!(failed["status"], "failed");
     assert_eq!(failed["error"]["code"], "invalid_web_url");
+}
+
+// P-015 边界：Agent 工具的检索词不由用户输入派生，超长时不做静默截断——
+// 检索层返回类型化错误 invalid_search_query，工具执行把它转成失败结果交回
+// 模型自行改写（web::truncate_query 只服务学习流水线的目标派生检索词，
+// 见 web/mod.rs 的说明）。
+#[test]
+fn web_search_tool_reports_typed_error_for_an_overlong_query() {
+    let (app, state) = setup();
+    let store = state.store().unwrap();
+    let timestamp = now().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO agent_sessions (title, plan_id, provider_id, budget_tokens, created_at, updated_at) VALUES ('检索词边界会话', 'plan-1', 'p1', 16000, ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    let session_id = store.conn.last_insert_rowid();
+    store
+        .conn
+        .execute(
+            "INSERT INTO agent_runs (session_id, status, created_at, updated_at) VALUES (?1, 'running', ?2, ?2)",
+            params![session_id, timestamp],
+        )
+        .unwrap();
+    let run_id = store.conn.last_insert_rowid();
+    let session = AgentSession {
+        id: session_id,
+        title: "检索词边界会话".into(),
+        plan_id: Some("plan-1".into()),
+        provider_id: "p1".into(),
+        budget_tokens: 16000,
+        output_tokens_used: 0,
+        status: "active".into(),
+        messages: vec![],
+        runs: vec![],
+        artifacts: vec![],
+        approvals: vec![],
+        memory: vec![],
+        updated_at: timestamp.clone(),
+    };
+    let call = ToolCall {
+        id: "web-search-overlong".into(),
+        name: "web.search".into(),
+        arguments: json!({"query": "长".repeat(200), "limit": 1}).to_string(),
+    };
+    let result = tools::execute(app.handle(), &state, run_id, &session, &call, 0).unwrap();
+    assert_eq!(result["status"], "failed");
+    assert_eq!(result["error"]["code"], "invalid_search_query");
+    let persisted: String = store
+        .conn
+        .query_row(
+            "SELECT result_json FROM agent_tool_calls WHERE id = 'web-search-overlong'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(persisted.contains("invalid_search_query"));
 }
 
 #[test]

@@ -72,6 +72,13 @@ impl PluginState {
             .join("plugins")
     }
 
+    /// P-012 测试用：重置失败路径的用例要把插件根路径换成普通文件来注入
+    /// 确定性失败（reset_files 的 remove_dir_all 必然报错）。
+    #[cfg(test)]
+    pub fn root_for_tests(&self) -> PathBuf {
+        self.root()
+    }
+
     #[cfg(test)]
     pub fn for_tests() -> Result<Self> {
         let guard = tempfile::tempdir()?;
