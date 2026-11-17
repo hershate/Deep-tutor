@@ -14,7 +14,7 @@
 | `src-tauri/tauri.conf.json` | 应用与 NSIS 打包配置 |
 | `src-tauri/capabilities/` | WebView 权限声明（opener/dialog 等 scope 强制层） |
 | `src-tauri/assets/` | 8 个 Skill 资产目录（各 `SKILL.md` 经 `include_str!` 嵌入二进制；各 README.md 及 ppt-slide-builder 的 templates/references 仅仓库存档，见 NOTICE） |
-| `scripts/` | 构建辅助（`tauri.mjs` 复制安装包并双向 SHA-256 校验） |
+| `scripts/` | 构建辅助（`tauri.mjs` 复制安装包、双向 SHA-256 校验并清理旧版本安装包；`artifacts.mjs` 为发布与清理逻辑，`build-test.mjs`/`frontend-test.mjs` 为 Node 回归测试） |
 
 `dist/`、`node_modules/`、`src-tauri/target/`、`src-tauri/gen/` 是可重建产物，不入库；`src-tauri/licenses/` 为构建时收集的第三方许可（根 .gitignore 覆盖），同样不入库。
 

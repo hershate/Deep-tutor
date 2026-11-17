@@ -8,11 +8,11 @@
 
 | 命令 | 实际动作 |
 |---|---|
-| `make lint` | Rust 格式检查、六处版本一致性、TypeScript/Vite 生产构建、npm runtime 与 dev 双口径审计 |
-| `make test` | 在 `desktop/src-tauri` 执行 `cargo test --release --locked -- --test-threads=1` |
+| `make lint` | Rust 格式检查、六处版本一致性、架构文档命令指标核对、TypeScript/Vite 生产构建、npm runtime 与 dev 双口径审计 |
+| `make test` | 先跑 Node 自带的构建脚本与前端回归测试，再在 `desktop/src-tauri` 执行 `cargo test --release --locked -- --test-threads=1` |
 | `make dev-smoke` | 检查 43198 端口，启动 strictPort Vite，断言应用挂载标记，终止自身进程树并清理该端口残留监听 |
 | `make check` | `lint + test + dev-smoke` |
-| `make build` | 先执行 lint，再收集第三方许可、构建 NSIS，将安装包复制到根 `dist/` 并双向校验 SHA-256 |
+| `make build` | 先执行 lint，再收集第三方许可、构建 NSIS，将安装包复制到根 `dist/` 并双向校验 SHA-256，最后清理旧版本安装包 |
 | `make hooks` | 将 Git hooks 路径设为 `.githooks`；pre-push 执行 `make check` |
 
 `npm run tauri build -- -- --locked` 与 `make build` 使用相同的 `beforeBuildCommand` 和许可收集链。`--locked` 传递给 Cargo，锁文件不一致时构建失败。
@@ -28,23 +28,27 @@ flowchart LR
     A[push main / PR / 手动] --> B[Windows + Node 24 + Rust 1.99.1]
     B --> C[npm ci]
     C --> D[tsc --noEmit]
-    D --> E[dev server smoke]
+    D --> D1[前端单测]
+    D1 --> D2[构建脚本单测]
+    D2 --> E[dev server smoke]
     E --> F[npm audit 双口径]
     F --> G[cargo fmt --check]
     G --> H[cargo test release locked 串行]
     H --> I[版本校验]
-    I --> J[许可收集 + NSIS build]
+    I --> I2[架构文档指标核对]
+    I2 --> J[许可收集 + NSIS build]
     J --> K[--verify-native]
     K --> L[上传 exe 与 sha256]
 ```
 
-CI 不部署应用，也不创建 GitHub Release。`dist/` 只保留当前安装包及摘要；推送和发布由用户决定。
+CI 不部署应用，也不创建 GitHub Release。构建脚本在复制安装包后清理 `dist/` 与 NSIS bundle 目录中的旧版本安装包，`dist/` 只保留当前安装包及摘要；推送和发布由用户决定。
 
 ## 2. 验证策略
 
 ### 2.1 测试组织
 
 - 当前有 265 个 Rust `#[test]`，使用 release、锁定依赖和 `--test-threads=1` 串行执行。共享进程状态包括检索端点、迁移计数和同步测试开关。
+- Node 测试通道两条：`scripts/frontend-test.mjs`（前端 Markdown 与主题缓存等）与 `scripts/build-test.mjs`（构建脚本：安装包发布顺序与旧版本清理），均用 Node 自带 test runner，不新增依赖，`make test` 与 CI 各执行一次。
 - 每域测试与实现同目录；providers、security、practice、sync 等按协议、守卫、考试、主观题、变式或版本拆分。
 - `tauri::test::MockRuntime` 驱动真实命令 IPC；SQLite 使用真实临时数据库；系统密钥库在测试中使用内存实现。
 - 本机回环 `TestServer` 验证 LLM、WebDAV、S3 和网页的实际 HTTP 请求、状态码、用量与错误映射，不把协议夹具称为真实供应商验收。
@@ -242,7 +246,7 @@ JWT 使用 HS256 和 7 天有效期；单活动会话在签发时撤销旧会话
 
 ## 8. 命令与事件一致性
 
-- `main.rs` 注册 188 个命令，25 个前端客户端文件直接调用其中 173 个；命令名和 camelCase 参数由 IPC 测试与 TypeScript 类型共同约束。
+- `main.rs` 注册 188 个命令，前端直接调用 188 个（25 个后端客户端文件中 22 个含直接 `invoke(` 调用点，其余 3 个经 `client.ts` 封装）；命令名和 camelCase 参数由 IPC 测试与 TypeScript 类型共同约束。
 - `read_shared_plan_package`（按分享包字符串读取）只有客户端封装 `sharingBackend.readPackage`，没有页面调用方；SharedPlan 页实际只调用 `read_shared_plan`（令牌）与 `read_shared_plan_file`（文件路径）。
 - `events_since` 仅在 `cfg(test)` 构建中保留；`stream_provider_chat` 和 `get_agent_run` 已删除，当前读取与执行分别使用 `route_provider_chat` 和 `get_agent_session`。`fetch_webpage` IPC 壳已删除。
 - 所有后端事件使用 `{id,kind,payload,createdAt}` 和唯一 `backend://event` 通道。

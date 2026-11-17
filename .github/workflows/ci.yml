@@ -44,6 +44,11 @@ jobs:
       # 分区的回归只靠人工探针；本步用 Node 自带 test runner 兜底，不新增依赖
       - name: Frontend unit tests
         run: node scripts/frontend-test.mjs
+      # P-154：构建脚本回归测试此前只挂在本地 make test，CI 无检出通道——
+      # 旧版本安装包清理逻辑回归时 CI 不会报警，且 CI 上传 dist/*.exe 产物，
+      # 多版本安装包并存正是该逻辑要消除的误取场景
+      - name: Build script unit tests
+        run: node scripts/build-test.mjs
       # 117#5：dev server 冒烟入 CI——116#3 门禁原先仅本地 make check 生效，
       # vite 配置类回归（111#2 型：build 绿但 dev 403）在 CI 侧无检出通道；
       # 脚本自定位到 desktop，GitHub windows runner 的 Git Bash 可跑
@@ -63,6 +68,10 @@ jobs:
       - name: Check versions
         # 15#9/C-1：版本一致性检查进 CI，PR 路径不再只靠本地 make lint
         run: node ../scripts/check-versions.mjs
+      - name: Check architecture doc metrics
+        # P-152/P-153：架构文档的命令数与 §7 分组表此前靠人工誊写，数字漂移
+        # 无检出通道；此处与源码机械比对（注册命令、前端调用点、分组计数）
+        run: node ../scripts/check-doc-metrics.mjs
       # 许可收集由 beforeBuildCommand（npm run build:bundle，49#1）执行，
       # 与本地 make build / README 的 npm run tauri build 同一链路
       - name: Build NSIS installer
