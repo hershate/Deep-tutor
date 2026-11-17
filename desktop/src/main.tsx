@@ -7,23 +7,33 @@ import 'katex/dist/katex.min.css'
 // P-128：mhchem 扩展不是 KaTeX 核心的一部分，必须单独引入——否则
 // \ce{} / \pu{} 会被当成未定义命令按错误色渲染（KaTeX contrib README 明示）
 import 'katex/contrib/mhchem'
+// P-167：copy-tex 扩展改写复制行为——未引入时选中已渲染公式复制得到的是
+// 视觉层与无障碍层拼接的重复乱码（两层各含一份公式内容）；该扩展把
+// 复制结果替换为带定界符的 LaTeX 源码（contrib/copy-tex README 明示）
+import 'katex/contrib/copy-tex'
 import { applyCachedTheme } from './theme'
+import { readableErrorMessage } from './errors'
 
 // 顶层错误边界（信息项 14）：任一组件渲染抛错时 React 会卸载整树导致
 // 白屏且无恢复入口——这里兜底渲染错误说明与重载按钮，用户不必重启应用
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { message: string }
+  { failed: boolean; message: string }
 > {
-  state = { message: '' }
+  state = { failed: false, message: '' }
   static getDerivedStateFromError(error: unknown) {
-    return { message: error instanceof Error ? error.message : String(error) }
+    // P-130：生产构建的 React 内部错误是压缩串，原样展示只剩英文错误码
+    // 评审 NEW：失败标志独立于文案——原先用 message 真值判定是否渲染兜底页，
+    // 错误描述为空串时状态仍是空值，边界重新渲染子树并再次抛错；该边界已捕获
+    // 过（react-dom 18.3.1 throwException 跳过 DidCapture 已置位的边界），
+    // 错误会继续上抛到根，兜底页不出现、整树被卸载成白屏
+    return { failed: true, message: readableErrorMessage(error) }
   }
   componentDidCatch(error: unknown) {
     console.error('界面渲染失败', error)
   }
   render() {
-    if (this.state.message) {
+    if (this.state.failed) {
       return <div className="page-loading" role="alert" style={{ minHeight: '100vh' }}>
         <h1>界面遇到问题</h1>
         <p>{this.state.message}</p>

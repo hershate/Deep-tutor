@@ -1,8 +1,8 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, LoaderCircle, Map, Menu, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { Bell, Blocks, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Cloud, Command, FileText, FolderKanban, Home, Layers3, LibraryBig, ListChecks, LoaderCircle, Map, Menu, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Target, TimerReset, TrendingUp, Users, X, Zap } from './components/icons'
+import type { LucideIcon } from './components/icons'
 import Dashboard from './pages/Dashboard'
 import Plan from './pages/Plan'
 import KnowledgeMap from './pages/KnowledgeMap'
@@ -31,6 +31,7 @@ import { communityBackend } from './backend/community'
 import { importMaterialPaths, summarizeMaterialImport } from './backend/materialImport'
 import { clampToBytes } from './limits'
 import { localId } from './ids'
+import { readableErrorMessage } from './errors'
 import { applyAccountTheme, cacheTheme } from './theme'
 import { reportsBackend } from './backend/reports'
 import type { FocusSession } from './backend/reports'
@@ -253,7 +254,11 @@ export default function App() {
     }
     void load().catch(error => { if (active) { setHomeSummaryError(backendErrorMessage(error)); reportBackendError(error) } })
     void onBackendEvent(event => {
-      if (active && ['state.changed', 'plan.', 'study.checkin', 'security.session_started', 'focus.', 'practice.', 'review.'].some(prefix => event.kind.startsWith(prefix))) void load().catch(error => { if (active) { setHomeSummaryError(backendErrorMessage(error)); reportBackendError(error) } })
+      // P-028：补 study.progress_changed——勾选阶段完成只发这一条事件
+      // （后端 learning/knowledge.rs 的 set_reading_progress），它既不改 kv
+      // 集合也不发 state.changed，原前缀表漏配导致「今日」页的下一站目标
+      // 持续指向已完成阶段，直到无关事件偶然命中前缀才自愈
+      if (active && ['state.changed', 'plan.', 'study.checkin', 'study.progress_changed', 'security.session_started', 'focus.', 'practice.', 'review.'].some(prefix => event.kind.startsWith(prefix))) void load().catch(error => { if (active) { setHomeSummaryError(backendErrorMessage(error)); reportBackendError(error) } })
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     return () => { active = false; stop?.() }
   }, [ready, loginRequired, summaryReload])
@@ -375,7 +380,10 @@ export default function App() {
         // 返回应用后凭空弹出搜索层，补 page !== 'shared'
         if (!focusOpen && !modal && !hasOpenModal() && page !== 'shared') { event.preventDefault(); setModal('search') }
       }
-      if (event.key === 'Escape') {
+      // P-072：IME 组字期间的 Esc 用于取消候选词，不得当作关闭手势——
+      // Chromium 组字时派发的 keydown 带 isComposing=true（Enter 路径早有
+      // 同款守卫），漏判会把弹层/专注层连同半填内容一起收起
+      if (event.key === 'Escape' && !event.isComposing) {
         // 24#2：Esc 分层仲裁——Modal（含确认框）打开时交给弹层栈处理最顶层，
         // 专注层次之，最后才收起抽屉/移动导航/共享页，一次 Esc 只关一层。
         // 133#7：弹层判定改用 MODAL_STACK 真源——原先 .overlay 类名查询与
@@ -612,22 +620,26 @@ function LoaderMark() { return <span className="loader-mark" aria-hidden="true" 
 // 其余页面与全部未持久化本地 UI 状态（社区回复草稿、快速记录半填内容）一并
 // 丢失，只剩整应用错误页；此处只替换当前页，侧栏导航保持可用。key={page}
 // 使切页即换新边界实例——离开出错页自动恢复，不带错误态跨页
-class PageErrorBoundary extends Component<{ children: ReactNode }, { message: string }> {
-  state = { message: '' }
+class PageErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean; message: string }> {
+  state = { failed: false, message: '' }
   static getDerivedStateFromError(error: unknown) {
-    return { message: error instanceof Error ? error.message : String(error) }
+    // P-130：生产构建的 React 内部错误是压缩串，原样展示只剩英文错误码
+    // 评审 NEW：失败标志独立于文案——用 message 真值判定是否渲染兜底页时，
+    // 错误描述为空串则状态仍为空值，边界重新渲染子树并再次抛错，本页兜底页
+    // 不出现，错误继续上抛到顶层边界（整应用错误页）
+    return { failed: true, message: readableErrorMessage(error) }
   }
   componentDidCatch(error: unknown) {
     console.error('页面渲染失败', error)
   }
   render() {
-    if (this.state.message) {
+    if (this.state.failed) {
       return <div className="page-loading" role="alert" style={{ minHeight: '60vh' }}>
         <h1>本页遇到问题</h1>
         <p>{this.state.message}</p>
         <p>其他页面不受影响，可从左侧导航离开；重试不清除已保存的数据。</p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-          <Button variant="secondary" onClick={() => this.setState({ message: '' })}>重试本页</Button>
+          <Button variant="secondary" onClick={() => this.setState({ failed: false, message: '' })}>重试本页</Button>
           <Button variant="ghost" onClick={() => window.location.reload()}>重新加载应用</Button>
         </div>
       </div>
@@ -739,6 +751,11 @@ function SearchLayer({ open, onClose, onOpenResult }: {
   }, [query])
   useEffect(() => { setActiveIndex(0) }, [results])
   const openResult = (result: SearchResult) => { setQuery(''); onOpenResult(result) }
+  // P-161：↑↓ 移动的高亮原先只有视觉底色（.active），读屏既不知道当前
+  // 选中项，Enter 打开的目标也不可预知。按 ARIA 组合框模式补齐——
+  // 输入框 role=combobox + aria-activedescendant，结果容器 role=listbox，
+  // 每条结果 role=option + aria-selected；焦点仍留在输入框
+  const activeResult = results[activeIndex]
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (!results.length) return
     // 68#3：IME 组字期间 ↑↓ 用于选候选词，不挪动结果高亮（Enter 已有同款守卫）
@@ -748,6 +765,8 @@ function SearchLayer({ open, onClose, onOpenResult }: {
     else if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); openResult(results[activeIndex] ?? results[0]) }
   }
   return <Modal open={open} onClose={() => { onClose(); setQuery('') }} title="全局搜索">
-    <div className="command-search"><Search size={20} /><input autoFocus aria-label="全局搜索" value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} onKeyDown={onKeyDown} placeholder="输入页面、笔记、任务或知识节点…" /></div><div className="command-results">{/* 120#12：结果数变化对读屏可见（焦点留在输入框，↑↓/Enter 键盘导航可发现）。121#10：live region 常驻只变文本——region 与内容同挂载的首播（0→N）常被读屏静默；空查询（quickPages 快捷入口）不播计数 */}<span className="visually-hidden" aria-live="polite">{query.trim() ? `${results.length} 条结果，↑↓ 选择，Enter 打开` : ''}</span>{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} className={index === activeIndex ? 'active' : ''} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span>↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案、任务、项目与知识节点；↑↓ 选择、Enter 打开、Esc 关闭</div>
+    <div className="command-search"><Search size={20} /><input autoFocus role="combobox" aria-label="全局搜索" aria-expanded={results.length > 0} aria-controls="global-search-results" aria-autocomplete="list" aria-activedescendant={activeResult ? `global-search-option-${activeIndex}` : undefined} value={query} onChange={e => setQuery(clampToBytes(e.target.value, 200))} onKeyDown={onKeyDown} placeholder="输入页面、笔记、任务或知识节点…" /></div>{/* 120#12：结果数变化对读屏可见（焦点留在输入框，↑↓/Enter 键盘导航可发现）。121#10：live region 常驻只变文本——region 与内容同挂载的首播（0→N）常被读屏静默；空查询（quickPages 快捷入口）不播计数。P-161：补播当前选中项——aria-activedescendant 并非所有读屏都播报 */}
+    <span className="visually-hidden" aria-live="polite">{query.trim() ? `${results.length} 条结果，↑↓ 选择，Enter 打开${activeResult ? `，当前选中「${activeResult.title}」` : ''}` : ''}</span>
+    <div className="command-results" id="global-search-results" role={results.length ? 'listbox' : undefined} aria-label="搜索结果">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} id={`global-search-option-${index}`} role="option" aria-selected={index === activeIndex} className={index === activeIndex ? 'active' : ''} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><SearchResultIcon kind={result.kind} /><div><strong><Highlight text={result.title} query={query} /></strong><span>{result.subtitle}</span></div><span aria-hidden="true">↵</span></button>) : <div className="search-empty" role={error ? 'alert' : undefined}>{searching ? '正在检索真实工作区…' : error || '没有找到匹配结果，请尝试其他关键词。'}</div>}</div><div className="command-hint"><Command size={14} />支持搜索功能、笔记、资料、方案、任务、项目与知识节点；↑↓ 选择、Enter 打开、Esc 关闭</div>
   </Modal>
 }
