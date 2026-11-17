@@ -38,3 +38,17 @@ export type Project = {
   planId?: string | null
   milestones: Milestone[]
 }
+
+// 150#7：方案生成页的输入草稿——「前往模型接入中心」会离开本页，
+// 组件本地 state 随之丢失（目标/基础/时长/日期/里程碑与资料勾选全清）。
+// 由 App 侧草稿槽持有，离页再回来时按此恢复
+export type GeneratorDraft = {
+  step: number
+  selectedIds: number[]
+  goal: string
+  level: string
+  minutes: number
+  deadline: string
+  milestone: string
+  milestoneDate: string
+}

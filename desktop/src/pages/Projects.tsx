@@ -81,8 +81,23 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     }
     void load()
     const throttledFetch = deltaThrottle()
+    // 150#5：资料列表跟随 material.* 事件刷新——全局拖放导入是全窗口入口，
+    // 项目页驻留期间导入并解析完成的资料原先不进「关联已解析资料」下拉
+    // （materials 只在 load() 里拉一次，而 load 不监听 material.*）
+    const materialsSeq = { current: 0 }
+    const refreshMaterials = async () => {
+      const ticket = ++materialsSeq.current
+      try {
+        const allMaterials = await backend.listMaterials()
+        if (!active || ticket !== materialsSeq.current) return
+        setMaterials(allMaterials.filter(item => ['parsed', 'degraded'].includes(item.status) && item.textLength > 0))
+      } catch (cause) { if (active && ticket === materialsSeq.current) setError(backendErrorMessage(cause)) }
+    }
+    // 32#17 同口径：批量导入时 material.* 逐文件事件合并为一次全量拉取
+    const throttledMaterials = deltaThrottle()
     void onBackendEvent(event => {
       if (active && (event.kind.startsWith('project.') || event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'projects'))) void load()
+      if (active && event.kind.startsWith('material.')) throttledMaterials(() => void refreshMaterials())
       if (active && event.kind === 'provider.route_attempt' && typeof event.payload.requestId === 'string' && typeof event.payload.upstreamRequestId === 'string' && event.payload.requestId === runningRequestIdRef.current) {
         // 15#6：以上游 id 为 key、逻辑 id 为 value，方向写反会 failover 后必 miss
         routeUpstreamsRef.current[event.payload.upstreamRequestId] = event.payload.requestId
@@ -98,7 +113,7 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(reportBackendError)
     // 113#1：cancel 原先排在 return 之后是不可达死代码——76#7 声称的
     // 「卸载取消」自引入起从未生效，移入 cleanup 生效
-    return () => { active = false; stop?.(); throttledFetch.cancel() }
+    return () => { active = false; stop?.(); throttledFetch.cancel(); throttledMaterials.cancel() }
   }, [])
   useEffect(() => { setSelectedVersionId(null); setLiveOutput('') }, [project?.id])
   useEffect(() => {

@@ -51,6 +51,11 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   // 渲染，组件内选择会随卸载丢失并静默重置为最老两份已解析资料。
   // null 表示用户尚未显式选择（沿用默认范围），显式选择后跨页签保留
   const [wikiSelection, setWikiSelection] = useState<number[] | null>(null)
+  // REVIEW：默认范围在「Wiki 问答」页签打开时取一次并固定——原先随
+  // resources 变化重算，资料顺序一变，用户未做选择也会被静默换范围
+  // （原为 WikiPanel 挂载时固定一次）。资料被删除时按原口径剔除
+  const [wikiDefault, setWikiDefault] = useState<number[]>([])
+  const seedWikiScope = () => setWikiDefault(resources.filter(resource => resource.progress === 100).slice(0, 2).map(resource => resource.id))
   const [noteOpen, setNoteOpen] = useState(false)
   const [activeNote, setActiveNote] = useState<Note | null>(null)
   const [noteTitle, setNoteTitle] = useState('')
@@ -127,10 +132,12 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   const filteredResources = useMemo(() => resources.filter(r => (filter === '全部' || r.type === filter) && r.title.toLowerCase().includes(query.toLowerCase())), [resources, query, filter])
   // 150#4：实际引用范围——未显式选择时取最老两份已解析资料；显式选择后
   // 只剔除已被删除的资料，其余保持用户原样
+  // REVIEW：未显式选择时用固定下来的默认范围（页签打开时取一次），
+  // 不再随 resources 变化重算——用户未做选择时范围不得被静默换掉
   const wikiSelected = useMemo(() => {
-    if (wikiSelection === null) return resources.filter(resource => resource.progress === 100).slice(0, 2).map(resource => resource.id)
-    return wikiSelection.filter(id => resources.some(resource => resource.id === id))
-  }, [resources, wikiSelection])
+    const scope = wikiSelection === null ? wikiDefault : wikiSelection
+    return scope.filter(id => resources.some(resource => resource.id === id))
+  }, [resources, wikiSelection, wikiDefault])
   const draftKey = `deep-tutor-draft-${activeNote?.id || 'new'}`
 
   const enqueueDraft = (force = false) => {
@@ -426,7 +433,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   }
   return <div className="page library-page">
     <div className="page-heading"><div><h1>笔记与 Wiki</h1><p>自由笔记、原始资料与可核验的库内引用问答。</p></div><div className="heading-actions">{tab === '笔记' && <Button variant="secondary" disabled={importing} onClick={() => { void importNotes() }}><FileArchive size={17} />{importing ? '正在导入…' : '批量导入'}</Button>}{tab === '笔记' ? <Button disabled={openingNoteId === 'new'} onClick={() => openNote()}><NotebookPen size={18} />{openingNoteId === 'new' ? '正在打开…' : '新建笔记'}</Button> : <Button disabled={importing} onClick={() => { void importMaterials() }}><Upload size={18} />{importing ? `正在导入${importCount ? ` ${importCount}` : ''}…` : '导入资料'}</Button>}</div></div>
-    <div className="library-toolbar"><div className="library-tabs">{['笔记', '资料库', 'Wiki 问答'].map(item => <button key={item} className={tab === item ? 'active' : ''} aria-pressed={tab === item} onClick={() => { setTab(item); setFilter('全部') }}>{item === '笔记' ? <NotebookPen size={17} /> : item === '资料库' ? <Folder size={17} /> : <BookOpen size={17} />}{item}<span>{item === '笔记' ? notes.length : item === '资料库' ? resources.length : ''}</span></button>)}</div>{tab !== 'Wiki 问答' && <div className="search-field"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={`搜索${tab}…`} aria-label={`搜索${tab}`} />{query && <button aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div>}</div>
+    <div className="library-toolbar"><div className="library-tabs">{['笔记', '资料库', 'Wiki 问答'].map(item => <button key={item} className={tab === item ? 'active' : ''} aria-pressed={tab === item} onClick={() => { setTab(item); setFilter('全部'); if (item === 'Wiki 问答') seedWikiScope() }}>{item === '笔记' ? <NotebookPen size={17} /> : item === '资料库' ? <Folder size={17} /> : <BookOpen size={17} />}{item}<span>{item === '笔记' ? notes.length : item === '资料库' ? resources.length : ''}</span></button>)}</div>{tab !== 'Wiki 问答' && <div className="search-field"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={`搜索${tab}…`} aria-label={`搜索${tab}`} />{query && <button aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div>}</div>
     {tab !== 'Wiki 问答' && <div className="filter-row">{(tab === '笔记' ? ['全部', ...noteTags] : ['全部', 'PDF', '视频', '网页', '音频', '文件']).map(item => <button className={filter === item ? 'active' : ''} aria-pressed={filter === item} key={item} onClick={() => setFilter(item)}>{item}</button>)}<span />{tab === '笔记' && <Button variant="ghost" size="sm" disabled={exportBusy !== ''} onClick={() => { void exportNotes() }}>{exportBusy === 'notes' ? '正在等待选择保存位置…' : <><Download size={16} />ZIP 导出</>}</Button>}</div>}
     {tab === '笔记' && <>{filteredNotes.length ? <><div className="notes-grid">{filteredNotes.slice(0, visibleNotesLimit).map(note => { const links = overviewLinks.get(note.id) ?? 0; return <button className="note-card" key={note.id} disabled={openingNoteId === note.id} onClick={() => openNote(note)}><div className="note-card-top"><Badge tone="neutral">{note.tag}</Badge><span>{formatUpdated(note.updated)}</span></div><h2>{note.title}</h2><p>{note.excerpt}</p><div className="note-card-bottom"><span><Link2 size={14} />{openingNoteId === note.id ? '正在打开…' : links ? `关联 ${links} 个知识节点` : '未关联知识节点'}</span>{openingNoteId === note.id ? <LoaderCircle size={16} className="spin" /> : <ChevronRight size={17} />}</div></button> })}</div>{filteredNotes.length > visibleNotesLimit && <div className="notes-more"><p className="form-help">已显示前 {visibleNotesLimit} 条（共 {filteredNotes.length} 条匹配）。</p><Button variant="secondary" size="sm" onClick={() => setVisibleNotesLimit(current => current + VISIBLE_NOTES_LIMIT)}>显示更多笔记</Button></div>}</> : <EmptyState title="没有找到匹配的笔记" description="尝试清除搜索词或切换标签，也可以现在创建一条新笔记。" action={<Button disabled={openingNoteId === 'new'} onClick={() => openNote()}>{openingNoteId === 'new' ? '正在打开…' : '新建笔记'}</Button>} />}</>}
     {tab === '资料库' && <>{filteredResources.length ? <div className="resource-list">{filteredResources.map(resource => <button className="resource-row" key={resource.id} onClick={() => { void openMaterial(resource.id) }}><span className="resource-type">{resource.type === 'PDF' ? <FileText size={22} /> : resource.type === '视频' ? <Film size={22} /> : resource.type === '网页' ? <Globe2 size={22} /> : resource.type === '音频' ? <FileAudio size={22} /> : <File size={22} />}</span><div className="resource-copy"><div><Badge tone="neutral">{resource.type}</Badge><span>{resource.meta}</span></div><h3>{resource.title}</h3><ProgressBar value={resource.progress} srLabel={`资料解析进度 ${Math.round(resource.progress)}%`} /></div><span className="resource-percent">{resource.progress}%</span><ChevronRight size={18} /></button>)}</div> : <EmptyState title="这里还没有匹配的资料" description="通过原生文件选择器导入资料，原件暂存后可开始解析。" action={<Button disabled={importing} onClick={() => { void importMaterials() }}><Upload size={17} />导入资料</Button>} />}</>}

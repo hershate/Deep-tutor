@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { AlertTriangle, ArrowLeft, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Circle, Clipboard, Clock3, CloudUpload, File, FileText, Globe2, Hash, LoaderCircle, RefreshCw, Route, ShieldCheck, Sparkles, Square, Trash2, Upload, Zap } from 'lucide-react'
-import type { PageId } from '../data'
+import type { PageId, GeneratorDraft } from '../data'
 import { Badge, Button, ConfirmDialog, IconButton, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import SharePlanDialog from '../components/SharePlanDialog'
 import ExportCenter from '../components/ExportCenter'
@@ -35,22 +36,28 @@ function localDeadline() {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (page: PageId) => void; notify: (message: string) => void }) {
-  const [step, setStep] = useState(0)
+export default function PlanGenerator({ onNavigate, notify, draftRef }: { onNavigate: (page: PageId) => void; notify: (message: string) => void; draftRef: MutableRefObject<GeneratorDraft | null> }) {
+  // 150#7：草稿槽（App 持有）——「前往模型接入中心」离页再回来时按此恢复
+  // 输入，避免用户重写目标/基础与重勾资料
+  const savedDraft = draftRef.current
+  const restoredStep = savedDraft && savedDraft.step <= 1 ? savedDraft.step : null
+  // 草稿恢复了输入步骤时，方案列表加载不得把步骤改回第 0 步或历史方案视图
+  const restoredStepRef = useRef(restoredStep !== null)
+  const [step, setStep] = useState(restoredStep ?? 0)
   const [materials, setMaterials] = useState<Material[]>([])
-  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [selectedIds, setSelectedIds] = useState<number[]>(savedDraft?.selectedIds ?? [])
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [plan, setPlan] = useState<LearningPlan | null>(null)
   const [sourceTab, setSourceTab] = useState('文件上传')
   const [text, setText] = useState('')
   const [textTitle, setTextTitle] = useState('')
   const [url, setUrl] = useState('')
-  const [goal, setGoal] = useState('')
-  const [level, setLevel] = useState('')
-  const [minutes, setMinutes] = useState(45)
-  const [deadline, setDeadline] = useState(localDeadline)
-  const [milestone, setMilestone] = useState('')
-  const [milestoneDate, setMilestoneDate] = useState('')
+  const [goal, setGoal] = useState(savedDraft?.goal ?? '')
+  const [level, setLevel] = useState(savedDraft?.level ?? '')
+  const [minutes, setMinutes] = useState(savedDraft?.minutes ?? 45)
+  const [deadline, setDeadline] = useState(() => savedDraft?.deadline || localDeadline())
+  const [milestone, setMilestone] = useState(savedDraft?.milestone ?? '')
+  const [milestoneDate, setMilestoneDate] = useState(savedDraft?.milestoneDate ?? '')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   // 133#8：批量导入的进行中计数（按钮文案「正在导入 N/M…」）
@@ -58,6 +65,9 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
   const [lastEventId, setLastEventId] = useState<number | null>(null)
   const [liveRequest, setLiveRequest] = useState<ProviderRequest | null>(null)
   const [regenOpen, setRegenOpen] = useState(false)
+  // 150#6：局部重生成的失败提示下沉到弹窗内——页面级横幅的层级低于
+  // 打开中的模态遮罩（z-index 70），用户在弹窗里看不到任何反馈
+  const [regenError, setRegenError] = useState('')
   const [regenScope, setRegenScope] = useState(3)
   const [shareOpen, setShareOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -122,7 +132,8 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
       const items = await backend.listLearningPlans()
       setPlans(items)
       setPlan(current => current ? items.find(item => item.id === current.id) || null : items[0] || null)
-      if (!items.length) setStep(0)
+      // 150#7：草稿恢复了输入步骤时不再回退到第 0 步
+      if (!items.length && !restoredStepRef.current) setStep(0)
       return items
     } catch (cause) {
       setError(backendErrorMessage(cause))
@@ -146,7 +157,11 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
 
   useEffect(() => {
     void refreshMaterials()
-    void refreshPlans().then(items => { if (items[0]) setStep(items[0].result ? 3 : 2) })
+    // 150#7：草稿恢复了输入步骤时保留该步骤，不跳到历史方案视图
+    void refreshPlans().then(items => {
+      if (restoredStepRef.current) { restoredStepRef.current = false; return }
+      if (items[0]) setStep(items[0].result ? 3 : 2)
+    })
     let disposed = false
     let unlisten: (() => void) | undefined
     const throttledFetch = deltaThrottle()
@@ -189,6 +204,12 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
     // 113#1 同款：cancel 原先排在 return 之后是不可达死代码，移入 cleanup 生效
     return () => { disposed = true; unlisten?.(); throttledMaterials.cancel(); throttledFetch.cancel() }
   }, [refreshMaterials, refreshPlans, selectPlan])
+
+  // 150#7：输入变化即写回 App 侧草稿槽——ref 写入不触发 App 重渲染，
+  // 离页（「前往模型接入中心」）再回来时按草稿恢复输入与资料勾选
+  useEffect(() => {
+    draftRef.current = { step, selectedIds, goal, level, minutes, deadline, milestone, milestoneDate }
+  }, [draftRef, step, selectedIds, goal, level, minutes, deadline, milestone, milestoneDate])
 
   const selected = useMemo(() => materials.filter(material => selectedIds.includes(material.id) && mediaBackend.isText(material.kind)), [materials, selectedIds])
   const ready = selected.every(material => parsedStatuses.includes(material.status))
@@ -330,12 +351,13 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
   const regenerate = async () => {
     if (!plan) return
     setBusy('regenerate')
+    setRegenError('')
     try {
       setPlan(await backend.regenerateLearningPlan(plan.id, regenScope))
       setRegenOpen(false)
       setStep(2)
       notify(`已开始重跑「${regenerationNames[regenScope]}」及其下游步骤`)
-    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    } catch (cause) { setRegenError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const adopt = async () => {
     if (!plan) return
@@ -366,8 +388,8 @@ export default function PlanGenerator({ onNavigate, notify }: { onNavigate: (pag
 
     {step === 2 && <div className="generation-layout"><section className="surface generation-live">{plan ? <><div className="generation-status" aria-live="polite"><div><span className="live-indicator"><i />{running ? '原生实时事件' : planStatusNames[plan.status]}</span><h2>{running ? '正在构建你的学习方案' : planStatusNames[plan.status]}</h2><p>{lastEventId ? `事件 #${lastEventId}` : `最近保存：${new Date(plan.updatedAt).toLocaleString()}`} · 重新读取不会重复执行已完成请求</p></div><strong>{plan.progress}%</strong></div><ProgressBar value={plan.progress} srLabel={`方案生成进度 ${Math.round(plan.progress)}%`} /><div className="tool-run-list">{plan.steps.map(item => <div className={item.status === 'done' ? 'done' : item.status === 'running' ? 'running' : ''} key={item.index}><span>{item.status === 'done' ? <Check size={15} /> : item.status === 'running' ? <LoaderCircle size={15} className="spin" /> : <Circle size={15} />}</span><strong>{item.name}</strong><small>{statusNames[item.status] || item.status} · 第 {item.attempt} 次</small>{item.usage ? <code>{item.usage.inputTokens ?? '?'} → {item.usage.outputTokens ?? '?'} tok</code> : <code>原生步骤</code>}{item.latencyMs !== null && <small>{item.latencyMs} ms</small>}</div>)}</div><div className="generation-controls">{running ? <Button variant="secondary" onClick={() => void cancel()} disabled={plan.status === 'cancelling' || busy === 'cancel'}><Square size={16} />{plan.status === 'cancelling' ? '正在取消' : '取消生成'}</Button> : ['failed', 'cancelled', 'interrupted'].includes(plan.status) ? <Button onClick={() => void resume()} disabled={busy === 'resume'}><RefreshCw size={16} />从已保存步骤恢复</Button> : plan.result ? <Button onClick={() => setStep(3)}>{/* 120#2：done/degraded 回退到本步后，采用/局部重生成/导出/分享只在第 3 步——补回第 3 步的入口（stepper 前进仍按步序禁用） */}查看方案结果<ArrowRight size={16} /></Button> : null}{/* 120#3：事件停滞时的手动重读入口（幂等只读） */}<Button variant="secondary" onClick={() => void reread()} disabled={busy === 'reread'} title="重新读取不会重复执行已完成请求">{busy === 'reread' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}{busy === 'reread' ? '正在读取…' : '重新读取'}</Button>{plan.error && <div className="form-error"><AlertTriangle size={16} />{plan.error.code}：{plan.error.message}{plan.error.code === 'invalid_persisted_plan' && '。该方案数据不完整，无法从此处恢复——请返回第一步重新生成或新建方案。'}</div>}</div><section className="native-stream-preview"><h3>真实模型增量</h3>{liveOutput ? <><pre className="native-chat-output">{liveOutput.output || '等待模型返回答案…'}</pre>{liveOutput.reasoning && <details><summary>查看独立保存的推理内容</summary><pre className="native-chat-output">{liveOutput.reasoning}</pre></details>}</> : <p>等待当前模型步骤产生真实输出。</p>}</section></> : <div className="provider-empty"><Sparkles size={25} /><h2>尚未创建学习方案</h2><p>返回辅助资料与目标步骤，填写目标后开始；资料可选。</p><Button onClick={() => setStep(0)}>返回资料输入</Button></div>}</section><aside className="surface generation-preview"><SectionHeader title="部分方案预览" description="只展示已经持久化的产物。" /><div className="preview-metrics"><div><strong>{graph?.nodes.length || 0}</strong><span>知识节点</span></div><div><strong>{plan?.artifacts.step3?.stages.length || result?.stages.length || 0}</strong><span>学习阶段</span></div><div><strong>{totalTokens.toLocaleString()}</strong><span>真实 tokens</span></div></div>{plan?.artifacts.step3?.stages.map(stage => <div className="partial-outline" key={stage.id}><span>{stage.title}</span><p>{stage.nodeIds.map(id => graph?.nodes.find(node => node.id === id)?.title || id).join(' → ')}</p></div>)}{plan?.artifacts.step5 && <div className="cost-ledger"><Clock3 size={15} />{plan.artifacts.step5.schedule.startDate} 至 {plan.artifacts.step5.schedule.endDate} · 每日 {plan.dailyMinutes} 分钟</div>}<div className="cost-ledger"><Zap size={15} />Token 来自上游用量；不计算虚构费用，取消与失败也保留真实记录。</div></aside></div>}
 
-    {step === 3 && result && plan && <div className="plan-result"><section className="result-banner"><div>{plan.status === 'done' ? <CheckCircle2 size={28} /> : <AlertTriangle size={28} />}<div><h2>{plan.status === 'done' ? '学习方案已生成，可以采用。' : '方案已生成，但存在需要复核的降级项。'}</h2><p>版本 v{plan.version} · {plan.adoptedProjectId ? `已采用到项目 #${plan.adoptedProjectId}` : '尚未采用'} · {plan.providerId} · 真实产物已落盘</p></div></div><Badge tone={plan.status === 'done' ? 'green' : 'amber'}>{planStatusNames[plan.status]}</Badge></section>{result.warnings.length > 0 && <div className="capacity-warning"><AlertTriangle size={18} /><div><strong>需要复核</strong>{result.warnings.map(warning => <p key={warning}>{warning}</p>)}</div></div>}<div className="result-grid"><main><section className="surface result-stages"><SectionHeader title="渐进学习路径" description={`${result.schedule.startDate} 至 ${result.schedule.endDate} · 每日 ${plan.dailyMinutes} 分钟`} action={<Button variant="secondary" size="sm" onClick={() => regenLimitFailed ? loadRegenLimit() : setRegenOpen(true)} disabled={plan.adoptedProjectId !== null || running || limitBusy || (plan.version > regenLimit && !regenLimitFailed)} title={regenLimitFailed ? '重生成配额读取失败，点击重试' : undefined}><RefreshCw size={15} className={limitBusy ? 'spin' : undefined} />{limitBusy ? '正在读取配额…' : regenLimitFailed ? '配额读取失败，点击重试' : `局部重生成（剩余 ${Math.max(0, regenLimit - plan.version + 1)} 次）`}</Button>} />{result.stages.map((stage, index) => <div className="result-stage" key={stage.id}><span className="stage-index">0{index + 1}</span><div><h3>{stage.title}</h3><p>{stage.nodeIds.map(id => result.graph.nodes.find(node => node.id === id)?.title || id).join('、')}</p><small>{stage.minutes} 分钟 · {stage.startDate} 至 {stage.endDate} · 难度 {stage.difficulty}/5</small></div><Badge tone="neutral">阶段 {index + 1}</Badge></div>)}</section><section className="surface validation-panel"><SectionHeader title="五维校验" description="结构检查由 Rust 执行；里程碑与缺口由真实模型判断，降级项不会自动变成通过。" /><div className="validation-grid">{validationNames.map(([key, name]) => { const check = result.validation[key]; return <div key={key}>{check.status === 'pass' ? <Check size={16} /> : <AlertTriangle size={16} />}<span>{name}</span><Badge tone={check.status === 'pass' ? 'green' : check.status === 'warn' ? 'amber' : 'red'}>{check.status === 'pass' ? '通过' : check.status === 'warn' ? '警告' : '未通过'}</Badge>{check.details && <small>{check.details}</small>}</div>})}</div>{result.validation.fixes.length > 0 && <div className="capacity-warning"><AlertTriangle size={18} /><div><strong>修复建议</strong>{result.validation.fixes.map(fix => <p key={fix}>{fix}</p>)}</div></div>}</section></main><aside><section className="surface result-resources"><SectionHeader title="筛选后的资源" description="本地资料与已实际抓取验证的公开网页。" />{result.resources.items.map(item => <button key={item.materialId} onClick={() => onNavigate('library')}><BookOpen size={17} /><div><strong>{item.title}</strong><span>本地资料 · 内容哈希已校验</span></div><ChevronRight size={15} /></button>)}{(result.resources.externalSearch.results ?? []).map(item => <button key={item.url} disabled={Boolean(busy)} onClick={() => void importUrl(item.url)}><Globe2 size={17} /><div><strong>{item.title}</strong><span>{item.url} · 已实际抓取验证{busy === 'url' ? ' · 正在导入' : ' · 点击导入'}</span></div><ChevronRight size={15} /></button>)}<p>{result.resources.externalSearch.reason}</p></section><section className="surface result-actions"><Button onClick={() => void adopt()} disabled={plan.adoptedProjectId !== null || busy === 'adopt'}>{plan.adoptedProjectId ? '已采用' : '采用此方案'}<ArrowRight size={16} /></Button><Button variant="secondary" onClick={() => setExportOpen(true)}>导出方案</Button><Button variant="ghost" onClick={() => setShareOpen(true)}>创建只读分享</Button></section></aside></div></div>}
-    <Modal open={regenOpen} onClose={() => setRegenOpen(false)} title="局部重生成"><div className="form-stack"><p className="regen-description">保留已确认资料与目标，旧版本会保留。仅重跑所选步骤及其下游；已采用的方案不能直接改写。</p><label>重生成范围<select value={regenScope} onChange={event => setRegenScope(Number(event.target.value))}>{Object.entries(regenerationNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><div className="modal-callout"><Route size={17} />「{regenerationNames[regenScope]}」及其下游将使用新的真实模型请求与排期。</div><Button onClick={() => void regenerate()} disabled={busy === 'regenerate'}><RefreshCw size={16} />确认局部重生成</Button></div></Modal>
+    {step === 3 && result && plan && <div className="plan-result"><section className="result-banner"><div>{plan.status === 'done' ? <CheckCircle2 size={28} /> : <AlertTriangle size={28} />}<div><h2>{plan.status === 'done' ? '学习方案已生成，可以采用。' : '方案已生成，但存在需要复核的降级项。'}</h2><p>版本 v{plan.version} · {plan.adoptedProjectId ? `已采用到项目 #${plan.adoptedProjectId}` : '尚未采用'} · {plan.providerId} · 真实产物已落盘</p></div></div><Badge tone={plan.status === 'done' ? 'green' : 'amber'}>{planStatusNames[plan.status]}</Badge></section>{result.warnings.length > 0 && <div className="capacity-warning"><AlertTriangle size={18} /><div><strong>需要复核</strong>{result.warnings.map(warning => <p key={warning}>{warning}</p>)}</div></div>}<div className="result-grid"><main><section className="surface result-stages"><SectionHeader title="渐进学习路径" description={`${result.schedule.startDate} 至 ${result.schedule.endDate} · 每日 ${plan.dailyMinutes} 分钟`} action={<Button variant="secondary" size="sm" onClick={() => { if (regenLimitFailed) { loadRegenLimit(); return } setRegenError(''); setRegenOpen(true) }} disabled={plan.adoptedProjectId !== null || running || limitBusy || (plan.version > regenLimit && !regenLimitFailed)} title={regenLimitFailed ? '重生成配额读取失败，点击重试' : undefined}><RefreshCw size={15} className={limitBusy ? 'spin' : undefined} />{limitBusy ? '正在读取配额…' : regenLimitFailed ? '配额读取失败，点击重试' : `局部重生成（剩余 ${Math.max(0, regenLimit - plan.version + 1)} 次）`}</Button>} />{result.stages.map((stage, index) => <div className="result-stage" key={stage.id}><span className="stage-index">0{index + 1}</span><div><h3>{stage.title}</h3><p>{stage.nodeIds.map(id => result.graph.nodes.find(node => node.id === id)?.title || id).join('、')}</p><small>{stage.minutes} 分钟 · {stage.startDate} 至 {stage.endDate} · 难度 {stage.difficulty}/5</small></div><Badge tone="neutral">阶段 {index + 1}</Badge></div>)}</section><section className="surface validation-panel"><SectionHeader title="五维校验" description="结构检查由 Rust 执行；里程碑与缺口由真实模型判断，降级项不会自动变成通过。" /><div className="validation-grid">{validationNames.map(([key, name]) => { const check = result.validation[key]; return <div key={key}>{check.status === 'pass' ? <Check size={16} /> : <AlertTriangle size={16} />}<span>{name}</span><Badge tone={check.status === 'pass' ? 'green' : check.status === 'warn' ? 'amber' : 'red'}>{check.status === 'pass' ? '通过' : check.status === 'warn' ? '警告' : '未通过'}</Badge>{check.details && <small>{check.details}</small>}</div>})}</div>{result.validation.fixes.length > 0 && <div className="capacity-warning"><AlertTriangle size={18} /><div><strong>修复建议</strong>{result.validation.fixes.map(fix => <p key={fix}>{fix}</p>)}</div></div>}</section></main><aside><section className="surface result-resources"><SectionHeader title="筛选后的资源" description="本地资料与已实际抓取验证的公开网页。" />{result.resources.items.map(item => <button key={item.materialId} onClick={() => onNavigate('library')}><BookOpen size={17} /><div><strong>{item.title}</strong><span>本地资料 · 内容哈希已校验</span></div><ChevronRight size={15} /></button>)}{(result.resources.externalSearch.results ?? []).map(item => <button key={item.url} disabled={Boolean(busy)} onClick={() => void importUrl(item.url)}><Globe2 size={17} /><div><strong>{item.title}</strong><span>{item.url} · 已实际抓取验证{busy === 'url' ? ' · 正在导入' : ' · 点击导入'}</span></div><ChevronRight size={15} /></button>)}<p>{result.resources.externalSearch.reason}</p></section><section className="surface result-actions"><Button onClick={() => void adopt()} disabled={plan.adoptedProjectId !== null || busy === 'adopt'}>{plan.adoptedProjectId ? '已采用' : '采用此方案'}<ArrowRight size={16} /></Button><Button variant="secondary" onClick={() => setExportOpen(true)}>导出方案</Button><Button variant="ghost" onClick={() => setShareOpen(true)}>创建只读分享</Button></section></aside></div></div>}
+    <Modal open={regenOpen} onClose={() => { setRegenError(''); setRegenOpen(false) }} title="局部重生成"><div className="form-stack"><p className="regen-description">保留已确认资料与目标，旧版本会保留。仅重跑所选步骤及其下游；已采用的方案不能直接改写。</p><label>重生成范围<select value={regenScope} onChange={event => setRegenScope(Number(event.target.value))}>{Object.entries(regenerationNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><div className="modal-callout"><Route size={17} />「{regenerationNames[regenScope]}」及其下游将使用新的真实模型请求与排期。</div>{regenError && <div className="form-error" role="alert"><AlertTriangle size={16} />{regenError}</div>}<Button onClick={() => void regenerate()} disabled={busy === 'regenerate'}><RefreshCw size={16} />确认局部重生成</Button></div></Modal>
     <ExportCenter open={exportOpen} onClose={() => setExportOpen(false)} notify={notify} initialPlanId={plan?.id} />
     <SharePlanDialog open={shareOpen} onClose={() => setShareOpen(false)} notify={notify} initialPlanId={plan?.id} onPreview={token => { window.history.replaceState(null, '', localShareUrl(token)); setShareOpen(false); onNavigate('shared') }} />
     {/* 144#2：确认文案与后端真实行为一致（126#3 的 Library 修正漏了本入口）——

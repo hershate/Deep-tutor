@@ -7,8 +7,9 @@ import { statusName } from '../status'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type MaterialDetail, isCancelRace, deltaThrottle } from '../backend/client'
 import { knowledgeBackend, type KnowledgeCitation, type KnowledgeHit, type KnowledgeSession } from '../backend/knowledge'
 
-export default function WikiPanel({ resources, notify }: { resources: Resource[]; notify: (message: string) => void }) {
-  const [selected, setSelected] = useState<number[]>(() => resources.filter(resource => resource.progress === 100).slice(0, 2).map(resource => resource.id))
+// 150#4：引用范围由 Library 页持有并传入——本组件随「Wiki 问答」页签
+// 条件渲染，组件内 state 会随卸载丢失并静默重置为最老两份已解析资料
+export default function WikiPanel({ resources, notify, selected, onSelectedChange }: { resources: Resource[]; notify: (message: string) => void; selected: number[]; onSelectedChange: (next: number[]) => void }) {
   const [question, setQuestion] = useState('')
   const [sessions, setSessions] = useState<KnowledgeSession[]>([])
   const [current, setCurrent] = useState<KnowledgeSession | null>(null)
@@ -57,9 +58,6 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
     }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
     return () => { disposed = true; unlisten?.() }
   }, [refresh])
-  useEffect(() => {
-    setSelected(previous => previous.filter(id => resources.some(resource => resource.id === id)))
-  }, [resources])
   useEffect(() => {
     const requestId = current?.requestId
     if (!requestId || !current || !['running', 'cancelling'].includes(current.status)) { setOutput(''); return }
@@ -159,7 +157,7 @@ export default function WikiPanel({ resources, notify }: { resources: Resource[]
     }
   }
 
-  return <div className="wiki-layout"><aside className="wiki-docs"><div className="wiki-docs-head"><div><BookOpen size={18} /><strong>引用范围</strong></div><Badge tone="neutral">{selected.length} 份</Badge></div><p>仅使用选中的已解析资料（最多 8 份，解析中的资料不可选）；每次问答会保存实际范围。</p>{/* 115#13：空资料库给指引而非零条目死端——资料导入就在同页「资料库」页签 */}{!resources.length && <p className="form-help">资料库还没有资料——先在本页上方的「资料库」页签导入并等待解析完成，再回来提问。</p>}{resources.map(resource => <label key={resource.id} className={selected.includes(resource.id) ? 'selected' : ''}><input type="checkbox" disabled={!selected.includes(resource.id) && (resource.progress !== 100 || selected.length >= 8)} checked={selected.includes(resource.id)} onChange={() => setSelected(selected.includes(resource.id) ? selected.filter(id => id !== resource.id) : [...selected, resource.id])} /><FileText size={17} /><div><strong>{resource.title}</strong><span>{resource.type} · {resource.progress === 100 ? '已解析' : `解析进度 ${resource.progress}%`}</span></div></label>)}<div className="wiki-policy"><ShieldCheck size={16} />模型引用必须能逐字定位到所选资料，否则不会保存为有效回答。</div></aside><main className="wiki-qa">
+  return <div className="wiki-layout"><aside className="wiki-docs"><div className="wiki-docs-head"><div><BookOpen size={18} /><strong>引用范围</strong></div><Badge tone="neutral">{selected.length} 份</Badge></div><p>仅使用选中的已解析资料（最多 8 份，解析中的资料不可选）；每次问答会保存实际范围。</p>{/* 115#13：空资料库给指引而非零条目死端——资料导入就在同页「资料库」页签 */}{!resources.length && <p className="form-help">资料库还没有资料——先在本页上方的「资料库」页签导入并等待解析完成，再回来提问。</p>}{resources.map(resource => <label key={resource.id} className={selected.includes(resource.id) ? 'selected' : ''}><input type="checkbox" disabled={!selected.includes(resource.id) && (resource.progress !== 100 || selected.length >= 8)} checked={selected.includes(resource.id)} onChange={() => onSelectedChange(selected.includes(resource.id) ? selected.filter(id => id !== resource.id) : [...selected, resource.id])} /><FileText size={17} /><div><strong>{resource.title}</strong><span>{resource.type} · {resource.progress === 100 ? '已解析' : `解析进度 ${resource.progress}%`}</span></div></label>)}<div className="wiki-policy"><ShieldCheck size={16} />模型引用必须能逐字定位到所选资料，否则不会保存为有效回答。</div></aside><main className="wiki-qa">
     <form className="wiki-search" onSubmit={event => { event.preventDefault(); void search() }}><Search size={17} /><input value={query} onChange={event => setQuery(clampToBytes(event.target.value, 200))} placeholder="检索真实笔记标题、正文与资料解析文本" aria-label="检索知识库" /><Button size="sm" disabled={searching || !query.trim()}>检索</Button></form>
     {searching && <div className="knowledge-search-results" role="status"><p className="form-help">正在检索「{query.trim()}」…</p></div>}
     {!searching && searched && <div className="knowledge-search-results"><p className="form-help">{searched === query ? `「${searched}」的检索结果` : `以下是「${searched}」的检索结果；输入词已修改，重新点检索可更新`}</p>{hits.length ? hits.map(hit => <button key={`${hit.kind}-${hit.id}`} onClick={() => void openHit(hit)}><Badge tone="neutral">{hit.kind === 'material' ? '资料' : '笔记'}</Badge><div><strong>{hit.title}</strong><p>{hit.excerpt || '标题匹配，尚未产生解析正文。'}</p><small>实际匹配 {hit.score} 次{hit.citation ? ` · 第 ${hit.citation.line} 行` : ''}</small></div><ChevronRight size={16} /></button>) : <p className="form-help">没有匹配的笔记或资料解析文本，可更换关键词再试。</p>}</div>}

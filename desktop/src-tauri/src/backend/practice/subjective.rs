@@ -535,7 +535,8 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
     // 31#12：hints 遮蔽旁路——evidence 照写真实得分会让知识图谱页
     //「N 项测评记录 · 0/1」反推对错；与错题本同口径跳过。
     // 101#4：进行中的考试延迟到交卷补写（与客观题路径同守卫）
-    if task.feedback_mode != "hints" && task.mode != "exam" {
+    // 150#8：deferred 非考试集合同口径——统一反馈前不写掌握度证据
+    if task.feedback_mode == "immediate" {
         let nodes: Vec<String> = serde_json::from_str(&task.node_ids)?;
         for node in nodes {
             tx.execute(
@@ -575,16 +576,21 @@ fn grade<R: Runtime>(app: &AppHandle<R>, state: &PracticeState, answer_id: i64) 
         }),
     )?];
     // 23#2：hints 模式不下发掌握事件——事件本身即"答对"信号，与遮蔽口径一致
-    if let Some(source_question_id) = super::variants::mark_mastered(
-        &tx,
-        task.question_id,
-        correct && task.feedback_mode != "hints",
-    )? {
-        events.push(Store::event(
-            &tx,
-            "practice.mistake_mastered_by_variant",
-            json!({"setId": task.set_id, "sourceQuestionId": source_question_id, "variantQuestionId": task.question_id, "answerId": answer_id, "requestId": request_id}),
-        )?);
+    // 150#8：deferred 集合同样延迟到统一反馈公开（集合完成）时才标掌握；
+    // 考试路径保持原状（不在本次改动范围）
+    if task.feedback_mode == "immediate" || task.mode == "exam" {
+        if let Some(source_question_id) =
+            super::variants::mark_mastered(&tx, task.question_id, correct)?
+        {
+            events.push(Store::event(
+                &tx,
+                "practice.mistake_mastered_by_variant",
+                json!({"setId": task.set_id, "sourceQuestionId": source_question_id, "variantQuestionId": task.question_id, "answerId": answer_id, "requestId": request_id}),
+            )?);
+        }
+    } else if completed && set.feedback_mode == "deferred" {
+        // 集合完成（统一反馈公开）时补写掌握度证据与变式掌握事件
+        events.extend(super::finalize_deferred_set(&tx, &set, &timestamp)?);
     }
     tx.commit()?;
     for event in events {

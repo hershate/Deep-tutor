@@ -100,15 +100,26 @@ pub async fn import_full_backup<R: Runtime>(
             // 家族 + 调度器重启，与 switch/PAT/维护/重置同口径、幂等可重入）。
             // 成功路径由 super::import 内的逐域恢复清单负责，仅重启调度器
             let outcome = (|| -> Result<Value> {
+                // REVIEW：停机在切换写锁之外——stop_all 最坏约 50s（sync 域
+                // deadline，73#9），而 guard 在每条 IPC 派发瞬间都要取
+                // WORKSPACE_SWITCH 读锁，写锁在位期间全应用 IPC 被阻塞，
+                // 导入这种用户日常路径会表现为「整体无响应」
                 super::super::security::guard::stop_all(&backend)?;
-                let result = {
+                // 150#9：与登录切换互斥——guard 的 WORKSPACE_SWITCH 读锁
+                // 只在 IPC 派发瞬间持有，不覆盖本命令体；命令体先 stop_all
+                // 再取 store 锁，其间可发生工作区切换，导致 A 的备份行
+                // 写进 B 的工作区库。持切换写锁直到导入结束（与 PAT
+                // 认证路径同口径）
+                super::super::security::guard::exclusive(|| -> Result<Value> {
+                    // 150#9：进入关键段时复核工作区归属——命令发起后可能
+                    // 发生过切换，此时不得把本次导入写进另一用户的库
+                    super::super::security::guard::ensure_workspace(&app, principal)?;
                     let store = backend
                         .store
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     super::import(&app, &store, &learning, std::path::Path::new(&path))
-                };
-                result
+                })?
             })();
             if outcome.is_err() {
                 super::super::security::guard::resume_background(&app);

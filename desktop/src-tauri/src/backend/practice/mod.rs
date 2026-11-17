@@ -7,7 +7,7 @@ use super::commands::emit;
 use super::error::{BackendError, Result};
 use super::learning::{self, Citation, LearningState, Source};
 use super::providers::{self, ChatMessage, ProviderState};
-use super::store::Store;
+use super::store::{BackendEvent, Store};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1100,7 +1100,14 @@ fn set_row(conn: &Connection, id: i64) -> Result<PracticeSet> {
             // practice_sets.score，进行中（completed 之前）原样返回即可被
             // 考生 diff 两次响应推断每题对错（98#1/101#4 同族旁路，修法
             // 一致：载荷在场即泄露面）；交卷（finalize 置 completed）后公布
-            let visible = feedback_mode != "hints" && !(mode == "exam" && status != "completed");
+            // REVIEW：deferred 非考试同族面——「全部完成后反馈」承诺进行期
+            // 不公布判分（note/产品与技术决策.md「deferred 进行期…分数、
+            // 对错与解析置空」），而逐题提交同样实时累计 practice_sets.score，
+            // set 级累计分数经 history()/detail()（均经 set_row）返回即可被
+            // diff 两次响应反推单题对错；集合完成（status='completed'）后
+            // 统一公布。判据与逐题 reveal（mod.rs:1500 附近）同口径
+            let visible = feedback_mode != "hints"
+                && !((mode == "exam" || feedback_mode == "deferred") && status != "completed");
             Ok((PracticeSet {
                 id,
                 mode,
@@ -1327,6 +1334,55 @@ fn normalize(answer: &str) -> String {
         .to_lowercase()
 }
 
+/// 150#8：deferred 集合完成时的统一补写——进行期不写掌握度证据、
+/// 不标变式掌握（两者都是答对/答错信号），集合完成（统一反馈公开）后
+/// 按集合内全部已答行补写。与考试 exams::finalize 的补写口径一致。
+/// 返回需要发出的变式掌握事件。
+pub(crate) fn finalize_deferred_set(
+    tx: &rusqlite::Transaction<'_>,
+    set: &PracticeSet,
+    timestamp: &str,
+) -> Result<Vec<BackendEvent>> {
+    let mut events = Vec::new();
+    let plan_id = learning::plan_id(&set.plan_id)?;
+    let mut statement = tx.prepare(
+        "SELECT a.id, a.question_id, a.score, a.correct, a.grader_request_id, q.node_ids_json FROM practice_answers a JOIN practice_questions q ON q.id = a.question_id WHERE a.set_id = ?1 AND a.status = 'done'",
+    )?;
+    let answers = statement
+        .query_map(params![set.id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, bool>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(statement);
+    for (answer_id, question_id, score, correct, grader_request_id, nodes) in answers {
+        let nodes: Vec<String> = serde_json::from_str(&nodes).unwrap_or_default();
+        for node in nodes {
+            tx.execute(
+                "INSERT INTO learning_node_evidence (plan_id, node_id, kind, score, max_score, details_json, created_at, evidence_key) VALUES (?1, ?2, 'practice', ?3, 1, ?4, ?5, ?6) ON CONFLICT(plan_id, node_id, evidence_key) DO UPDATE SET score = excluded.score, max_score = excluded.max_score, details_json = excluded.details_json, created_at = excluded.created_at",
+                params![plan_id, node, score, serde_json::to_string(&json!({"setId": set.id, "questionId": question_id, "answerId": answer_id}))?, timestamp, format!("practice-answer-{answer_id}")],
+            )?;
+        }
+        // 变式答对才标掌握——非变式题 mark_mastered 直接返回 None
+        if correct {
+            if let Some(source_question_id) = variants::mark_mastered(tx, question_id, true)? {
+                events.push(Store::event(
+                    tx,
+                    "practice.mistake_mastered_by_variant",
+                    json!({"setId": set.id, "sourceQuestionId": source_question_id, "variantQuestionId": question_id, "answerId": answer_id, "requestId": grader_request_id}),
+                )?);
+            }
+        }
+    }
+    Ok(events)
+}
+
 pub fn submit<R: Runtime>(
     app: &AppHandle<R>,
     state: &PracticeState,
@@ -1420,7 +1476,10 @@ pub fn submit<R: Runtime>(
     // 101#4：考试承诺「交卷后统一反馈」，逐题提交即写 evidence 会经
     // 知识图谱掌握度在交卷前泄露对错（考试强制 deferred，hints 跳过
     // 不覆盖此面）——进行中的考试统一延迟到交卷（exams::finalize）补写
-    if set.feedback_mode != "hints" && set.mode != "exam" {
+    // 150#8：deferred 非考试集合同口径——「全部完成后反馈」承诺进行期
+    // 分数、对错与解析置空，掌握度证据同样不得逐题落库（否则知识图谱
+    // 「N 项测评记录 · 0/1」实时反推对错）；统一延迟到集合完成补写
+    if set.feedback_mode == "immediate" {
         let nodes: Vec<String> = serde_json::from_str(&nodes)?;
         for node in nodes {
             tx.execute(
@@ -1456,14 +1515,21 @@ pub fn submit<R: Runtime>(
         //（客观题即时判分无模型请求，恒为 null）
         json!({"setId": set_id, "questionId": question_id, "answerId": answer_id, "answered": answered, "correct": reveal.then_some(correct), "requestId": null}),
     )?];
-    if let Some(source_question_id) =
-        variants::mark_mastered(&tx, question_id, correct && set.feedback_mode != "hints")?
-    {
-        events.push(Store::event(
-            &tx,
-            "practice.mistake_mastered_by_variant",
-            json!({"setId": set_id, "sourceQuestionId": source_question_id, "variantQuestionId": question_id, "answerId": answer_id}),
-        )?);
+    // 150#8：deferred 集合的变式掌握事件同样延迟到统一反馈公开时——
+    // 变式答对即标「已巩固」与「变式 #N 通过」是答对信号，进行期不得出现。
+    // 考试路径保持原状（考试强制 deferred，其变式掌握沿用既有即时口径，
+    // 不在本次改动范围）
+    if set.feedback_mode == "immediate" || set.mode == "exam" {
+        if let Some(source_question_id) = variants::mark_mastered(&tx, question_id, correct)? {
+            events.push(Store::event(
+                &tx,
+                "practice.mistake_mastered_by_variant",
+                json!({"setId": set_id, "sourceQuestionId": source_question_id, "variantQuestionId": question_id, "answerId": answer_id}),
+            )?);
+        }
+    } else if completed && set.feedback_mode == "deferred" {
+        // 集合完成（统一反馈公开）时补写掌握度证据与变式掌握事件
+        events.extend(finalize_deferred_set(&tx, &set, &timestamp)?);
     }
     tx.commit()?;
     for event in events {
@@ -1541,7 +1607,9 @@ pub fn mistakes<R: Runtime>(app: &AppHandle<R>, state: &PracticeState) -> Result
     // 过滤 mode='exam' 且未交卷的集合，交卷（finalize 置 status='completed'）
     // 后错题重新可见（与 detail() 的遮蔽口径一致）；客观题与主观题评分两条
     // 写入路径共用本过滤
-    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id, q.options_json, q.answer_json, q.citations_json FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id WHERE NOT (s.mode = 'exam' AND s.status != 'completed') ORDER BY m.last_wrong_at DESC LIMIT 500")?;
+    // 150#8：deferred 非考试集合同口径——「全部完成后反馈」承诺进行期
+    // 不公布对错与解析，错题行（含完整解析）同样不得在集合完成前可见
+    let mut statement = store.conn.prepare("SELECT m.question_id, q.set_id, s.plan_id, s.stage_id, q.kind, q.prompt, q.node_ids_json, m.reason, m.wrong_count, m.last_wrong_at, m.mastered, m.mastered_question_id, q.options_json, q.answer_json, q.citations_json FROM practice_mistakes m JOIN practice_questions q ON q.id = m.question_id JOIN practice_sets s ON s.id = q.set_id WHERE NOT ((s.mode = 'exam' OR s.feedback_mode = 'deferred') AND s.status != 'completed') ORDER BY m.last_wrong_at DESC LIMIT 500")?;
     let rows = statement.query_map([], |row| {
         let nodes: String = row.get(6)?;
         // 98#7：选项/参考答案/引用一并带出（结构已持久化在 practice_questions）

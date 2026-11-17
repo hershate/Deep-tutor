@@ -551,6 +551,17 @@ fn deferred_and_hint_feedback_do_not_reveal_answers_early() {
     // 148#2：deferred 进行中返回考生本人作答原文（不含分数/对错/解析）
     let deferred_view = detail(&state, deferred.set.id).unwrap();
     assert!(!deferred_view.answers.is_empty(), "本人已提交作答应回显");
+    // REVIEW：set 级累计分数逐题递增——统一反馈进行期不得公布，否则
+    // diff 两次响应即可反推单题对错（123#1「载荷在场即泄露面」同族面）
+    assert_eq!(
+        deferred_view.set.score, None,
+        "统一反馈进行期不得公布 set 级累计分数"
+    );
+    assert_eq!(
+        deferred_view.set.max_score, None,
+        "统一反馈进行期不得公布 set 级满分"
+    );
+    assert_eq!(pending.set.score, None, "提交响应同样不得带出累计分数");
     assert!(
         deferred_view
             .answers
@@ -598,6 +609,77 @@ fn deferred_and_hint_feedback_do_not_reveal_answers_early() {
     assert_eq!(masked.set.status, "completed");
     assert_eq!(masked.set.score, None);
     assert_eq!(masked.set.max_score, None);
+}
+
+#[test]
+fn deferred_feedback_masks_mistakes_and_evidence_until_the_set_completes() {
+    // 150#8：deferred（非考试）集合承诺「全部完成后统一显示答案与解析」——
+    // 进行期错题本/导出/掌握度证据不得泄露对错与解析，集合完成后才可见
+    let (app, state, _server, plan_id) = prepare();
+    let deferred = generate(
+        app.handle(),
+        &state,
+        input(&plan_id, 2, vec!["choice", "fill"], "deferred"),
+    )
+    .unwrap();
+    let questions = wait_set(&state, deferred.set.id).questions;
+    // 答错第一题：错题行落库但集合未完成，不得对外可见
+    let pending = submit(
+        app.handle(),
+        &state,
+        deferred.set.id,
+        questions[0].id,
+        json!(1),
+    )
+    .unwrap();
+    assert_eq!(pending.answer.correct, None, "进行期不得公布对错");
+    assert!(
+        mistakes(app.handle(), &state).unwrap().is_empty(),
+        "deferred 集合进行中错题本不得出现该题与完整解析"
+    );
+    assert!(
+        export_mistakes(app.handle(), &state).unwrap()["mistakes"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "deferred 集合进行中导出不得带出错题"
+    );
+    let evidence: i64 = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_node_evidence WHERE kind = 'practice'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(evidence, 0, "deferred 集合进行中不得写掌握度证据");
+    // 集合完成（统一反馈公开）后错题与掌握度证据才可见
+    let completed = submit(
+        app.handle(),
+        &state,
+        deferred.set.id,
+        questions[1].id,
+        json!("后验概率"),
+    )
+    .unwrap();
+    assert_eq!(completed.set.status, "completed");
+    assert_eq!(completed.answer.correct, Some(true));
+    let listed = mistakes(app.handle(), &state).unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].question_id, questions[0].id);
+    let evidence: i64 = state
+        .store()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_node_evidence WHERE kind = 'practice'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(evidence, 2, "集合完成后按已答行补写掌握度证据");
 }
 
 #[test]

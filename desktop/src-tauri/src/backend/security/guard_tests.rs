@@ -393,6 +393,92 @@ fn concurrent_imports_during_user_switches_stay_isolated() {
 }
 
 #[test]
+fn workspace_ownership_recheck_rejects_operations_after_a_user_switch() {
+    // 150#9：备份导入/应用重置是「先停机再取 store 锁」的阻塞命令体，
+    // 其间可能发生工作区切换——进入关键段时复核会话用户与命令发起时
+    // 捕获的 principal，不一致即中止，避免把一人的备份写进（或清空）
+    // 另一人的工作区
+    let (app, _learning) = setup();
+    ipc(&app, "bootstrap", json!({})).unwrap();
+    ipc(
+        &app,
+        "create_local_user",
+        json!({"name":"归属复核用户","role":"成员"}),
+    )
+    .unwrap();
+    assert_eq!(
+        ipc(&app, "get_security_overview", json!({})).unwrap()["currentUser"]["id"],
+        1
+    );
+    // 未切换时归属一致，放行
+    guard::ensure_workspace(app.handle(), Some(1)).unwrap();
+    ipc(&app, "login_local_user", json!({"userId":2})).unwrap();
+    // 切换后仍按旧 principal 发起的操作必须被拒绝
+    let error = guard::ensure_workspace(app.handle(), Some(1)).unwrap_err();
+    assert_eq!(error.code, "workspace_switched");
+    // 当前会话用户与 principal 一致时放行
+    guard::ensure_workspace(app.handle(), Some(2)).unwrap();
+}
+
+#[test]
+fn blocking_workspace_operations_exclude_user_switches() {
+    // 150#9：备份导入/应用重置的关键段持 WORKSPACE_SWITCH 写锁——
+    // 用户切换与关键段不得交错（交错即产生跨用户写入）。本测试验证
+    // 写锁的互斥语义：持锁期间切换不得完成，释放后必须完成
+    let (app, _learning) = setup();
+    ipc(&app, "bootstrap", json!({})).unwrap();
+    ipc(
+        &app,
+        "create_local_user",
+        json!({"name":"互斥用户","role":"成员"}),
+    )
+    .unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        guard::exclusive(|| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+        .unwrap();
+    });
+    started_rx.recv().unwrap();
+    let handle = app.handle().clone();
+    let (invoked_tx, invoked_rx) = std::sync::mpsc::channel();
+    let switcher = std::thread::spawn(move || {
+        let window = handle.get_webview_window("main").unwrap();
+        invoked_tx.send(()).unwrap();
+        tauri::test::get_ipc_response(
+            &window,
+            InvokeRequest {
+                cmd: "login_local_user".into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: "http://tauri.localhost".parse().unwrap(),
+                body: InvokeBody::Json(json!({"userId": 2})),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.into(),
+            },
+        )
+    });
+    invoked_rx.recv().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(
+        !switcher.is_finished(),
+        "关键段持切换写锁期间用户切换不得完成"
+    );
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
+    let response = switcher.join().unwrap();
+    assert!(
+        response
+            .map(|body| body.deserialize::<Value>().is_ok())
+            .unwrap_or(false),
+        "释放关键段后用户切换必须完成"
+    );
+}
+
+#[test]
 fn frontend_session_event_survives_snapshot_coalescing() {
     let source = include_str!("../../../../src/backend/useBackendState.ts");
     let coalesced = source

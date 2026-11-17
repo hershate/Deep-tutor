@@ -28,6 +28,9 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   // 43#7：远端列举失败单独下沉到弹窗内渲染——面板级 error 会被模态完全遮挡，
   // 原先弹窗里只有无限 spinner，无错误也无重试入口
   const [versionsError, setVersionsError] = useState('')
+  // 150#6：恢复失败同样下沉到弹窗内——面板级 error 渲染在弹窗之下，
+  // 用户点了「恢复并追加」却看不到任何反馈（43#7 同型）
+  const [restoreError, setRestoreError] = useState('')
   const [busy, setBusy] = useState('')
   // 134#10：下载任务的目标路径——reveal 定位最近一次下载配置的落盘位置
   const [downloadTarget, setDownloadTarget] = useState('')
@@ -120,11 +123,12 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
   const restoreVersion = async (path: string) => {
     setBusy('restore')
     setError('')
+    setRestoreError('')
     try {
       const accepted = await syncBackend.restore(path)
       notify(`历史版本恢复任务 ${accepted.id} 已启动，将按真实配置追加导入`)
       await refresh()
-    } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
+    } catch (cause) { setRestoreError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const configured = Boolean(overview?.config)
   const checkIcon = busy === 'check' ? <LoaderCircle size={16} className="spin" /> : <Eye size={16} />
@@ -184,10 +188,11 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
         </div>
       </div>
     </Modal>
-    <Modal open={versionsOpen} onClose={() => { versionsOpenRef.current = false; setVersionsOpen(false) }} title="远端历史版本" wide>
+    <Modal open={versionsOpen} onClose={() => { versionsOpenRef.current = false; setRestoreError(''); setVersionsOpen(false) }} title="远端历史版本" wide>
       <div className="form-stack">
         <div className="modal-callout"><ShieldCheck size={18} /><span>版本来自远端实际列表。恢复会读取所选对象并追加导入档案与路由，不覆盖本机系统凭据。</span></div>
         <div className="data-actions"><Button variant="secondary" size="sm" onClick={() => void loadVersions()}><RefreshCw size={15} />重新读取远端列表</Button></div>
+        {restoreError && <div className="form-error" role="alert"><p>历史版本恢复失败：{restoreError}</p></div>}
         {versionsError ? <div className="form-error" role="alert"><p>远端版本列表读取失败：{versionsError}</p><Button size="sm" onClick={() => void loadVersions()}>重试读取</Button></div> : versions === null ? <span role="status" aria-label="正在读取远端版本列表"><LoaderCircle size={22} className="spin" /></span> : versions.length ? versions.map(version => <div className="sync-version" key={version.path}><div><strong>{version.path.split('/').at(-1)}</strong><p>{version.size === null ? '大小未提供' : `${version.size.toLocaleString()} 字节`} · {version.lastModified ? formatRemoteTime(version.lastModified) : '时间未提供'}</p><code>{version.path}</code></div><Button variant="secondary" size="sm" disabled={busy === 'restore'} onClick={() => void restoreVersion(version.path)}>恢复并追加</Button></div>) : <p>远端尚无历史版本。完成一次实际上传后可在这里恢复。</p>}
       </div>
     </Modal>
