@@ -11,6 +11,30 @@ use backend::{
 use std::io::Write;
 use tauri::Manager;
 
+/// P-073：verify 自检的快照形状判定与结果输出——形状不符时只写失败信息
+/// 并请求 exit(2)；通过时才写 "native verification passed" 并请求 exit(0)。
+/// AppHandle::exit 只投递退出请求（不终止进程），因此失败分支必须就地
+/// 返回，否则同一次运行会同时输出失败与通过两套 stdout 文本。
+/// 返回请求的退出码，供调用方与回归测试断言。
+fn report_verify_result(
+    snapshot: &serde_json::Value,
+    out: &mut dyn Write,
+    exit: &mut dyn FnMut(i32),
+) -> i32 {
+    if !snapshot["tasks"].is_array() || !snapshot["preferences"].is_object() {
+        eprintln!("native verification failed: unexpected bootstrap snapshot shape");
+        exit(2);
+        return 2;
+    }
+    let _ = writeln!(
+        out,
+        "native verification passed: workspace={}, lastEventId={}",
+        snapshot["workspaceId"], snapshot["lastEventId"]
+    );
+    exit(0);
+    0
+}
+
 /// 应用装配：resolve 数据目录 → 初始化后端 → verify 模式下自检并 exit(0)。
 /// 错误以 Result 交还调用方（verify 模式转 exit(2)，GUI 模式沿 setup 上抛
 /// 走 initialize_background 的失败恢复 UI）。
@@ -79,17 +103,11 @@ fn assemble(app: &mut tauri::App, verify_native: bool) -> Result<(), Box<dyn std
             // 106#6：断言失败原先以 panic（退出码 101）交付，违背 50#1 声明的
             // 「verify 校验不过 → exit(2)」契约，CI 按退出码会把内部断言崩坏
             // 误读为运行崩溃；打印也改忽略错误（stdout 管道关闭不再 panic）
-            if !snapshot["tasks"].is_array() || !snapshot["preferences"].is_object() {
-                eprintln!("native verification failed: unexpected bootstrap snapshot shape");
-                app.handle().exit(2);
-            }
-            let _ = writeln!(
-                std::io::stdout(),
-                "native verification passed: workspace={}, lastEventId={}",
-                snapshot["workspaceId"],
-                snapshot["lastEventId"]
-            );
-            app.handle().exit(0);
+            // P-073：形状判定与通过/失败输出统一收敛到 report_verify_result，
+            // 失败分支在该函数内就地返回，stdout 不再出现通过信息
+            let mut stdout = std::io::stdout();
+            let mut exit = |code: i32| app.handle().exit(code);
+            report_verify_result(&snapshot, &mut stdout, &mut exit);
             Ok(())
         }));
         match outcome {
@@ -387,6 +405,7 @@ fn main() {
             review::commands::list_review_history,
             practice::commands::generate_practice,
             practice::commands::get_practice_set,
+            practice::commands::start_practice_exam_timer,
             practice::commands::list_practice_history,
             practice::commands::cancel_practice_generation,
             practice::commands::resume_practice_generation,
@@ -450,5 +469,42 @@ fn main() {
             backend::store::append_diagnostic(account_path, &format!("事件循环失败：{error}"));
         }
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::report_verify_result;
+    use serde_json::json;
+
+    /// P-073：形状不符时只请求 exit(2)，stdout 不得出现通过信息。
+    #[test]
+    fn verify_shape_failure_reports_no_pass_line() {
+        for snapshot in [
+            json!({"tasks": {}, "preferences": {}}),
+            json!({"tasks": [], "preferences": []}),
+        ] {
+            let mut out: Vec<u8> = Vec::new();
+            let mut codes: Vec<i32> = Vec::new();
+            let mut record = |value: i32| codes.push(value);
+            let code = report_verify_result(&snapshot, &mut out, &mut record);
+            assert_eq!(code, 2);
+            assert_eq!(codes, vec![2]);
+            assert!(!String::from_utf8_lossy(&out).contains("native verification passed"));
+        }
+    }
+
+    /// P-073：形状相符时写通过信息并请求 exit(0)。
+    #[test]
+    fn verify_shape_success_reports_pass_line() {
+        let snapshot =
+            json!({"tasks": [], "preferences": {}, "workspaceId": "w", "lastEventId": 7});
+        let mut out: Vec<u8> = Vec::new();
+        let mut codes: Vec<i32> = Vec::new();
+        let mut record = |value: i32| codes.push(value);
+        let code = report_verify_result(&snapshot, &mut out, &mut record);
+        assert_eq!(code, 0);
+        assert_eq!(codes, vec![0]);
+        assert!(String::from_utf8_lossy(&out).contains("native verification passed"));
     }
 }
