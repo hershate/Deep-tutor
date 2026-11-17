@@ -144,6 +144,16 @@ fn adopted_first_plan(state: &PlanningState) -> Result<Option<Plan>> {
     })
 }
 
+/// 目标方案口径（P-138）：显式给出 plan_id 时取该方案，否则回退
+/// adopted-first（25#5）——报告页点开某个方案后，周历、强度与排期写操作
+/// 必须落在同一个方案上，否则界面显示方案 B 而写入落到方案 A。
+fn target_plan(state: &PlanningState, plan_id: Option<&str>) -> Result<Option<Plan>> {
+    match plan_id {
+        Some(id) => Ok(Some(super::learning::get(&state.learning, id)?)),
+        None => adopted_first_plan(state),
+    }
+}
+
 fn overview(state: &PlanningState, start: time::Date, plan: Option<Plan>) -> Result<PlanOverview> {
     let mut store = state.store()?;
     // 114#5：边界日期类型化报错（77#8/47#3 同型）——week_end 一经验证，
@@ -376,14 +386,19 @@ fn events_by_day_values(days: &[ScheduleDay]) -> u64 {
         .sum()
 }
 
-pub fn get_overview(state: &PlanningState, week_start: Option<String>) -> Result<PlanOverview> {
+pub fn get_overview(
+    state: &PlanningState,
+    week_start: Option<String>,
+    plan_id: Option<&str>,
+) -> Result<PlanOverview> {
     let start = match week_start {
         Some(value) => date(&value)?,
         None => super::store::now_local().date(),
     };
     // 31#18：周视图与强度切换/报告同口径（adopted-first，25#5 修复补全）——
     // 原先取最新方案，已采用 plan-1 + 未采用 plan-2 时周历恒空而强度改 plan-1
-    let plan = adopted_first_plan(state)?;
+    // P-138：给出 plan_id 时取该方案（报告页按方案查看），缺省仍是 adopted-first
+    let plan = target_plan(state, plan_id)?;
     overview(state, start, plan)
 }
 
@@ -483,8 +498,9 @@ fn alternatives_for(overview: &PlanOverview) -> Result<Vec<PlanAlternative>> {
 pub fn alternatives(
     state: &PlanningState,
     week_start: Option<String>,
+    plan_id: Option<&str>,
 ) -> Result<Vec<PlanAlternative>> {
-    let overview = get_overview(state, week_start)?;
+    let overview = get_overview(state, week_start, plan_id)?;
     alternatives_for(&overview)
 }
 
@@ -493,15 +509,17 @@ pub fn apply_intensity<R: Runtime>(
     state: &PlanningState,
     intensity: String,
     week_start: Option<String>,
+    plan_id: Option<&str>,
 ) -> Result<PlanOverview> {
     factor(&intensity)?;
     // 25#5：目标方案口径与首页/报告一致（最近采用优先），否则会改写未采用的
     // 更新草稿，而界面仍展示已采用方案
+    // P-138：给出 plan_id 时按该方案计算与改写，缺省仍是 adopted-first
     let start = match week_start.clone() {
         Some(value) => date(&value)?,
         None => super::store::now_local().date(),
     };
-    let plan = adopted_first_plan(state)?;
+    let plan = target_plan(state, plan_id)?;
     let current = overview(state, start, plan)?;
     let store = state.store()?;
     let preferences_record = store.collection("preferences")?;
@@ -821,12 +839,15 @@ pub fn assign_task_date<R: Runtime>(
     state: &PlanningState,
     task_id: i64,
     date_value: String,
+    plan_id: Option<&str>,
 ) -> Result<PlanOverview> {
     // 31#18：任务排期与周视图同口径 adopted-first——原先挂到最新草稿，
     // 已采用方案的任务日期会写进另一个方案
-    let plan = adopted_first_plan(state)?
+    // P-138：给出 plan_id 时排期写入该方案（界面上显示的方案必须与写入的
+    // 方案一致），缺省仍是 adopted-first
+    let plan = target_plan(state, plan_id)?
         .ok_or_else(|| BackendError::new("no_plan", "请先创建学习方案，再为任务排期"))?;
-    let plan_id = super::learning::plan_id(&plan.id)?;
+    let numeric_plan_id = super::learning::plan_id(&plan.id)?;
     let day = date(&date_value)?;
     let store = state.store()?;
     let task = store.collection("tasks")?.value;
@@ -843,7 +864,7 @@ pub fn assign_task_date<R: Runtime>(
     // 任务其实已保存到该日期，且按同日期重试永远得到同样错误
     week_bounds(day)?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute("INSERT INTO learning_plan_schedule_tasks (plan_id, task_id, date, stage_id, node_ids_json, minutes) VALUES (?1, ?2, ?3, 'custom', '[]', ?4) ON CONFLICT(plan_id, task_id) DO UPDATE SET date = excluded.date, stage_id = excluded.stage_id, node_ids_json = excluded.node_ids_json, minutes = excluded.minutes", params![plan_id, task_id, day.to_string(), minutes])?;
+    tx.execute("INSERT INTO learning_plan_schedule_tasks (plan_id, task_id, date, stage_id, node_ids_json, minutes) VALUES (?1, ?2, ?3, 'custom', '[]', ?4) ON CONFLICT(plan_id, task_id) DO UPDATE SET date = excluded.date, stage_id = excluded.stage_id, node_ids_json = excluded.node_ids_json, minutes = excluded.minutes", params![numeric_plan_id, task_id, day.to_string(), minutes])?;
     let event = Store::event(
         &tx,
         "plan.task_scheduled",

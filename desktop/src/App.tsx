@@ -82,6 +82,9 @@ export default function App() {
   const [studyTarget, setStudyTarget] = useState<{ planId: string; stageId: string; nonce: number } | null>(null)
   const [practiceTarget, setPracticeTarget] = useState<PracticeTarget | null>(null)
   const [mapPlanId, setMapPlanId] = useState<string | null>(null)
+  // P-138：学习报告按方案打开时的查看目标——计划页据此显示所点方案，
+  // 而不是 adopted-first 的当前采用方案
+  const [planTarget, setPlanTarget] = useState<string | null>(null)
   // 120#5：全局搜索节点结果的地图定位目标（nonce 支持同一节点重复点击）
   const [mapNodeTarget, setMapNodeTarget] = useState<{ planId: string; nodeId: string; nonce: number } | null>(null)
   // 150#7：方案生成页的输入草稿槽——「前往模型接入中心」会离页，
@@ -516,7 +519,7 @@ export default function App() {
     switch (page) {
       case 'today': return <Dashboard tasks={tasks} setTasks={setTasks} onNavigate={navigate} onFocus={openFocus} notify={notify} overview={homeSummary} summaryError={homeSummaryError} onRetrySummary={() => setSummaryReload(current => current + 1)} />
       case 'generator': return <PlanGenerator onNavigate={navigate} notify={notify} draftRef={generatorDraftRef} />
-      case 'plan': return <Plan setTasks={setTasks} onNavigate={navigate} notify={notify} />
+      case 'plan': return <Plan setTasks={setTasks} onNavigate={navigate} notify={notify} focusPlanId={planTarget} onFocusConsumed={() => setPlanTarget(null)} />
       case 'agent': return <AgentCenter notify={notify} onNavigate={navigate} />
       // 104#1：学习空间「专注模式」入口原先绕过 openFocus（不拉取后端
       // 会话、不置 loading）——存在运行中会话时点「开始专注」撞
@@ -527,7 +530,7 @@ export default function App() {
       case 'review': return <Review notify={notify} />
       case 'library': return <Library notes={notes} setNotes={setNotes} resources={resources} onImportNotes={importNotes} notify={notify} />
       case 'projects': return <Projects projects={projects} setProjects={setProjects} onNavigateMap={planId => { setMapPlanId(planId); navigate('map') }} notify={notify} />
-      case 'reports': return <Reports notify={notify} onNavigate={navigate} />
+      case 'reports': return <Reports notify={notify} onOpenPlan={planId => { setPlanTarget(planId); navigate('plan') }} />
       case 'community': return <Community notify={notify} />
       case 'integrations': return <Integrations notify={notify} />
       case 'providers': return <ProviderHub notify={notify} />

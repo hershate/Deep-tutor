@@ -1977,6 +1977,11 @@ h1, h2, h3 { text-wrap: balance; }
 .practice-history-list { display: grid; gap: 8px; }
 .practice-history-list > button { display: flex; justify-content: space-between; gap: 15px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; }
 .practice-history-list small { color: var(--muted); }
+/* P-137：三个历史列表的空态在侧栏内收敛高度——通用 .empty-state 的
+   300px 最小高度在窄侧栏里只剩一个大图标，正文被推出可视区 */
+.practice-history-list > .empty-state, .exam-history > .empty-state { min-height: 0; padding: 18px 12px; }
+.practice-history-list > .empty-state h3, .exam-history > .empty-state h3 { margin: 10px 0 4px; font-size: 14px; }
+.practice-history-list > .empty-state p, .exam-history > .empty-state p { font-size: 12px; }
 .rubric-preview { display: grid; gap: 8px; margin: 16px 0; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
 .rubric-preview > div { display: flex; justify-content: space-between; gap: 15px; font-size: 13px; }
 .rubric-preview small { flex-shrink: 0; color: var(--muted); }

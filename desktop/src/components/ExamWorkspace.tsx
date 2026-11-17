@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { ArrowRight, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileQuestion, RefreshCw, XCircle } from './icons'
-import { Badge, Button, ConfirmDialog, Modal, ProgressBar, SectionHeader } from './UI'
+import { Badge, Button, ConfirmDialog, EmptyState, Modal, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, type LearningPlan, deltaThrottle } from '../backend/client'
 import { clampToBytes } from '../limits'
 import { practiceBackend, type PracticeDetail, type PracticeInput, type PracticeSet, type QuestionKind } from '../backend/practice'
@@ -50,6 +50,9 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   const selectedValue = selected ?? (typeof answer?.response === 'number' ? answer.response : null)
   const percentage = exam && (exam.set.maxScore ?? 0) > 0 ? (exam.set.score ?? 0) / (exam.set.maxScore ?? 1) * 100 : 0
   const passed = percentage >= (exam?.set.passScorePercent ?? 80)
+  // P-137：测评历史按模式过滤后成表——空列表需要独立空态，
+  // 否则侧栏只剩标题，用户不知道是还没考过还是列表坏了
+  const examHistory = history.filter(item => item.mode === 'exam')
 
   useEffect(() => {
     if (!input.planId && plans[0]) setInput(previous => ({ ...previous, planId: plans[0].id }))
@@ -253,7 +256,7 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
       </> : <p>试卷尚未生成题目。</p>}
       {!completed && <div className="editor-actions"><p className="form-help">交卷后统一显示评分。未作答按 0 分计；未完成的评分不会被伪造。</p><Button onClick={() => setFinalizeOpen(true)} disabled={pending || busy}>{pending ? '等待评分完成' : '交卷并查看结果'}<CheckCircle2 size={17} /></Button></div>}
     </section>}
-  </div><aside className="surface exam-history"><SectionHeader title="真实测评历史" description="成绩来自已保存的交卷结果" />{history.filter(item => item.mode === 'exam').map(item => <button key={item.id} disabled={busy || selecting} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>{item.completedAt ? new Date(item.completedAt).toLocaleString() : statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</aside>
+  </div><aside className="surface exam-history"><SectionHeader title="真实测评历史" description="成绩来自已保存的交卷结果" />{!examHistory.length && <EmptyState title="还没有测评记录" description="生成并交卷一次模拟考试后，成绩会显示在这里。" />}{examHistory.map(item => <button key={item.id} disabled={busy || selecting} onClick={() => void selectSet(item.id)}><span>{plans.find(plan => plan.id === item.planId)?.goal ?? item.planId}<small>{item.completedAt ? new Date(item.completedAt).toLocaleString() : statusName(item.status)}</small></span><strong>{item.status === 'completed' && item.score !== null && item.maxScore !== null ? `${item.score} / ${item.maxScore}` : `${item.answeredQuestions} / ${item.totalQuestions}`}</strong></button>)}</aside>
 
     <ConfirmDialog open={finalizeOpen} onClose={() => setFinalizeOpen(false)} onConfirm={() => { setFinalizeOpen(false); void finalize() }} title="交卷并查看结果？" description={`交卷后不可重考：未作答的题按 0 分计并写入知识证据；当前已判分 ${exam?.set.answeredQuestions ?? 0} / ${exam?.set.totalQuestions ?? 0} 题。`} confirmLabel="确认交卷" busy={busy} />
     <ConfirmDialog open={abandonOpen} onClose={() => setAbandonOpen(false)} onConfirm={() => { setAbandonOpen(false); void abandonAnswer() }} title="放弃该题评分？" description="该题将按 0 分计入本次考试并标记为已放弃，不可撤销；原始作答保留，不会伪造模型评分。" confirmLabel="放弃本题，按 0 分计" busy={busy} />

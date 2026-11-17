@@ -21,12 +21,15 @@ pub async fn get_plan_overview<R: Runtime + 'static>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     week_start: Option<String>,
+    // P-138：显式指定方案（报告页按方案查看）；缺省仍是 adopted-first，
+    // 命令契约向后兼容——旧调用方不传 planId 时行为不变
+    plan_id: Option<String>,
 ) -> Result<PlanOverview> {
     let planning = PlanningState::new(&state.learning);
     let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         super::super::security::with_principal(principal, || {
-            super::get_overview(&planning, week_start)
+            super::get_overview(&planning, week_start, plan_id.as_deref())
         })
     })
     .await
@@ -38,12 +41,13 @@ pub async fn get_plan_alternatives<R: Runtime + 'static>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     week_start: Option<String>,
+    plan_id: Option<String>,
 ) -> Result<Vec<PlanAlternative>> {
     let planning = PlanningState::new(&state.learning);
     let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         super::super::security::with_principal(principal, || {
-            super::alternatives(&planning, week_start)
+            super::alternatives(&planning, week_start, plan_id.as_deref())
         })
     })
     .await
@@ -56,12 +60,13 @@ pub async fn apply_plan_intensity<R: Runtime + 'static>(
     state: State<'_, BackendState>,
     intensity: String,
     week_start: Option<String>,
+    plan_id: Option<String>,
 ) -> Result<PlanOverview> {
     let planning = PlanningState::new(&state.learning);
     let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         super::super::security::with_principal(principal, || {
-            super::apply_intensity(&app, &planning, intensity, week_start)
+            super::apply_intensity(&app, &planning, intensity, week_start, plan_id.as_deref())
         })
     })
     .await
@@ -91,12 +96,14 @@ pub async fn assign_task_date<R: Runtime + 'static>(
     state: State<'_, BackendState>,
     task_id: i64,
     date_value: String,
+    // P-138：排期写入的方案必须与界面显示的方案一致
+    plan_id: Option<String>,
 ) -> Result<PlanOverview> {
     let planning = PlanningState::new(&state.learning);
     let principal = super::super::security::session_principal_existing(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         super::super::security::with_principal(principal, || {
-            super::assign_task_date(&app, &planning, task_id, date_value)
+            super::assign_task_date(&app, &planning, task_id, date_value, plan_id.as_deref())
         })
     })
     .await

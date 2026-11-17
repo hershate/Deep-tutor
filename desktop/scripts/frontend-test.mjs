@@ -876,3 +876,80 @@ test('P-086：已评价成果数取后端全库计数，不在 200 行版本窗�
   )
 })
 
+
+test('P-137：练习、测评、主观题三个历史列表都有空态', () => {
+  const practice = readSource('../src/pages/Practice.tsx')
+  assert.ok(
+    practice.includes('还没有练习记录'),
+    '真实练习历史为空时必须给出空态——原先只剩标题，用户无从判断是没练过还是列表坏了',
+  )
+  const exam = readSource('../src/components/ExamWorkspace.tsx')
+  assert.ok(
+    exam.includes('还没有测评记录'),
+    '真实测评历史为空时必须给出空态',
+  )
+  const subjective = readSource('../src/components/SubjectivePractice.tsx')
+  assert.ok(
+    subjective.includes('还没有主观题记录'),
+    '主观题历史为空时必须给出空态',
+  )
+})
+
+test('P-138：报告页方案卡片打开的是所点方案，排期写操作落在同一方案', () => {
+  const reportViews = readSource('../src/components/ReportViews.tsx')
+  assert.ok(
+    reportViews.includes('onOpenPlan(plan.id)'),
+    '按方案统计的卡片必须携带方案 id——原先只跳页，落地页显示的是当前采用方案',
+  )
+  const plan = readSource('../src/pages/Plan.tsx')
+  assert.ok(
+    plan.includes('planningBackend.overview(target, viewPlanIdRef.current ?? undefined)'),
+    '计划页必须按查看目标取数',
+  )
+  assert.ok(
+    plan.includes('assignTaskDate(selectedTask.taskId, taskDate, viewPlanId ?? undefined)'),
+    '排期写操作必须落到所查看方案，不能写到当前采用方案',
+  )
+  assert.ok(
+    plan.includes('applyIntensity(intensity, weekStart, viewPlanId ?? undefined)'),
+    '强度切换必须落到所查看方案',
+  )
+})
+
+test('P-133 返工：排期日期上限等于后端可表示的最后一个日期', () => {
+  const cargo = readSource('../src-tauri/Cargo.toml')
+  const timeLine = cargo.split(/\r?\n/).find(line => /^\s*time\s*=/.test(line))
+  assert.ok(timeLine, 'Cargo.toml 必须声明 time 依赖——排期日期上限据此推导')
+  assert.ok(
+    !timeLine.includes('large-dates'),
+    '本测试按未启用 large-dates 推导上限（MAX_YEAR=9999）；启用后必须同步更新本测试与 SCHEDULE_MAX_DATE',
+  )
+  // time 未启用 large-dates 时可表示的最大日期是 9999-12-31；后端 week_bounds
+  // 要求「归一后的周一 + 7 天」仍可表示——最后一个可用周的周一必须满足
+  // 周一 + 7 天 <= 最大日期，该周的最后一天才是最后一个可用日期。
+  const dayMs = 86400000
+  const maxDay = Date.UTC(9999, 11, 31)
+  const iso = timestamp => {
+    const date = new Date(timestamp)
+    const pad = value => String(value).padStart(2, '0')
+    return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
+  }
+  const mondayOf = timestamp => {
+    const weekday = new Date(timestamp).getUTCDay()
+    return timestamp - ((weekday + 6) % 7) * dayMs
+  }
+  const lastUsable = iso(mondayOf(maxDay - 7 * dayMs) + 6 * dayMs)
+  assert.equal(lastUsable, '9999-12-26')
+  const plan = readSource('../src/pages/Plan.tsx')
+  const declared = plan.match(/const SCHEDULE_MAX_DATE = '([^']+)'/)
+  assert.ok(declared, '计划页必须声明排期日期上限')
+  assert.equal(
+    declared[1],
+    lastUsable,
+    '排期日期上限必须等于后端可表示的最后一个日期——放得越界，用户能选出提交后必然被后端拒绝的日期',
+  )
+  assert.ok(
+    !plan.includes('9999-12-30'),
+    '不得再把 9999-12-30 当作最后一个可用日期——该日所在周起点 +7 天越过 9999-12-31',
+  )
+})

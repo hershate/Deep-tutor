@@ -386,6 +386,77 @@ fn legacy_plan_without_intensity_record_declares_the_stored_minutes_as_the_base(
 }
 
 #[test]
+fn explicit_plan_id_selects_the_plan_for_overview_and_scheduling() {
+    // P-138：报告页「按方案统计」的卡片点击后必须显示所点方案——
+    // 总览、替代安排与排期写操作都按显式 plan_id 落库，缺省仍是
+    // adopted-first（既有调用方不传 planId 时行为不变）
+    let (app, learning) = setup();
+    let store = learning.store().unwrap();
+    insert_plan(&store);
+    crate::backend::learning::actions::adopt(app.handle(), &learning, "plan-1").unwrap();
+    let now = timestamp(OffsetDateTime::now_utc()).unwrap();
+    let input = json!({"goal":"第二个目标","level":"部分掌握","dailyMinutes":30,"deadline":"2099-01-01","materialIds":[]}).to_string();
+    let result = json!({
+        "goal":"第二个目标","level":"部分掌握","deadline":"2099-01-01","milestone":null,"milestoneDate":null,
+        "graph":{"nodes":[{"id":"node-2","title":"第二个知识节点","summary":"真实摘要","difficulty":1,"required":true,"estimatedMinutes":20,"citations":[]}],"edges":[]},
+        "stages":[{"id":"stage-2","title":"第二个阶段","nodeIds":["node-2"],"difficulty":1,"minutes":20,"startDate":"2026-11-02","endDate":"2026-11-03"}],
+        "schedule":{"startDate":"2026-11-02","endDate":"2026-11-03","totalMinutes":20,"days":2,"withinDeadline":true,"milestoneDate":null,"withinMilestone":null,"entries":[{"date":"2026-11-02","stageId":"stage-2","nodeIds":["node-2"],"minutes":20}]},
+        "resources":{},"validation":{"dependencyClosure":{"status":"pass","details":"真实"},"difficultyStep":{"status":"pass","details":"真实"},"cognitiveLoad":{"status":"pass","details":"真实"},"milestoneFeasibility":{"status":"pass","details":"真实"},"gapAnalysis":{"status":"pass","details":"真实"},"passed":true,"fixes":[]},"warnings":[]
+    }).to_string();
+    store.conn.execute("INSERT INTO learning_plans (status, provider_id, input_json, result_json, created_at, updated_at) VALUES ('done', 'p1', ?1, ?2, ?3, ?3)", params![input, result, now]).unwrap();
+    assert_eq!(store.conn.last_insert_rowid(), 2);
+    store.conn.execute("INSERT INTO learning_plan_schedule_tasks (plan_id, task_id, date, stage_id, node_ids_json, minutes) VALUES (2, 1, '2026-11-02', 'stage-2', '[\"node-2\"]', 20)", []).unwrap();
+    // 缺省口径不变：adopted-first 仍取已采用的 plan-1
+    let default = ipc(&app, "get_plan_overview", json!({"weekStart":"2026-11-02"})).unwrap();
+    assert_eq!(default["plan"]["id"], "plan-1");
+    // P-138：显式指定时显示所点方案
+    let scoped = ipc(
+        &app,
+        "get_plan_overview",
+        json!({"weekStart":"2026-11-02","planId":"plan-2"}),
+    )
+    .unwrap();
+    assert_eq!(scoped["plan"]["id"], "plan-2");
+    assert_eq!(scoped["plan"]["goal"], "第二个目标");
+    assert_eq!(scoped["weeklyMinutes"], 20);
+    // 替代安排同样按所点方案计算
+    let alternatives = ipc(
+        &app,
+        "get_plan_alternatives",
+        json!({"weekStart":"2026-11-02","planId":"plan-2"}),
+    )
+    .unwrap();
+    assert_eq!(alternatives[1]["weeklyMinutes"], 20);
+    // 排期写操作落到所点方案，不写进已采用方案
+    let scheduled = ipc(
+        &app,
+        "assign_task_date",
+        json!({"taskId":2,"dateValue":"2026-11-03","planId":"plan-2"}),
+    )
+    .unwrap();
+    assert_eq!(scheduled["plan"]["id"], "plan-2");
+    let rows: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM learning_plan_schedule_tasks WHERE plan_id = 2 AND task_id = 2 AND date = '2026-11-03'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 1, "排期必须写入所点方案");
+    let adopted_rows: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM learning_plan_schedule_tasks WHERE plan_id = 1 AND task_id = 2",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(adopted_rows, 0, "不得把排期写进已采用方案");
+    // 不存在的方案给出类型化错误，不静默回退到当前方案
+    assert_eq!(
+        ipc(&app, "get_plan_overview", json!({"planId":"plan-999"})).unwrap_err()["code"],
+        "not_found"
+    );
+}
+
+#[test]
 fn out_of_range_schedule_date_is_rejected_before_anything_is_saved() {
     // P-133：assign_task_date 原先先落库再计算周视图——边界周日期越界时
     // 用户看到「排期失败」，实际排期已经保存，且按同日期重试永远得到
@@ -410,6 +481,33 @@ fn out_of_range_schedule_date_is_rejected_before_anything_is_saved() {
         )
         .unwrap();
     assert_eq!(rows, 0, "越界日期不得留下已保存的排期行");
+}
+
+#[test]
+fn the_last_representable_schedule_date_is_the_sunday_before_the_overflowing_monday() {
+    // P-133 返工：week_bounds 要求「归一后的周一 + 7 天」仍可表示，time 未启用
+    // large-dates（MAX_YEAR=9999，可表示的最大日期是 9999-12-31）。9999-12-27
+    // 是周一，其所在周起点 +7 天越过上限——最后一个可用日期是 9999-12-26
+    // （周日，所在周起于 9999-12-20）。前端排期日期上限必须与该边界一致
+    // （desktop/src/pages/Plan.tsx 的 SCHEDULE_MAX_DATE），否则用户能选出
+    // 一个提交后必然被后端拒绝的日期。
+    let (app, learning) = setup();
+    insert_plan(&learning.store().unwrap());
+    let overview = ipc(
+        &app,
+        "assign_task_date",
+        json!({"taskId":2,"dateValue":"9999-12-26"}),
+    )
+    .unwrap();
+    assert_eq!(overview["weekStart"], "9999-12-20");
+    assert_eq!(overview["days"][6]["date"], "9999-12-26");
+    let error = ipc(
+        &app,
+        "assign_task_date",
+        json!({"taskId":2,"dateValue":"9999-12-27"}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "invalid_schedule_date");
 }
 
 #[test]

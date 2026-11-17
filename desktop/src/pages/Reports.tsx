@@ -5,7 +5,6 @@ import { CalendarReport, PlanReport } from '../components/ReportViews'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { reportsBackend } from '../backend/reports'
 import type { LearningReport, CalendarReport as CalendarData, TrendPoint } from '../backend/reports'
-import type { PageId } from '../data'
 
 const periods = [{ id: '4w', label: '近 4 周' }, { id: '8w', label: '近 8 周' }, { id: 'semester', label: '本学期' }]
 const percent = (value: number | null) => value === null ? '—' : `${Math.round(value * 100)}%`
@@ -18,7 +17,7 @@ function Trend({ points }: { points: TrendPoint[] }) {
   return points.length > 1 ? <LineChart values={values} labels={labels} /> : <MiniBars values={values} labels={labels} />
 }
 
-export default function Reports({ notify, onNavigate }: { notify: (message: string) => void; onNavigate: (page: PageId) => void }) {
+export default function Reports({ notify, onOpenPlan }: { notify: (message: string) => void; onOpenPlan: (planId: string) => void }) {
   const [period, setPeriod] = useState('8w')
   const [view, setView] = useState('总览')
   const [report, setReport] = useState<LearningReport | null>(null)
@@ -94,7 +93,7 @@ export default function Reports({ notify, onNavigate }: { notify: (message: stri
     {error && <div className="form-error" role="alert"><CircleAlert size={16} /><span>{error}</span><Button variant="ghost" size="sm" onClick={() => { setError(''); void refresh() }}>重新读取</Button></div>}
     {!report ? error ? null : <div className="page-loading" role="status"><LoaderCircle size={22} className="spin" />正在读取真实学习记录…</div> : <>
       {view === '日历' && <CalendarReport data={calendar} onSaved={setCalendar} notify={notify} />}
-      {view === '按方案' && <PlanReport report={report} onNavigate={onNavigate} onAdopt={adopt} busy={busy === 'adopt'} />}
+      {view === '按方案' && <PlanReport report={report} onOpenPlan={onOpenPlan} onAdopt={adopt} busy={busy === 'adopt'} />}
       {view === '总览' && <>
         <div className="report-metrics"><div><span><Clock3 size={17} />有效学习记录</span><strong>{hours(metrics!.focusSeconds)}<small>小时</small></strong><p>{difference === null ? '按真实专注与已完成任务时间计算' : `${difference >= 0 ? '较上一周期增加' : '较上一周期减少'} ${Math.abs(difference * 100).toFixed(1)}%`}</p></div><div><span><BookOpenCheck size={17} />主动练习</span><strong>{metrics!.practiceCount}<small>题</small></strong><p>正确率 {percent(metrics!.correctPercent)}</p></div><div><span><Brain size={17} />记忆保持率</span><strong>{percent(metrics!.retentionPercent)}</strong><p>仅统计本周期真实复习</p></div><div><span><Target size={17} />目标状态</span><strong>{metrics!.goalStatus}</strong><p>{metrics!.goalDetail}</p></div></div>
         <div className="report-main-grid"><section className="surface report-trend"><SectionHeader title="掌握度变化" description="按真实证据日期计算，不把学习时长当作掌握度。" action={<Badge tone="green"><TrendingUp size={13} />真实证据</Badge>} /><Trend points={report.trend} /></section><aside className="surface time-composition"><SectionHeader title="专注时间构成" description={`已完成专注共 ${hours(report.timeComposition.reduce((sum, item) => sum + item.seconds, 0))} 小时`} />{report.timeComposition.length ? <div className="donut-legend">{report.timeComposition.map(item => <div key={item.kind}><span>{item.kind}</span><strong>{hours(item.seconds)}h</strong><ProgressBar value={Math.round(item.seconds / Math.max(1, report.timeComposition.reduce((sum, entry) => sum + entry.seconds, 0)) * 100)} srLabel={`${item.kind} 专注占比 ${Math.round(item.seconds / Math.max(1, report.timeComposition.reduce((sum, entry) => sum + entry.seconds, 0)) * 100)}%`} /></div>)}</div> : <EmptyState title="暂无已完成专注" description="开始并完成一次真实计时后，将按任务类型展示投入。" />}</aside></div>

@@ -37,9 +37,11 @@ export type PlanAlternative = { intensity: '稳妥' | '标准' | '冲刺'; weekl
 export type GoalInput = { planId?: string; goal: string; deadline: string; weeklyHours: number; level?: string }
 
 export const planningBackend = {
-  overview: (weekStart?: string) => invoke<PlanOverview>('get_plan_overview', { weekStart }),
-  alternatives: (weekStart?: string) => invoke<PlanAlternative[]>('get_plan_alternatives', { weekStart }),
-  applyIntensity: (intensity: string, weekStart?: string) => invoke<PlanOverview>('apply_plan_intensity', { intensity, weekStart }),
+  // P-138：planId 指定查看的方案（报告页按方案打开）；缺省时后端按
+  // adopted-first 口径取当前方案，命令契约保持向后兼容
+  overview: (weekStart?: string, planId?: string) => invoke<PlanOverview>('get_plan_overview', { weekStart, planId }),
+  alternatives: (weekStart?: string, planId?: string) => invoke<PlanAlternative[]>('get_plan_alternatives', { weekStart, planId }),
+  applyIntensity: (intensity: string, weekStart?: string, planId?: string) => invoke<PlanOverview>('apply_plan_intensity', { intensity, weekStart, planId }),
   updateGoal: (input: GoalInput) => invoke<LearningPlan>('update_learning_goal', { input }),
-  assignTaskDate: (taskId: number, dateValue: string) => invoke<PlanOverview>('assign_task_date', { taskId, dateValue }),
+  assignTaskDate: (taskId: number, dateValue: string, planId?: string) => invoke<PlanOverview>('assign_task_date', { taskId, dateValue, planId }),
 }

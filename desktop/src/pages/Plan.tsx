@@ -14,9 +14,11 @@ import { clampToBytes } from '../limits'
 import { statusName } from '../status'
 
 const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-// P-133：排期日期上限——后端排期周需「周一起点 + 7 天」仍可表示，
-// 最后一个可用日期是 9999-12-30（9999-12-31 归一到周一后越界）
-const SCHEDULE_MAX_DATE = '9999-12-30'
+// P-133：排期日期上限——后端排期周需「周一起点 + 7 天」仍可表示
+// （planning/mod.rs 的 week_bounds），time 未启用 large-dates，可表示的
+// 最大日期是 9999-12-31。9999-12-27 是周一，其所在周起点 +7 天越过上限，
+// 故最后一个可用日期是 9999-12-26（周日，所在周起于 9999-12-20）。
+const SCHEDULE_MAX_DATE = '9999-12-26'
 function localDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
@@ -32,7 +34,7 @@ function shiftWeek(start: string, amount: number) {
   return localDate(date)
 }
 
-export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (tasks: Task[] | ((current: Task[]) => Task[])) => Promise<WriteReceipt>; onNavigate: (page: PageId) => void; notify: (message: string) => void }) {
+export default function Plan({ setTasks, onNavigate, notify, focusPlanId, onFocusConsumed }: { setTasks: (tasks: Task[] | ((current: Task[]) => Task[])) => Promise<WriteReceipt>; onNavigate: (page: PageId) => void; notify: (message: string) => void; focusPlanId?: string | null; onFocusConsumed?: () => void }) {
   const [overview, setOverview] = useState<PlanOverview | null>(null)
   const [weekStart, setWeekStart] = useState(currentMonday)
   const [busy, setBusy] = useState('')
@@ -60,6 +62,10 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
   const [shareOpen, setShareOpen] = useState(false)
   // 43#5：强度 segmented 外观是筛选、行为是覆盖性重排——点击先落确认层
   const [intensityTarget, setIntensityTarget] = useState<string | null>(null)
+  // P-138：报告页按方案打开时的查看目标——非空时周历与写操作都针对该方案，
+  // 为空时沿用后端 adopted-first 口径（当前采用方案）。首值取 focusPlanId：
+  // 从报告页直接进入时首读就是所点方案，不先闪一次当前采用方案
+  const [viewPlanId, setViewPlanId] = useState<string | null>(focusPlanId ?? null)
   const plan = overview?.plan ?? null
   const ready = Boolean(plan?.result && ['done', 'degraded'].includes(plan.status))
   const progress = overview?.stages.length ? Math.round(overview.stages.filter(stage => stage.completed).length / overview.stages.length * 100) : 0
@@ -73,11 +79,15 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
   // 造成表头 W2、内容 W1 且无自愈的错周视图
   const weekStartRef = useRef(weekStart)
   useEffect(() => { weekStartRef.current = weekStart })
+  // P-138：查看目标同样走 ref——refresh 是空依赖的稳定回调，事件订阅与
+  // 写路径补偿刷新都要取最新的查看方案，不能捕获旧闭包
+  const viewPlanIdRef = useRef(viewPlanId)
+  useEffect(() => { viewPlanIdRef.current = viewPlanId }, [viewPlanId])
   const refresh = useCallback(async (week?: string) => {
     const target = week ?? weekStartRef.current
     const ticket = ++refreshSeq.current
     try {
-      const next = await planningBackend.overview(target)
+      const next = await planningBackend.overview(target, viewPlanIdRef.current ?? undefined)
       if (ticket !== refreshSeq.current) return
       setOverview(next)
       setError('')
@@ -88,7 +98,14 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
   // 每次翻周都先注销再异步重挂，间隙到达的事件被丢弃；回调经 ref 取最新
   const refreshRef = useRef(refresh)
   useEffect(() => { refreshRef.current = refresh })
-  useEffect(() => { void refresh() }, [weekStart])
+  useEffect(() => { void refresh() }, [weekStart, viewPlanId])
+  // P-138：报告页点开的方案落到本页——查看目标变化即重取该方案的周历，
+  // 消费后清空父级目标，避免下次进入仍锁在旧方案
+  useEffect(() => {
+    if (!focusPlanId) return
+    setViewPlanId(focusPlanId)
+    onFocusConsumed?.()
+  }, [focusPlanId])
   useEffect(() => {
     let active = true
     let stop: (() => void) | undefined
@@ -102,7 +119,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     if (busy || !ready) return
     setBusy('intensity')
     try {
-      await planningBackend.applyIntensity(intensity, weekStart)
+      await planningBackend.applyIntensity(intensity, weekStart, viewPlanId ?? undefined)
       notify(`已按「${intensity}」保存全部方案排期与任务时长`)
       // 60#1：写回值不得直写 setOverview——applyIntensity 在途时用户翻周，
       // 后到的 W1 响应会绕过 51#2 序号守卫盖掉 W2 视图（错周无自愈）；
@@ -113,7 +130,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
   const showAlternatives = async () => {
     setBusy('alternatives')
     try {
-      setAlternatives(await planningBackend.alternatives(weekStart))
+      setAlternatives(await planningBackend.alternatives(weekStart, viewPlanId ?? undefined))
       setAlternativesOpen(true)
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
@@ -149,7 +166,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
       setTitle(''); setAddOpen(false)
       if (plan && newTaskDate) {
         try {
-          await planningBackend.assignTaskDate(id, newTaskDate)
+          await planningBackend.assignTaskDate(id, newTaskDate, viewPlanId ?? undefined)
           notify('任务已保存并加入所选日期')
         } catch (cause) {
           // 51#7：任务本体已落库、仅排期失败——分段提示，用户不必重提整个表单
@@ -164,7 +181,7 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     if (!selectedTask?.taskId || !taskDate || busy) return
     setBusy('schedule')
     try {
-      const next = await planningBackend.assignTaskDate(selectedTask.taskId, taskDate)
+      const next = await planningBackend.assignTaskDate(selectedTask.taskId, taskDate, viewPlanId ?? undefined)
       // 60#1 同型：写回值不直写 overview——跨周由 setWeekStart 触发 effect
       // 过守卫重取；同周 effect 不重挂，显式刷新。
       // 70#2：与 ref 中的最新周比较——写路径在途翻周时旧闭包比较恒真，
@@ -214,8 +231,11 @@ export default function Plan({ setTasks, onNavigate, notify }: { setTasks: (task
     {error && !addOpen && !goalOpen && !selectedTask && <div className="form-error" role="alert"><AlertTriangle size={16} />{error}<Button variant="ghost" size="sm" onClick={() => setError('')}>关闭</Button></div>}
     {/* P-109：已有数据但刷新失败——保留旧值并明示其可能过期 */}
     {overview !== null && loadError && <div className="form-error" role="alert"><AlertTriangle size={16} />学习方案刷新失败，当前显示的是上次读取的结果：{loadError}<Button variant="ghost" size="sm" onClick={() => { setLoadError(''); void refresh() }}>重试</Button></div>}
+    {/* P-138：从学习报告按方案打开时明示当前查看对象——否则用户会以为
+        周历与写操作仍落在「当前采用方案」上；退出按钮回到默认口径 */}
+    {viewPlanId && <div className="form-help" role="status">正在查看方案 {viewPlanId}（从学习报告打开）· 排期与强度改动只作用于该方案。<Button variant="ghost" size="sm" onClick={() => setViewPlanId(null)}>回到当前方案</Button></div>}
     {plan ? <section className="goal-strip">
-      <div className="goal-main"><span className="goal-icon"><Target size={25} /></span><div><span>当前主目标 · {plan.id} · v{plan.version}</span><h2>{plan.goal}</h2><p>目标日 {plan.deadline} · 每周可投入 {overview?.weeklyHours ?? 0} 小时 · {plan.adoptedProjectId === null ? '尚未采用' : '已采用'}</p></div></div>
+      <div className="goal-main"><span className="goal-icon"><Target size={25} /></span><div><span>{viewPlanId ? '当前查看方案' : '当前主目标'} · {plan.id} · v{plan.version}</span><h2>{plan.goal}</h2><p>目标日 {plan.deadline} · 每周可投入 {overview?.weeklyHours ?? 0} 小时 · {plan.adoptedProjectId === null ? '尚未采用' : '已采用'}</p></div></div>
       <div className="goal-progress"><div><strong>{progress}%</strong><span>阶段阅读进度</span></div><ProgressBar value={progress} srLabel={`阶段阅读进度 ${Math.round(progress)}%`} /></div>
       <Button variant="secondary" onClick={openGoal}><SlidersHorizontal size={17} />调整目标</Button>
     </section> : overview === null ? loadError

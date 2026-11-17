@@ -703,3 +703,17 @@ fn cleanup_counts_orphans_vanished_after_scan_as_processed_not_failures() {
         .join("agent-workspaces/999/scratch/vanished.json")
         .exists());
 }
+
+#[test]
+fn concurrent_maintenance_call_is_rejected_instead_of_queueing() {
+    // P-147：OPERATION 互斥原先用 lock()——第二个请求在后台线程上静默排队，
+    // 等第一个任务（停机最坏约 140s + 全目录 walk 或整库重写）结束后照常
+    // 执行并再停机一轮；等待期间界面没有任何提示，等待与卡死无法区分。
+    // 改为 try_lock 后占用期间的重入立即返回类型化错误
+    let (app, _learning) = setup();
+    let _held = commands::operation_guard().unwrap();
+    let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap_err();
+    assert_eq!(cleanup["code"], "maintenance_busy");
+    let vacuum = ipc(&app, "vacuum_database", json!({})).unwrap_err();
+    assert_eq!(vacuum["code"], "maintenance_busy");
+}
