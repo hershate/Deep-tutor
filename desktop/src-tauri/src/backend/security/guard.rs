@@ -276,11 +276,63 @@ fn switch<R: Runtime>(invoke: Invoke<R>, handler: &dyn Fn(Invoke<R>) -> bool) ->
 
 // 31#34：PAT 认证的停机/撤旧签新段持 WORKSPACE_SWITCH 写锁——与 switch
 // 对称，多窗口/异步化后不存在旧用户上下文以新用户库执行的交错
-pub(super) fn exclusive<T>(operation: impl FnOnce() -> T) -> Result<T> {
+// 150#9：备份导入与应用重置同口径持写锁——两者都是「先停机再取 store
+// 锁」的阻塞命令体，停机窗口内可发生工作区切换
+pub(crate) fn exclusive<T>(operation: impl FnOnce() -> T) -> Result<T> {
     let _write = WORKSPACE_SWITCH
         .write()
         .map_err(|_| BackendError::new("workspace_unavailable", "工作区切换锁不可用"))?;
     Ok(operation())
+}
+
+/// 150#9：工作区归属复核——阻塞命令体（备份导入/应用重置）先停机再取
+/// store 锁，其间可能发生工作区切换（切换写锁只在关键段内互斥，命令
+/// 进入关键段之前仍可被切换）。进入关键段时复核当前会话用户与命令
+/// 发起时捕获的 principal 是否一致，不一致即中止，避免把一人的备份
+/// 写进（或清空）另一人的工作区。
+pub(crate) fn ensure_workspace<R: Runtime>(
+    app: &AppHandle<R>,
+    principal: Option<i64>,
+) -> Result<()> {
+    let current = super::session_principal_existing(app)?;
+    if current != principal {
+        return Err(BackendError::new(
+            "workspace_switched",
+            "工作区已切换到另一用户，本次操作已中止；请重新发起",
+        ));
+    }
+    Ok(())
+}
+
+/// 61#3 返工：async 命令体在 tokio worker 上执行——guard 的
+/// WORKSPACE_SWITCH 读锁与 with_user 只覆盖 handler(invoke) 的同步部分，
+/// 命令体本身在锁外。账号切换持写锁，可以在命令体真正开始前完成：
+/// 命令体随后解析出的 principal 已是切换后的用户，删除类命令
+/// （delete_agent_session 递归删目录）就会作用到另一用户的工作区。
+/// 命令体自行持读锁执行：与切换互斥，命令体要么整体在切换前执行、
+/// 要么整体在切换后执行；principal 在锁内解析，命令体执行期间会话
+/// 身份稳定。
+///
+/// 锁在命令体的阻塞线程上取（guard 不可 Send，不能随 future 迁出
+/// tokio），因此命令体与派发之间仍有一次「重新取锁」的间隙：切换若
+/// 恰好在间隙内完成，命令体会作用在切换后的工作区上——该窗口与迁移
+/// 前同步命令体在派发瞬间持锁的窗口等价（同步命令体同样在派发后才
+/// 执行），且写入始终落在解析出的 principal 自己的工作区。
+pub(crate) fn scoped<R: Runtime, T>(
+    app: &AppHandle<R>,
+    operation: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let _read = match WORKSPACE_SWITCH.read() {
+        Ok(guard) => guard,
+        Err(_) => {
+            return Err(BackendError::new(
+                "workspace_unavailable",
+                "工作区切换锁不可用",
+            ))
+        }
+    };
+    let principal = super::session_principal_existing(app)?;
+    super::with_principal(principal, operation)
 }
 
 pub fn guard_handler<R, F>(handler: F) -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'static
@@ -323,6 +375,14 @@ where
             }
             return handler(invoke);
         }
+        // 读锁只覆盖「派发」阶段——同步命令体在 IPC 线程内联执行，读锁覆盖
+        // 整个命令体；async 命令体由 tauri spawn 到 tokio worker 后立即
+        // 返回（respond_async），读锁在派发完成即释放。std 的
+        // RwLockReadGuard 非 Send，无法随 future 迁入 tokio——async 命令体
+        // 不能沿用派发时的这把锁，这是 tauri 异步派发的结构约束。
+        // 61#3 返工：async 命令体改由 guard::scoped 在其阻塞线程上重新
+        // 取读锁并解析 principal，命令体运行期与工作区切换互斥，写入
+        // 始终落在该 principal 自己的工作区
         let _read = match WORKSPACE_SWITCH.read() {
             Ok(guard) => guard,
             Err(_) => {

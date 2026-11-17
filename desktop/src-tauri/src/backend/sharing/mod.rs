@@ -30,6 +30,15 @@ impl SharingState {
         }
     }
 
+    /// 62#1：async 命令要在 await 之前取出可跨线程移动的状态副本
+    /// （State 借用不可跨 await）——与 materials/knowledge/providers 的
+    /// shared() 同口径
+    pub fn shared(&self) -> Self {
+        Self {
+            learning: self.learning.shared(),
+        }
+    }
+
     #[cfg(test)]
     pub fn for_tests() -> Result<Self> {
         Ok(Self {
@@ -454,11 +463,21 @@ pub fn read_token(state: &SharingState, token: &str) -> Result<SharedPlanView> {
         else {
             continue;
         };
-        let found: bool = candidate.conn.query_row(
+        // 62#2：打开成功但查询期出错（页级损坏、busy_timeout 耗尽）同样不再
+        // 上抛——原先 `?` 直接中断整轮遍历，排在坏库之后的有效分享令牌再也
+        // 定位不到，用户拿到的是原始存储错误而非「分享不存在」，与 135#3
+        // 注释声明的降级意图不符
+        let found: bool = match candidate.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM shared_plans WHERE token_hash = ?1)",
             params![token_hash(token)],
             |row| row.get(0),
-        )?;
+        ) {
+            Ok(found) => found,
+            Err(error) => {
+                eprintln!("sharing: 用户 {user_id} 的分享库查询失败，已跳过：{error}");
+                continue;
+            }
+        };
         if found {
             register_index(state, &token_hash(token), user_id)?;
             return super::security::with_user(user_id, || read_local(state, token));

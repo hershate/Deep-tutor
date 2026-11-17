@@ -298,11 +298,16 @@ where
                                         .or_else(|| item.get("id").and_then(Value::as_str))
                                         .unwrap_or_default()
                                         .to_string(),
-                                    name: item
-                                        .get("name")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or_default()
-                                        .to_string(),
+                                    // 153#6 兜底登记同样要回译本地名——执行层
+                                    // 按本地名精确匹配（agent/tools.rs 的
+                                    // workspace.read 等），远端消毒名直传
+                                    // 会让该场景的工具调用全部落入
+                                    // 「未注册」分支
+                                    name: names.local(
+                                        item.get("name")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default(),
+                                    ),
                                     arguments: String::new(),
                                 };
                                 eprintln!(
@@ -416,7 +421,11 @@ where
             Ok(result) => return Ok(success(result, started, attempt)),
             Err(mut error) => {
                 if retryable(&error, attempt, &policy) {
-                    backoff(attempt);
+                    // P-018：退避期间收到取消即放弃本次重试——否则会再向上游
+                    // 发一次用户已确认放弃的请求
+                    if backoff(attempt, &cancel, &parent_cancel) {
+                        return Err(ChatError::new("cancelled", "模型请求已取消"));
+                    }
                     continue;
                 }
                 error.attempts = attempt;

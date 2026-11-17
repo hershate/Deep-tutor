@@ -345,3 +345,102 @@ fn public_tokens_resolve_the_owner_without_opening_the_other_workspace() {
         "share_unavailable"
     );
 }
+
+/// 造一个「能打开、查询即失败」的用户工作区库：破坏 shared_plans 唯一
+/// 索引的根页——打开只读 sqlite_master 不触发页级校验，查询共享表时
+/// 才报「database disk image is malformed」（86#3 映射为 database_corrupt）
+fn corrupt_shared_plans_index(root: &Path, user_id: i64) {
+    let store = Store::at_user(root.to_path_buf(), user_id).unwrap();
+    let page: i64 = store
+        .conn
+        .query_row(
+            "SELECT rootpage FROM sqlite_master WHERE name = 'sqlite_autoindex_shared_plans_1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let page_size: i64 = store
+        .conn
+        .query_row("PRAGMA page_size", [], |row| row.get(0))
+        .unwrap();
+    // WAL 折叠进主文件后再破坏页——否则改动只落在 -wal 里不生效
+    store
+        .conn
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .unwrap();
+    drop(store);
+    let file = super::super::security::user_workspace_path(root, user_id).unwrap();
+    let mut handle = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+    use std::io::{Seek, SeekFrom, Write};
+    handle
+        .seek(SeekFrom::Start(((page - 1) * page_size) as u64))
+        .unwrap();
+    handle.write_all(&vec![0xffu8; page_size as usize]).unwrap();
+    handle.flush().unwrap();
+}
+
+/// 在指定用户的工作区库里登记一条有效分享（模拟别人的有效分享令牌）
+fn insert_share_for_user(root: &Path, user_id: i64, token: &str, payload: &str) {
+    let store = Store::at_user(root.to_path_buf(), user_id).unwrap();
+    let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+    let expires_at = (OffsetDateTime::now_utc() + Duration::days(30))
+        .format(&Rfc3339)
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO learning_plans (status, provider_id, input_json, created_at, updated_at) VALUES ('done', 'secret-provider', '{}', ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    let plan_id = store.conn.last_insert_rowid();
+    store
+        .conn
+        .execute(
+            "INSERT INTO shared_plans (plan_id, plan_version, token_hash, payload_json, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![plan_id, 1, token_hash(token), payload, expires_at, timestamp],
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_corrupted_user_store_does_not_break_the_shared_token_lookup() {
+    // 62#2：未登录读取令牌时的 users 遍历中，单个用户库查询期出错（页级
+    // 损坏）原先用 `?` 上抛，整轮遍历中断——用户拿到的是「本地数据库文件
+    // 已损坏」的存储错误，排在坏库之后的有效分享令牌再也定位不到
+    let (app, state) = setup();
+    let root = state.learning.database_path().to_path_buf();
+    let token = format!("dt_{}", "a".repeat(43));
+    corrupt_shared_plans_index(&root, 2);
+    // 前置确认：被破坏的库「能打开、查询即失败」——否则下面的降级断言不成立
+    let broken = Store::at_user(root.clone(), 2).unwrap();
+    assert!(
+        broken
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM shared_plans WHERE token_hash = ?1)",
+                params![token_hash(&token)],
+                |row| row.get::<_, bool>(0),
+            )
+            .is_err(),
+        "被破坏的用户库必须在查询期报错，否则本用例不覆盖降级路径"
+    );
+    drop(broken);
+    let error = read_token(&state, &token).unwrap_err();
+    assert_eq!(
+        error.code, "share_unavailable",
+        "单库查询期错误不得上抛原始存储错误：{error:?}"
+    );
+    // 坏库之后的有效分享仍可定位（遍历不再被单个坏库中断）
+    let plan_id = add_plan(&state, "done", "坏库之后的有效分享");
+    let created = create(app.handle(), &state, &format!("plan-{plan_id}"), None).unwrap();
+    let package: SharePackage = serde_json::from_str(&created.package).unwrap();
+    insert_share_for_user(
+        &root,
+        3,
+        &token,
+        &serde_json::to_string(&package.plan).unwrap(),
+    );
+    let view = read_token(&state, &token).unwrap();
+    assert_eq!(view.plan.goal, "坏库之后的有效分享");
+}

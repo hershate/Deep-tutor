@@ -19,7 +19,7 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
   const [shares, setShares] = useState<ShareMetadata[]>([])
   const [selectedId, setSelectedId] = useState(initialPlanId || '')
   const [days, setDays] = useState(90)
-  const [created, setCreated] = useState<CreatedShare | null>(null)
+  const [created, setCreated] = useState<CreatedShare[]>([])
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -40,7 +40,7 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
       setPlans(ready)
       setShares(shares)
       setSelectedId(current => ready.some(plan => plan.id === current) ? current : ready.find(plan => plan.id === initialPlanId)?.id || ready[0]?.id || '')
-      setCreated(current => current && ready.some(plan => plan.id === current.share.planId) ? current : null)
+      setCreated(current => current.filter(item => ready.some(plan => plan.id === item.share.planId)))
     }).catch(cause => { if (active) setError(backendErrorMessage(cause)) }).finally(() => { if (active) setLoading(false) })
     let remove: (() => void) | undefined
     void onBackendEvent(event => {
@@ -56,20 +56,23 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
     setError('')
     try {
       const next = await sharingBackend.create(selectedId, days)
-      setCreated(next)
+      // 88#1：不再静默覆盖上一条分享——后端只存哈希、令牌无法重发，覆盖
+      // 等于让前一条的一次性下载与预览入口立即不可达
+      setCreated(current => [next, ...current.filter(item => item.share.id !== next.share.id)])
       setShares(current => [next.share, ...current.filter(item => item.id !== next.share.id)])
-      notify('只读分享已创建；原始令牌仅在此对话框显示，请立即复制或下载分享包')
+      // 102#1：对话框内不渲染任何令牌文本（37#7 移除了本机只读地址展示与
+      // 复制），原「请立即复制」是做不到的指令——改为指向真实可用的两条通道
+      notify('只读分享已创建；令牌只返回一次，请下载 .dtshare 分享包或用「只读预览」查看')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
 
-  const download = async () => {
-    if (!created) return
-    setBusy('download')
+  const download = async (item: CreatedShare) => {
+    setBusy(`download-${item.share.id}`)
     setError('')
     try {
-      const path = await sharingBackend.saveFile(created.share.planId)
+      const path = await sharingBackend.saveFile(item.share.planId)
       if (!path) return
-      const result = await sharingBackend.exportPackage(created.package, path)
+      const result = await sharingBackend.exportPackage(item.package, path)
       notify(`已保存真实分享包（${result.bytes.toLocaleString()} 字节 · SHA-256 ${result.sha256.slice(0, 12)}…）`)
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
@@ -82,12 +85,12 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
     try {
       const revoked = await sharingBackend.revoke(id)
       setShares(current => current.map(item => item.id === id ? revoked : item))
-      if (created?.share.id === id) setCreated(null)
+      // 撤销后令牌失效，已保存分享的预览与下载入口一并移除
+      setCreated(current => current.filter(item => item.share.id !== id))
       notify('本机分享已撤销，使用原令牌读取将被拒绝')
     } catch (cause) { setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
 
-  const matchingCreated = created?.share.planId === selectedId ? created : null
   return <Modal open={open} onClose={onClose} title="分享只读学习方案" wide>
     <div className="form-stack">
       <div className="share-status"><Link2 size={19} /><div><strong>不可变的只读方案快照</strong><p>不包含私人笔记、Agent 会话、学习进度或模型密钥。本机地址不能通过互联网访问；请将分享包发给接收者。</p></div></div>
@@ -97,13 +100,19 @@ export default function SharePlanDialog({ open, onClose, notify, initialPlanId, 
         <label>有效期<select value={days} onChange={event => setDays(Number(event.target.value))}><option value={7}>7 天</option><option value={30}>30 天</option><option value={90}>90 天（默认）</option><option value={365}>365 天</option></select></label>
       </div>
       <Button onClick={() => void create()} disabled={!selectedId || Boolean(busy)}>{busy === 'create' ? <LoaderCircle size={16} className="spin" /> : <Share2 size={16} />}创建新分享</Button>
-      {matchingCreated && <section className="share-created">
-        <h3>新分享已保存 · 有效期至 {new Date(matchingCreated.share.expiresAt).toLocaleString()}</h3>
+      {created.length > 0 && <section className="share-created">
+        <h3>新分享已保存</h3>
         {/* 37#7：原「本机只读地址」复制出的 tauri.localhost URL 无任何消费方（应用内
             无地址栏、无 deep-link、外部浏览器打不开）——移除展示与复制，只保留真正
             给接收者的两条通道：应用内只读预览与 .dtshare 分享包 */}
         <p className="form-help">令牌只返回一次；此后只能查看元数据。再次下载请保留当前对话框，或创建新分享。</p>
-        <div className="share-actions"><Button variant="secondary" onClick={() => onPreview(matchingCreated.token)}><Eye size={16} />只读预览</Button><Button onClick={() => void download()} disabled={Boolean(busy)}><Download size={16} />{busy === 'download' ? '等待选择保存位置' : '下载 .dtshare 分享包'}</Button></div>
+        {/* 88#1：逐条列出本次会话创建的全部分享——新建第二条不再覆盖第一条，
+            每条的一次性下载与预览入口都保持可达 */}
+        {created.map(item => <div className="share-record" key={item.share.id}>
+          <div><strong>{item.share.title}</strong><p>{item.share.planId} · 快照 v{item.share.planVersion}</p><small>有效期至 {new Date(item.share.expiresAt).toLocaleString()}</small></div>
+          <Button variant="secondary" size="sm" onClick={() => onPreview(item.token)}><Eye size={16} />只读预览</Button>
+          <Button size="sm" onClick={() => void download(item)} disabled={Boolean(busy)}><Download size={16} />{busy === `download-${item.share.id}` ? '等待选择保存位置' : '下载 .dtshare 分享包'}</Button>
+        </div>)}
       </section>}
       <section className="share-history"><h3>本机分享记录</h3>{shares.length ? shares.map(share => <div className="share-record" key={share.id}><div><strong>{share.title}</strong><p>{share.planId} · 快照 v{share.planVersion} · 创建于 {new Date(share.createdAt).toLocaleString()}</p><small>有效期至 {new Date(share.expiresAt).toLocaleString()}</small></div><Badge tone={share.status === 'active' ? 'green' : share.status === 'expired' ? 'amber' : 'red'}>{statusNames[share.status]}</Badge>{share.status !== 'revoked' && <Button variant="ghost" size="sm" onClick={() => setRevokeId(share.id)} disabled={Boolean(busy)}><Trash2 size={15} />撤销</Button>}</div>) : <p>{loading ? '正在读取真实分享记录…' : '还没有分享记录。'}</p>}</section>
       <p className="form-help">已导出的离线包不包含本机数据库引用，无法接收后续撤销。SHA-256 校验值只检测损坏或修改，不证明发送者身份。</p>
