@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeKatexError from '../markdown/rehypeKatexError'
-import { normalizeDisplayMath } from '../markdown/displayMath'
+import { prepareMarkdown } from '../markdown/prepare'
 import type { Note, Resource } from '../data'
 import { Badge, Button, ConfirmDialog, EmptyState, MarkdownLink, Modal, ProgressBar } from '../components/UI'
 import { localId } from '../ids'
@@ -19,18 +19,16 @@ import { notesBackend } from '../backend/notes'
 import type { LibraryOverview } from '../backend/notes'
 import { mediaBackend } from '../backend/media'
 import MediaPlayer from '../components/MediaPlayer'
+import { materialTone, materialFullyParsed } from '../status'
 
 const materialStatus: Record<string, string> = {
   staged: '已暂存', queued: '等待解析', parsing: '解析中', parsed: '已解析', degraded: '部分解析',
   failed: '解析失败', cancelling: '正在取消', cancelled: '已取消', metadata_only: '仅元数据',
 }
 
-function materialTone(status: string): 'neutral' | 'green' | 'amber' | 'red' {
-  if (status === 'parsed' || status === 'degraded') return 'green'
-  if (status === 'failed') return 'red'
-  if (['queued', 'parsing', 'cancelling'].includes(status)) return 'amber'
-  return 'neutral'
-}
+// P-107：资料状态色调收敛到 status.ts 的单一来源——原先本页与方案生成器
+// 各写一份，生成器只区分 parsed/staged，其余（failed/degraded/queued/
+// parsing/cancelling）全落 neutral，与本页的红色失败口径不一致
 
 // P-105：解析文本上限 5 MiB（后端 materials/parse.rs MAX_TEXT_BYTES）——
 // 详情弹窗原先把整篇塞进单个 <pre> 文本节点，打开时秒级卡顿、滚动迟滞。
@@ -61,7 +59,9 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   // resources 变化重算，资料顺序一变，用户未做选择也会被静默换范围
   // （原为 WikiPanel 挂载时固定一次）。资料被删除时按原口径剔除
   const [wikiDefault, setWikiDefault] = useState<number[]>([])
-  const seedWikiScope = () => setWikiDefault(resources.filter(resource => resource.progress === 100).slice(0, 2).map(resource => resource.id))
+  // P-113：默认范围只取完整解析的资料——原先按 progress===100 判定，
+  // 取消交叠终态（已取消，保留部分解析结果）也被算作「已解析」并预选
+  const seedWikiScope = () => setWikiDefault(resources.filter(resource => materialFullyParsed(resource.status, resource.progress)).slice(0, 2).map(resource => resource.id))
   const [noteOpen, setNoteOpen] = useState(false)
   const [activeNote, setActiveNote] = useState<Note | null>(null)
   const [noteTitle, setNoteTitle] = useState('')
@@ -455,10 +455,11 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
 
     <Modal open={checkOpen} onClose={() => setCheckOpen(false)} title="真实资料库检查" wide><div className="form-stack"><p className="form-help">检查当前用户的笔记关联、完全相同的正文、原件可用性和解析状态。不会自动删除笔记或原件。</p><div className="form-grid"><div><strong>{libraryOverview?.unlinkedNotes ?? '—'}</strong><p>未关联笔记</p></div><div><strong>{libraryOverview?.duplicateNoteGroups ?? '—'}</strong><p>重复正文组</p></div><div><strong>{libraryOverview?.missingOriginals ?? '—'}</strong><p>缺失原件</p></div><div><strong>{libraryOverview?.failedMaterials ?? '—'}</strong><p>解析失败</p></div></div><div className="milestone-list">{libraryOverview?.issues.map(issue => <div className="milestone-row" key={issue.id}><span className="milestone-marker"><Tag size={15} /></span><div><strong>{issue.title}</strong><p>{issue.detail}</p></div><Badge tone={issue.severity === 'error' ? 'red' : issue.severity === 'warning' ? 'amber' : 'neutral'}>{issue.severity === 'error' ? '失败' : issue.severity === 'warning' ? '需检查' : '提示'}</Badge>{issue.noteId && notes.some(note => note.id === issue.noteId) ? <Button variant="ghost" size="sm" onClick={() => { const note = notes.find(item => item.id === issue.noteId); if (note) { setCheckOpen(false); openNote(note) } }}>打开笔记</Button> : issue.materialId && resources.some(resource => resource.id === issue.materialId) ? <Button variant="ghost" size="sm" onClick={() => { setCheckOpen(false); void openMaterial(issue.materialId!) }}>打开资料</Button> : null}</div>)}{libraryOverview && !libraryOverview.issues.length && <EmptyState title="当前没有需要提示的条目" description="没有重复正文、未关联笔记、缺失原件或解析失败。此结果只描述上述真实检查范围。" />}{!libraryOverview && (libraryError ? <div className="form-error" role="alert"><p>{libraryError}</p><Button variant="secondary" size="sm" onClick={() => { setLibraryError(''); setLibraryReloadKey(current => current + 1) }}>重新检查</Button></div> : <p>正在读取真实笔记、关联和资料状态…</p>)}</div></div></Modal>
     <Modal open={noteOpen} onClose={closeNote} title={activeNote ? '编辑笔记' : '新建笔记'} wide><div className="note-editor"><div className="editor-meta"><input value={noteTitle} disabled={saving} onChange={e => { setNoteTitle(clampToBytes(e.target.value, 500)); setDirty(true) }} placeholder="笔记标题" aria-label="笔记标题" />{/* 82#5：标签改为可输入 combobox——原先 select 只有既有标签，词表被冻结无法新增 */}<><input list="note-tag-options" value={noteTag} disabled={saving} onChange={e => { setNoteTag(clampToBytes(e.target.value, 100)); setDirty(true) }} placeholder="输入或选择标签" aria-label="笔记标签" /><datalist id="note-tag-options">{noteTags.map(tag => <option key={tag} value={tag} />)}</datalist></></div>{draftRestored && <div className="draft-notice"><Check size={15} />已恢复未保存草稿；本地草稿与离开警告双重保护。</div>}<div className="editor-toolbar"><span>Markdown + GFM + LaTeX</span>{/* 60#5：51#14 的保存期锁定未覆盖工具栏——点击仍追加内容并置 dirty，不进本次保存载荷 */}<button disabled={saving} onClick={() => insertAtSelection('\n## ', '\n')}>H2</button><button disabled={saving} onClick={() => insertAtSelection('**', '**')}>加粗</button><button disabled={saving} onClick={() => insertAtSelection('\n- ', '')}>列表</button><button disabled={saving} onClick={() => insertAtSelection('\n```ts\n', '\n```\n')}>代码</button><button disabled={saving} onClick={() => insertAtSelection('\n$$\nP(A|B)=\\frac{P(B|A)P(A)}{P(B)}', '\n$$\n')}>公式</button></div>{/* 51#14：保存 IPC 在途期间禁用输入——原先窗口内继续打字的内容不进保存值即被丢弃 */}
-<div className="note-editor-grid"><textarea ref={noteAreaRef} value={noteContent} disabled={saving} onChange={e => { setNoteContent(clampToBytes(e.target.value, 1000000)); setDirty(true) }} placeholder="用自己的话记录理解，而不只是摘抄…" aria-label="笔记 Markdown 正文" /><article className="note-preview"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeKatexError]} components={{ a: MarkdownLink }}>{normalizeDisplayMath(previewText || '实时预览将在这里显示。')}</ReactMarkdown></article></div><div className="editor-footer"><span>{/* 109#4：后端按 UTF-8 字节限 1MB，原先按 UTF-16 码元计数——纯中文 33 万字即达上限而界面无从预判 */}{utf8Bytes(noteContent).toLocaleString()} / 1,000,000 字节{utf8Bytes(noteContent) > 950000 ? ' · 接近上限' : ''} · {dirty ? '草稿自动暂存中' : '已保存'}</span><div>{activeNote && <Button variant="ghost" disabled={saving} onClick={() => setDeleteNoteOpen(true)}><Trash2 size={16} />删除</Button>}<Button onClick={saveNote} disabled={saving || !noteTitle.trim() || !noteContent.trim()}>保存笔记</Button></div></div></div></Modal>
-    {/* 126#3：确认文案与后端真实行为一致——被方案/Wiki/项目引用的资料会被
-        material_in_use 拒绝删除（65#6 防护），原先承诺「引用会失效」与结果相反 */}
-    <ConfirmDialog open={deleteMaterialOpen} onClose={() => setDeleteMaterialOpen(false)} onConfirm={() => { if (activeMaterial) void deleteMaterial(activeMaterial.id) }} title="删除这份资料？" description="将同时删除资料记录与可用原件文件；若资料已被学习方案、Wiki 问答或项目版本引用，将无法删除（原文证据受保护）；未被引用时此操作不可恢复。" confirmLabel="确认删除" busy={materialBusy || exportBusy !== ''} />
+<div className="note-editor-grid"><textarea ref={noteAreaRef} value={noteContent} disabled={saving} onChange={e => { setNoteContent(clampToBytes(e.target.value, 1000000)); setDirty(true) }} placeholder="用自己的话记录理解，而不只是摘抄…" aria-label="笔记 Markdown 正文" /><article className="note-preview"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeKatexError]} components={{ a: MarkdownLink }}>{prepareMarkdown(previewText || '实时预览将在这里显示。')}</ReactMarkdown></article></div><div className="editor-footer"><span>{/* 109#4：后端按 UTF-8 字节限 1MB，原先按 UTF-16 码元计数——纯中文 33 万字即达上限而界面无从预判 */}{utf8Bytes(noteContent).toLocaleString()} / 1,000,000 字节{utf8Bytes(noteContent) > 950000 ? ' · 接近上限' : ''} · {dirty ? '草稿自动暂存中' : '已保存'}</span><div>{activeNote && <Button variant="ghost" disabled={saving} onClick={() => setDeleteNoteOpen(true)}><Trash2 size={16} />删除</Button>}<Button onClick={saveNote} disabled={saving || !noteTitle.trim() || !noteContent.trim()}>保存笔记</Button></div></div></div></Modal>
+    {/* 126#3：确认文案与后端真实行为一致——被方案/Wiki/项目/Agent 产物引用的资料会被
+        material_in_use 拒绝删除（65#6 防护），原先承诺「引用会失效」与结果相反；
+        P-125：补第四域 Agent 产物——后端 154#7 起同样拦截产物内嵌的引用 */}
+    <ConfirmDialog open={deleteMaterialOpen} onClose={() => setDeleteMaterialOpen(false)} onConfirm={() => { if (activeMaterial) void deleteMaterial(activeMaterial.id) }} title="删除这份资料？" description="将同时删除资料记录与可用原件文件；若资料已被学习方案、Wiki 问答、项目版本或 Agent 产物引用，将无法删除（原文证据受保护）；未被引用时此操作不可恢复。" confirmLabel="确认删除" busy={materialBusy || exportBusy !== ''} />
     <ConfirmDialog open={deleteNoteOpen} onClose={() => setDeleteNoteOpen(false)} onConfirm={() => { setDeleteNoteOpen(false); void deleteNote() }} title="删除这条笔记？" description="笔记正文与关联知识节点将一并移除；此操作不可恢复（可先保留草稿再删除）。" confirmLabel="确认删除" busy={saving} />
     <Modal open={discardOpen} onClose={() => { if (!saving) setDiscardOpen(false); else window.dispatchEvent(new CustomEvent('backend-notice', { detail: '正在等待原生后端写入草稿，弹窗保持打开；请稍候。' })) }} title="关闭但保留草稿？"><div className="confirm-dialog"><p>保留时会先等待原生后端写入；丢弃时会删除后端草稿。</p><div><Button variant="ghost" disabled={saving} onClick={() => { void settleDraft(false) }}>丢弃草稿</Button><Button disabled={saving} onClick={() => { void settleDraft(true) }}>保留草稿并关闭</Button></div></div></Modal>
     {/* 82#4：并发冲突冻结的关闭出口——放弃本地修改不动后端草稿 */}

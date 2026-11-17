@@ -40,6 +40,10 @@ jobs:
       # beforeBuildCommand 执行，不再每条 CI 双跑 vite 产物
       - name: Frontend type check
         run: npx tsc --noEmit
+      # 前端此前无自动化测试通道，Markdown 预处理（公式定界符改写）与主题缓存
+      # 分区的回归只靠人工探针；本步用 Node 自带 test runner 兜底，不新增依赖
+      - name: Frontend unit tests
+        run: node scripts/frontend-test.mjs
       # 117#5：dev server 冒烟入 CI——116#3 门禁原先仅本地 make check 生效，
       # vite 配置类回归（111#2 型：build 绿但 dev 403）在 CI 侧无检出通道；
       # 脚本自定位到 desktop，GitHub windows runner 的 Git Bash 可跑

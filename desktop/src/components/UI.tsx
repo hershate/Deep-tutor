@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react'
+import { Children, useEffect, useId, useRef } from 'react'
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, RefObject } from 'react'
 import { X, Inbox, FolderOpen } from 'lucide-react'
 import { openExternalUrl, revealInFileManager } from '../backend/shell'
@@ -58,8 +58,29 @@ export function IconButton({ label, children, className = '', ...props }: Button
   return <button className={`icon-btn ${className}`} aria-label={label} title={label} {...props}>{children}</button>
 }
 
+// P-124 返工：.badge 是 inline-flex 容器，按 CSS Overflow 3，text-overflow 只作用于
+// 块容器——徽章自身承载不了省略号，徽章里的文字被包成匿名 flex item 同样承载不了，
+// 窄窗下只剩 overflow: hidden 的硬裁切。把连续文本子节点包进 .badge-text（flex item
+// 被块化，是块容器），省略号才能落在真正的块级元素上。图标等元素子节点保持原样，
+// 仍是徽章的 flex item——图标与文字的间距、对齐不变。
+function badgeTextRuns(children: ReactNode) {
+  const runs: ReactNode[] = []
+  let buffer: string[] = []
+  const flush = () => {
+    if (!buffer.length) return
+    runs.push(<span className="badge-text" key={`badge-text-${runs.length}`}>{buffer.join('')}</span>)
+    buffer = []
+  }
+  for (const child of Children.toArray(children)) {
+    if (typeof child === 'string' || typeof child === 'number') buffer.push(String(child))
+    else { flush(); runs.push(child) }
+  }
+  flush()
+  return runs
+}
+
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'green' | 'amber' | 'red' | 'blue' }) {
-  return <span className={`badge badge-${tone}`}>{children}</span>
+  return <span className={`badge badge-${tone}`}>{badgeTextRuns(children)}</span>
 }
 
 // 120#6：去掉「完成 X%」兜底文案——预算占用/步数/掌握度等非完成度语义的

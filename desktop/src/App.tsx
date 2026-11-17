@@ -31,6 +31,7 @@ import { communityBackend } from './backend/community'
 import { importMaterialPaths, summarizeMaterialImport } from './backend/materialImport'
 import { clampToBytes } from './limits'
 import { localId } from './ids'
+import { applyAccountTheme, cacheTheme } from './theme'
 import { reportsBackend } from './backend/reports'
 import type { FocusSession } from './backend/reports'
 import type { PracticeTarget } from './backend/practice'
@@ -330,11 +331,40 @@ export default function App() {
     return () => { disposed = true; unlisten?.() }
   }, [ready, loginRequired, notify])
   useEffect(() => {
-    document.documentElement.dataset.theme = preferences.theme
+    // P-123：主题在真实偏好到达前不套用默认浅色——bootstrap 未完成时 preferences
+    // 是空快照（theme: 'light'），深色主题用户冷启动与重新登录后都会看到一次
+    // 浅→深闪变。ready 且不在登录页时快照才是真实偏好，此时套用并回写缓存；
+    // 此前保持首帧前套用的缓存主题不变。辅助类（字号/对比度/动效）沿用原口径
+    // P-123 返工：缓存按账户分区（theme.ts）——真实偏好按 snapshot.workspaceId
+    // （后端 owner id，即账户 id）回写，切换账户后不会把上一个账户的主题记到
+    // 新账户名下；快照过渡期（session_started 后 workspaceId 归零的空快照）
+    // 不套用也不回写，避免把默认浅色写进上一个账户的缓存条目。
     document.documentElement.classList.toggle('large-text', preferences.largeText)
     document.documentElement.classList.toggle('high-contrast', preferences.highContrast)
     document.documentElement.classList.toggle('reduce-motion', preferences.reducedMotion)
-  }, [preferences])
+    if (loginRequired) {
+      // 账户选择页不属于任何账户——不沿用上一个账户的配色
+      document.documentElement.dataset.theme = 'light'
+      return
+    }
+    if (!ready || snapshot.workspaceId <= 0) return
+    document.documentElement.dataset.theme = preferences.theme
+    cacheTheme(snapshot.workspaceId, preferences.theme)
+  }, [preferences, ready, loginRequired, snapshot.workspaceId])
+  useEffect(() => {
+    // P-123 返工：切换本地账户时立即换成目标账户自己的缓存主题——否则切换
+    // 期间（登录页与 bootstrap 等待新快照）沿用上一个账户的配色，属跨账户
+    // 视觉串用。security.session_started 事件带 userId（后端签发会话时写入
+    // 同一事务），据此取该账户的缓存主题；未缓存则回落默认浅色。新账户的
+    // 真实偏好随后由上面的 effect 覆盖。
+    let stop: (() => void) | undefined
+    void onBackendEvent(event => {
+      if (event.kind !== 'security.session_started') return
+      const userId = Number(event.payload.userId)
+      applyAccountTheme(Number.isInteger(userId) && userId > 0 ? userId : null)
+    }).then(unlisten => { stop = unlisten }).catch(() => { /* 事件不可用时只影响切换瞬间的配色，不影响主流程 */ })
+    return () => { stop?.() }
+  }, [])
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -566,8 +596,12 @@ export default function App() {
       description="剩余计划时长将作废（已发生的专注秒数会保留），且无法恢复本次时段，需要从头重新开始。"
       confirmLabel="取消并重置"
     />
-    {importProgress && <div className="import-progress" role="status" aria-live="polite"><LoaderCircle size={15} className="spin" />{importProgress}</div>}
-    <ToastStack toasts={toasts} onClose={dismissToast} />
+    {/* P-122：导入进度胶囊与 toast 栈原共用同一固定锚点，同时出现时完全重叠；
+        两者同放入底部固定容器纵向排列（胶囊在下、toast 在上） */}
+    <div className="bottom-overlay">
+      {importProgress && <div className="import-progress" role="status" aria-live="polite"><LoaderCircle size={15} className="spin" />{importProgress}</div>}
+      <ToastStack toasts={toasts} onClose={dismissToast} />
+    </div>
   </div>
 }
 

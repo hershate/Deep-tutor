@@ -245,6 +245,17 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
    146#6：bottom 86px 与 toast 同口径避开移动底栏（原先 46px 与 66px 底栏
    重叠 25px，z-100 压过 z-30 拦截底栏上部按钮的指针事件） */
 .import-progress { position: fixed; left: 50%; bottom: 86px; z-index: 100; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; background: var(--surface-raised); border: 1px solid var(--border); box-shadow: var(--shadow); font-size: 13px; color: var(--text-secondary); }
+/* P-122：导入进度胶囊与 toast 栈原是同锚点固定浮层（left 50% / bottom 86px），
+   同时出现时完全重叠、进度「N/M」不可读。两者改为同一固定容器内的纵向流：
+   toast 栈在上、进度胶囊在下（order），互不遮挡；容器本身不拦截指针事件 */
+.bottom-overlay { position: fixed; left: 0; right: 0; bottom: 86px; z-index: 100; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.bottom-overlay > * { pointer-events: auto; }
+.bottom-overlay .toast-stack, .bottom-overlay .import-progress { position: static; left: auto; bottom: auto; transform: none; }
+.bottom-overlay .import-progress { order: 2; }
+/* 原来的 toast-in 用 translate(-50%) 抵消固定居中的位移，进入底部容器后
+   改为纯纵向入场 */
+@keyframes toast-in-column { from { opacity: 0; transform: translateY(8px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.bottom-overlay .toast { animation-name: toast-in-column; }
 .toast-stack .toast { position: static; transform: none; }
 .toast { position: fixed; left: 50%; bottom: 86px; z-index: 100; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); display: flex; align-items: center; gap: 9px; padding: 12px 14px; border: 1px solid oklch(0.5 0.04 160); border-radius: 11px; background: var(--pine-950); color: white; box-shadow: 0 14px 40px oklch(0.15 0.02 160 / .3); font-size: 13px; animation: toast-in .2s ease-out; }
 .toast > svg { color: var(--lime-400); }
@@ -353,6 +364,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
   .page { padding: 34px 32px 48px; }
   .toast { bottom: 28px; }
   .import-progress { bottom: 28px; }
+  .bottom-overlay { bottom: 28px; }
   .dashboard-grid { grid-template-columns: minmax(0, 1.8fr) minmax(280px, .85fr); }
   .dashboard-lower { grid-template-columns: 1.25fr 1fr .9fr; }
   .upcoming-panel { grid-column: auto; }
@@ -1149,8 +1161,10 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .source-item > div { flex: 1; min-width: 0; display: grid; }
 .source-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .source-item span, .source-item small { color: var(--muted); font-size: 12px; }
-/* 48#11：窄窗口不再整块隐藏解析状态 Badge——缩成紧凑徽标（省略截断），状态始终可见 */
-.source-item > .badge { max-width: 120px; overflow: hidden; text-overflow: ellipsis; padding: 2px 6px; font-size: 10px; }
+/* 48#11：窄窗口不再整块隐藏解析状态 Badge——缩成紧凑徽标（省略截断），状态始终可见
+   P-124：补 white-space: nowrap——全局 .badge 的折行规则（160#3）同特异性下靠后生效，
+   使此处与 .today-hero .badge 的省略截断永久失效（折行文本不产生省略号） */
+.source-item > .badge { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px; font-size: 10px; }
 .staging-bottom { display: grid; gap: 12px; margin-top: 20px; }
 .staging-bottom > span { color: var(--muted); font-size: 12px; }
 .clarify-form { max-width: 900px; width: 100%; justify-self: center; }
@@ -2021,12 +2035,34 @@ h1, h2, h3 { text-wrap: balance; }
 .reading-article { overflow-x: clip; }
 .reading-article table { display: block; max-width: 100%; overflow-x: auto; }
 
+/* P-126：行内 KaTeX 公式整体不可断行（KaTeX 的 .katex-base 是 white-space: nowrap），
+   渲染宽度超过正文列宽时溢出部分被上面的 overflow-x: clip 直接裁掉，clip 不产生
+   滚动条也无处查看完整内容。与展示公式（.katex-display）、代码块（pre）、表格
+   同款处理——承载行内公式的块级内容各自横向滚动。
+   不把滚动容器加在公式自身：.katex-base 是 inline-block，一旦 overflow 非 visible，
+   其基线改为下边缘，整条行内公式会相对正文上移数像素。
+   P-126 返工：原先用子代组合器（`> p` 等），而讲义真实 DOM 里承载公式的块级
+   内容嵌在 section、div.article-lead、div.worked-example、details.lecture-checkpoint
+   之内（StudyRoom.tsx:331-334），react-markdown 不加包裹元素（Fragment 渲染），
+   子代选择器只命中讲义标题与空态文案，超宽行内公式仍被 clip 裁掉。改用后代
+   选择器，覆盖 markdown 生成的全部块级容器。 */
+.reading-article p, .reading-article ul, .reading-article ol, .reading-article blockquote, .reading-article h1, .reading-article h2, .reading-article h3, .reading-article h4, .reading-article h5, .reading-article h6 { overflow-x: auto; }
+
 /* P-037：原 `.map-node > div { min-width: 0; }` 是死规则——节点 DOM 没有 div
    子元素（子元素为 span.node-status、strong 标题、small 状态小字）；折行与
    最小宽度改由 `.map-node strong` 承担（147#4 的折行意图保留） */
 
-/* 147#7：首屏目标徽章限宽（配合 Dashboard 的回退文案与 title 提示） */
-.today-hero .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* 147#7：首屏目标徽章限宽（配合 Dashboard 的回退文案与 title 提示）
+   P-124：补 white-space: nowrap——全局 .badge 的折行规则（160#3）同特异性下靠后生效，
+   使此处的省略截断永久失效（折行文本不产生省略号） */
+.today-hero .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* P-124 返工：.badge 是 inline-flex 容器，按 CSS Overflow 3，text-overflow 只作用于
+   块容器——徽章本身上的 ellipsis 是死声明；徽章里的文字被包装成匿名 flex item，
+   同样不是可截断的块容器，窄窗下只剩 overflow: hidden 的硬裁切。省略号必须落在
+   承载文字的块级元素上：Badge 组件把连续文本子节点包进 .badge-text（flex item
+   被块化，是块容器），截断规则落到该元素。 */
+.source-item > .badge > .badge-text, .today-hero .badge > .badge-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 147#9 家族：flex/grid 文本列 min-width:0 + 关键文本折行 */
 .week-calendar .calendar-event strong { overflow-wrap: anywhere; }

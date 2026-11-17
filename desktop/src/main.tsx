@@ -4,6 +4,10 @@ import App from './App'
 import './styles.css'
 // 公式样式全局引入：学习空间等懒加载页面也渲染 KaTeX，不能只随 Library 块加载
 import 'katex/dist/katex.min.css'
+// P-128：mhchem 扩展不是 KaTeX 核心的一部分，必须单独引入——否则
+// \ce{} / \pu{} 会被当成未定义命令按错误色渲染（KaTeX contrib README 明示）
+import 'katex/contrib/mhchem'
+import { applyCachedTheme } from './theme'
 
 // 顶层错误边界（信息项 14）：任一组件渲染抛错时 React 会卸载整树导致
 // 白屏且无恢复入口——这里兜底渲染错误说明与重载按钮，用户不必重启应用
@@ -37,6 +41,10 @@ window.addEventListener('unhandledrejection', event => {
   console.error('未处理的 Promise 拒绝', event.reason)
   window.dispatchEvent(new CustomEvent('backend-notice', { detail: '一个后台操作未能完成，部分数据可能未刷新；可重试相关操作。' }))
 })
+
+// P-123：首帧之前套用上次已知主题——bootstrap 期间拿不到真实偏好，
+// 深色主题用户原先每次启动都先看到浅色引导页再跳深色（浅→深闪变）
+applyCachedTheme()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
