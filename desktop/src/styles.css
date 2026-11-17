@@ -731,7 +731,9 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .flashcard-back { background: var(--accent-soft); transform: rotateY(180deg); }
 .flashcard-face > span { position: absolute; top: 22px; left: 24px; color: var(--muted); font-size: 12px; letter-spacing: .12em; }
 .flashcard-front > span { color: var(--lime-400); }
-.flashcard-face h2 { max-width: 650px; font-size: clamp(19px, 3vw, 28px); line-height: 1.6; font-weight: 580; overflow-wrap: anywhere; }
+/* P-111：正反面保留录入换行——多行录入的卡片内容原先折成单段，与管理
+   列表的 pre-wrap 显示不一致（.review-card-row h3） */
+.flashcard-face h2 { max-width: 650px; font-size: clamp(19px, 3vw, 28px); line-height: 1.6; font-weight: 580; overflow-wrap: anywhere; white-space: pre-wrap; }
 .flashcard-face small { position: absolute; bottom: 20px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 .flashcard-front small { color: oklch(0.72 0.02 130); }
 .review-workspace > .btn { min-width: 180px; }
@@ -1109,11 +1111,20 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .source-tabs { display: flex; gap: 5px; overflow-x: auto; margin-bottom: 18px; }
 .source-tabs button { flex: 0 0 auto; min-height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; }
 .source-tabs button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-.source-dropzone { min-height: 250px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px; border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--surface-soft); text-align: center; cursor: pointer; }
+.source-dropzone { width: 100%; min-height: 250px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px; border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--surface-soft); text-align: center; cursor: pointer; }
 .source-dropzone > svg { color: var(--accent); margin-bottom: 14px; }
 .source-dropzone > strong { color: var(--text); font-size: 16px; }
-.source-dropzone > p { margin: 8px 0; font-size: 12px; }
-.source-dropzone > span { color: var(--muted); font-size: 12px; }
+/* P-108：整块拖放区改为真正的按钮（点击即打开文件选择器）——动作标记
+   降级为非交互的 .btn 视觉元素，故排除在说明文字的 span 规则之外 */
+.source-dropzone > span:not(.btn) { color: var(--muted); font-size: 12px; }
+/* P-108：拖放区改成 <button> 后，块级 <p> 属无效内容模型（button 只允许
+   phrasing content），改用带类的 <span> 保留原 <p> 的间距与正文色；该规则
+   与上面的 span 规则特异度相同，靠后写才不被 muted 覆盖 */
+.source-dropzone > span.dropzone-line { margin: 8px 0; font-size: 12px; color: var(--text); }
+/* P-108：按钮的 UA 默认降透明度只作用于内层动作标记——整块区域在导入期间
+   保持文案与图标的可读亮度（此前只有内层「选择文件」按钮变暗） */
+.source-dropzone:disabled { opacity: 1; cursor: not-allowed; }
+.source-dropzone:disabled > .btn { opacity: .45; }
 .source-dropzone input { display: none; }
 /* 37#3：OS 拖入悬停高亮（导入由 App 全局拖放监听执行） */
 .source-dropzone.is-drag-over { border-color: var(--accent); background: var(--accent-soft); }
@@ -1716,6 +1727,10 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 }
 
 .page-loading { min-height: 55dvh; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 14px; }
+/* P-109：方案页的加载/失败态复用 .page-loading（与 Dashboard 等同款），
+   但嵌在 .surface 卡片内——不占整屏 55dvh，长错误文案限宽换行不挤出卡片 */
+.plan-page .page-loading { min-height: 220px; flex-wrap: wrap; padding: 24px; }
+.plan-page .page-loading p { max-width: 440px; overflow-wrap: anywhere; }
 .access-gate { display: block; max-width: 920px; margin: 0 auto; padding: 40px 24px; }
 .access-gate-panel { margin-top: 24px; text-align: left; }
 .loader-mark { width: 20px; height: 20px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }

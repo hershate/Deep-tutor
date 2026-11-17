@@ -216,6 +216,31 @@ fn redirects_content_types_and_empty_search_return_real_errors() {
 }
 
 #[test]
+fn search_endpoint_failures_are_reported_in_search_context() {
+    // 106：固定检索端点被本机 DNS 拦截时，复用面向用户输入 URL 的 SSRF
+    // 校验会给出「网页地址不得指向本机、私网或保留地址」——用户只输入了
+    // 检索词，文案与触发条件无关。端点级失败按检索语境改写。
+    let blocked = search_endpoint_error(BackendError::new(
+        "ssrf_blocked",
+        "网页地址不得指向本机、私网或保留地址",
+    ));
+    assert_eq!(blocked.code, "search_endpoint_blocked");
+    assert!(blocked.message.contains("检索"), "{}", blocked.message);
+    let unreachable =
+        search_endpoint_error(BackendError::new("web_unreachable", "无法解析网页主机地址"));
+    assert_eq!(unreachable.code, "search_endpoint_blocked");
+    assert!(
+        unreachable.message.contains("检索"),
+        "{}",
+        unreachable.message
+    );
+    // 其它错误原样透传——限流、超时等真实原因不得被改写成端点被拦截
+    let other = search_endpoint_error(BackendError::new("web_rate_limited", "公开网页服务限流"));
+    assert_eq!(other.code, "web_rate_limited");
+    assert_eq!(other.message, "公开网页服务限流");
+}
+
+#[test]
 fn html_parser_handles_quoted_angle_brackets_and_separate_snippets() {
     let parsed = html::parse("<title>真实 &amp; 标题</title><template>不读取</template><p>正文 &gt; 文本</p><a data-x=\"1 > 0\" class=\"result__a\" href=\"/article\">标题</a><a class=\"result__snippet\">分离的摘要</a>", true).unwrap();
     assert_eq!(parsed.title, "真实 & 标题");

@@ -48,7 +48,7 @@ sequenceDiagram
 1. 解析根库或 `users/{user_id}/` 工作区库路径。
 2. 首次打开路径时持有全局打开锁；同路径后续打开通过进程内登记跳过该锁。首位用户旧库迁移仍在首开临界区内完成。
 3. 启用 WAL、`foreign_keys=ON`、`busy_timeout=10000`、`synchronous=NORMAL`。
-4. 读取 `PRAGMA user_version` 和 `meta.schema_version`，两者最大值高于 `SCHEMA_VERSION=4` 时返回 `unsupported_schema`。
+4. 读取 `PRAGMA user_version` 和 `meta.schema_version`，两者最大值高于 `SCHEMA_VERSION=5` 时返回 `unsupported_schema`。
 5. 建立 `kv`、`meta`、`revisions`、`events` 及事件表达式索引。
 6. 对 `sqlite_master` 计算完整 schema 指纹。指纹与记录不同，或记录版本低于代码版本时，执行 15 个模块的幂等 `migrate`，再写入新指纹和版本。
 7. `PRAGMA user_version` 按兼容惯例写 1；实际代码版本保存在 `meta.schema_version`。

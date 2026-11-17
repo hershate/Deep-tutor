@@ -82,7 +82,7 @@ graph TD
 | `revisions(namespace,value)` | 集合与草稿乐观锁版本 |
 | `events(id,kind,payload,created_at)` | 单调递增事件 outbox；`events_kind_request` 索引支持按请求读取模型增量 |
 
-打开数据库时启用 WAL、外键、10 秒 `busy_timeout` 和 `synchronous=NORMAL`。`max(PRAGMA user_version, meta.schema_version)` 高于代码侧 `SCHEMA_VERSION=4` 时返回 `unsupported_schema`。指纹不同或记录版本低于代码版本时，依次执行 materials、knowledge、providers、learning、projects、sharing、practice、review、agent、community、plugins、engagement、reports、security、sync 共 15 个模块的幂等迁移。
+打开数据库时启用 WAL、外键、10 秒 `busy_timeout` 和 `synchronous=NORMAL`。`max(PRAGMA user_version, meta.schema_version)` 高于代码侧 `SCHEMA_VERSION=5` 时返回 `unsupported_schema`。指纹不同或记录版本低于代码版本时，依次执行 materials、knowledge、providers、learning、projects、sharing、practice、review、agent、community、plugins、engagement、reports、security、sync 共 15 个模块的幂等迁移。
 
 `app_state()` 返回四个业务集合、preferences、六个命名空间的 revision、`workspaceId` 和 `lastEventId`。普通集合写入返回轻量回执，不重复下载全部集合。`resources` 不允许通过通用集合命令绕过材料命令。
 

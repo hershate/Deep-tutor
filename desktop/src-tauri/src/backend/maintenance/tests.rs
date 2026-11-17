@@ -108,7 +108,8 @@ fn cleanup_preserves_valid_data_and_vacuum_reports_actual_results() {
     let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
     assert_eq!(report["database"]["integrity"], "ok");
     assert_eq!(report["database"]["journalMode"], "wal");
-    assert_eq!(report["database"]["schemaVersion"], 4);
+    // P-113：SCHEMA_VERSION 递增至 5（resources 快照补 status 字段的迁移补登记）
+    assert_eq!(report["database"]["schemaVersion"], 5);
     assert_eq!(report["orphans"]["originals"].as_array().unwrap().len(), 1);
     assert_eq!(report["orphans"]["scratch"].as_array().unwrap().len(), 1);
     assert_eq!(report["orphans"]["plugins"].as_array().unwrap().len(), 2);

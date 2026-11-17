@@ -68,6 +68,27 @@ fn search_endpoint() -> String {
     "https://html.duckduckgo.com/html/".into()
 }
 
+/// 106：固定检索端点被本机网络拦截时的错误改写。
+///
+/// 检索端点由应用固定（用户只输入检索词，从未输入任何网页地址），却复用
+/// 面向用户输入 URL 的 `resolve()` 校验：本机 DNS 把 html.duckduckgo.com
+/// 解析到 0.0.0.0 或私网地址时，命中的是「网页地址不得指向本机、私网或
+/// 保留地址」——文案描述的是地址类限制，与实际触发条件无关，用户无从
+/// 定位。这里按检索语境改写错误码与文案；其它错误原样透传。
+fn search_endpoint_error(error: BackendError) -> BackendError {
+    match error.code.as_str() {
+        "ssrf_blocked" => BackendError::new(
+            "search_endpoint_blocked",
+            "公开检索服务端点被本机网络拦截（域名被解析到本机、私网或保留地址），请检查 DNS、代理或广告过滤规则后重试",
+        ),
+        "web_unreachable" => BackendError::new(
+            "search_endpoint_blocked",
+            "无法解析公开检索服务端点，请检查本机 DNS 或网络连接后重试",
+        ),
+        _ => error,
+    }
+}
+
 #[derive(Debug)]
 struct Target {
     url: Url,
@@ -432,7 +453,7 @@ pub fn search(query: &str, limit: usize) -> Result<Value> {
         .query_pairs_mut()
         .append_pair("q", query)
         .append_pair("kl", "cn-zh");
-    let document = document(endpoint, 0)?;
+    let document = document(endpoint, 0).map_err(search_endpoint_error)?;
     let parsed = html::parse(&document.body, true)?;
     let mut results = Vec::new();
     let mut rejected = Vec::new();

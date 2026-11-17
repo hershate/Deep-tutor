@@ -171,8 +171,16 @@ export default function Community({ notify }: { notify: (message: string) => voi
 
   const [cancelRoomId, setCancelRoomId] = useState<number | null>(null)
   const upcoming = data?.rooms.filter(room => room.status === 'scheduled' && Date.parse(room.startAt) > Date.parse(data.now)).sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))[0]
+  // P-117：初载成功后的刷新失败原先完全没有页面内提示——loadError 只在
+  // data 为空时渲染，写操作成功（讨论已保存）与列表仍是旧值同时出现；
+  // 且 database_busy/store_busy 在读路径不弹 toast，等于静默。
+  // 对齐 Integrations 的 staleBanner 模式：已有数据时也明示刷新失败并给重试
+  const staleBanner = loadError
+    ? <div className="form-error" role="alert"><span>社区数据刷新失败，当前显示的是上次读取的结果：{loadError}</span><Button variant="secondary" size="sm" onClick={() => { setLoadError(''); void refreshRef.current().catch(error => { setLoadError(backendErrorMessage(error)); reportBackendError(error) }) }}>重试</Button></div>
+    : null
   return <div className="page community-page">
     <div className="page-heading"><div><h1>学习社区</h1><p>本机共学空间：真实讨论、互评与预约；没有外部服务时，不虚构其他在线用户。</p></div><Button onClick={() => setModal('post')}><Plus size={18} />发起讨论</Button></div>
+    {data && staleBanner}
     <div className="community-layout"><main><div className="community-toolbar"><div className="library-tabs">{([['discussion', '学习讨论'], ['peer_review', '项目互评'], ['groups', '学习小组']] as const).map(item => <button key={item[0]} className={tab === item[0] ? 'active' : ''} aria-pressed={tab === item[0]} onClick={() => setTab(item[0])}>{item[1]}</button>)}</div>{tab !== 'groups' && <div className="search-field"><Search size={16} /><input value={query} onChange={event => setQuery(clampToBytes(event.target.value, 200))} aria-label="搜索讨论" placeholder="搜索真实讨论…" /></div>}</div>
       {/* 35#2：讨论页展示学习讨论+资料分享——原先剔除 resource 使其全 tab 不可见 */}
       {tab !== 'groups' ? <div className="post-list">{/* 80#5：渲染封顶 100——原先 500 帖全量渲染；超限按列表序提示 */}

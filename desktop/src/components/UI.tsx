@@ -258,11 +258,19 @@ export function LineChart({ values, labels, color = 'currentColor' }: { values: 
   const points = values.map((v, i) => ({ x: pad + i * ((width - pad * 2) / (values.length - 1)), y: height - pad - ((v - min) / (max - min || 1)) * (height - pad * 2) }))
   const path = points.map((p, i) => `${i ? 'L' : 'M'} ${p.x} ${p.y}`).join(' ')
   const area = `${path} L ${points.at(-1)!.x} ${height - pad} L ${points[0].x} ${height - pad} Z`
+  // P-114：x 轴标签按最小间距抽稀——学期周期可达上百个数据点，逐点渲染
+  // 日期标签会互相覆盖，x 轴完全不可读。标签数按可用宽度与最小间距推算，
+  // 再在首尾之间等距取点，保证相邻标签不重叠
+  const MIN_LABEL_GAP = 80
+  const labelCount = Math.max(1, Math.min(labels.length, Math.floor((width - pad * 2) / MIN_LABEL_GAP)))
+  const labelStep = labelCount > 1 ? (labels.length - 1) / (labelCount - 1) : 0
+  const labelIndexes = new Set<number>()
+  for (let index = 0; index < labelCount; index += 1) labelIndexes.add(Math.min(labels.length - 1, Math.round(index * labelStep)))
   // 默认 currentColor：颜色交给 styles.css 的 .line-chart 规则，深色主题可覆盖（09#8）
   return <div className="line-chart"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="学习趋势折线图">
     {[0, 1, 2, 3].map(i => <line key={i} x1={pad} y1={pad + i * 48} x2={width - pad} y2={pad + i * 48} className="chart-grid" />)}
     <path d={area} fill={color} opacity="0.09" />
     <path d={path} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    {points.map((p, i) => <g key={i}><circle cx={p.x} cy={p.y} r="4" fill={color} /><text x={p.x} y={height - 4} textAnchor="middle" className="chart-label">{labels[i]}</text></g>)}
+    {points.map((p, i) => <g key={i}><circle cx={p.x} cy={p.y} r="4" fill={color} />{labelIndexes.has(i) && <text x={p.x} y={height - 4} textAnchor="middle" className="chart-label">{labels[i]}</text>}</g>)}
   </svg></div>
 }
