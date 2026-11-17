@@ -2033,3 +2033,48 @@ fn lecture_provider_rebinds_when_the_plan_profile_is_disabled() {
         "方案绑定的档案须回写，界面显示才与实际一致"
     );
 }
+
+#[test]
+fn start_learning_plan_rejects_dates_in_the_past_before_any_model_call() {
+    // P-085：截止日期与硬里程碑日期过去时静默放行——排期从今天起算必然
+    // 晚于该截止日，方案落地即带 within_deadline=false 的降级标记，用户
+    // 白等一轮真实模型生成才拿到「天生不达标」的方案
+    let (app, state) = setup();
+    let material_id = add_material(&app, &state);
+    let server = model_server(material_id, false);
+    configure_provider(&app, &state, &server.url());
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let yesterday = validate::today().previous_day().unwrap().to_string();
+    let mut past_deadline = input(material_id);
+    past_deadline.deadline = yesterday.clone();
+    let error = ipc(
+        &window,
+        "start_learning_plan",
+        json!({"input": past_deadline}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "invalid_deadline");
+    let mut past_milestone = input(material_id);
+    past_milestone.milestone_date = Some(yesterday);
+    let error = ipc(
+        &window,
+        "start_learning_plan",
+        json!({"input": past_milestone}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "invalid_milestone_date");
+    assert_eq!(server.request_count(), 0, "拒绝前不得发起真实模型调用");
+    assert!(
+        state
+            .store()
+            .unwrap()
+            .conn
+            .query_row("SELECT COUNT(*) FROM learning_plans", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+            == 0
+    );
+}

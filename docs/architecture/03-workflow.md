@@ -47,7 +47,7 @@ CI 不部署应用，也不创建 GitHub Release。构建脚本在复制安装�
 
 ### 2.1 测试组织
 
-- 当前有 360 个 Rust `#[test]`，使用 release、锁定依赖和 `--test-threads=1` 串行执行。共享进程状态包括检索端点、迁移计数和同步测试开关。
+- 当前有 367 个 Rust `#[test]`，使用 release、锁定依赖和 `--test-threads=1` 串行执行。共享进程状态包括检索端点、迁移计数和同步测试开关。
 - Node 测试通道两条：`scripts/frontend-test.mjs`（前端 Markdown 与主题缓存等）与 `scripts/build-test.mjs`（构建脚本：安装包发布顺序与旧版本清理），均用 Node 自带 test runner，不新增依赖，`make test` 与 CI 各执行一次。
 - 每域测试与实现同目录；providers、security、practice、sync 等按协议、守卫、考试、主观题、变式或版本拆分。
 - `tauri::test::MockRuntime` 驱动真实命令 IPC；SQLite 使用真实临时数据库；系统密钥库在测试中使用内存实现。
@@ -246,7 +246,7 @@ JWT 使用 HS256 和 7 天有效期；单活动会话在签发时撤销旧会话
 
 ## 8. 命令与事件一致性
 
-- `main.rs` 注册 189 个命令，前端直接调用 189 个（25 个后端客户端文件中 22 个含直接 `invoke(` 调用点，其余 3 个经 `client.ts` 封装）；命令名和 camelCase 参数由 IPC 测试与 TypeScript 类型共同约束。
+- `main.rs` 注册 189 个命令，前端直接调用 189 个（27 个后端客户端文件中 22 个含直接 `invoke(` 调用点，其余 5 个经 `client.ts` 封装）；命令名和 camelCase 参数由 IPC 测试与 TypeScript 类型共同约束。
 - `read_shared_plan_package`（按分享包字符串读取）只有客户端封装 `sharingBackend.readPackage`，没有页面调用方；SharedPlan 页实际只调用 `read_shared_plan`（令牌）与 `read_shared_plan_file`（文件路径）。
 - `events_since` 仅在 `cfg(test)` 构建中保留；`stream_provider_chat` 和 `get_agent_run` 已删除，当前读取与执行分别使用 `route_provider_chat` 和 `get_agent_session`。`fetch_webpage` IPC 壳已删除。
 - 所有后端事件使用 `{id,kind,payload,createdAt}` 和唯一 `backend://event` 通道。

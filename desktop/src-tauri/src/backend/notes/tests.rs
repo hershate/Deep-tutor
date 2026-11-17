@@ -569,3 +569,149 @@ fn honest_high_ratio_note_imports() {
     assert_eq!(imported[0]["title"], "dense");
     assert_eq!(imported[0]["content"], dense);
 }
+
+#[test]
+fn archive_entries_with_empty_stems_stay_locatable() {
+    // P-134：「.md」这类前导点文件名的 stem 为空——原先整批导入报
+    // 「笔记标题不能为空」且不带条目名，1000 条 ZIP 里无法定位是哪个条目。
+    // 取法与 std 的 file_stem 对齐（前导点文件名没有扩展名），并与单文件
+    // 导入路径（Path::file_stem）保持同一口径
+    let app = setup();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("dot-stem.zip");
+    archive(
+        &path,
+        &[
+            (".md", "前导点条目正文".as_bytes()),
+            ("normal.md", "普通条目正文".as_bytes()),
+        ],
+    );
+    let result = ipc(&app, "import_notes", json!({"path":path.to_string_lossy()})).unwrap();
+    assert_eq!(result["imported"], 2);
+    let imported = notes(&app);
+    let dot = imported
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|note| note["content"] == "前导点条目正文")
+        .expect("前导点条目必须被导入");
+    assert_eq!(dot["title"], ".md");
+    let normal = imported
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|note| note["content"] == "普通条目正文")
+        .expect("普通条目必须被导入");
+    assert_eq!(normal["title"], "normal");
+}
+
+/// P-078：预检与落库同一口径的最坏字段组合构造
+/// - 正文首 90 字符用 4 字节字符（excerpt 落 360 字节，JSON 编码 362）
+/// - 标签用 100 个反斜杠（原始 100 字节，JSON 编码 202，转义膨胀 102）
+fn worst_case_note_text(body_chars: usize) -> String {
+    format!(
+        "---\ntitle: 边界\ntags: {}\n---\n{}{}",
+        "\\".repeat(100),
+        "𠮷".repeat(90),
+        "中".repeat(body_chars)
+    )
+}
+
+#[test]
+fn oversized_record_is_rejected_with_file_name_instead_of_failing_at_store_validation() {
+    // P-078：预检原先用「content 序列化长度 + title 序列化长度 + tag 原始
+    // 字节长度 + 512」的固定预算，漏算 excerpt/updated/id/键名标点与 tag 的
+    // JSON 转义膨胀，最坏组合下净超 53 字节——记录改由 store::validate_
+    // collection 拒绝且错误不含文件名，整批导入到最后一步才失败且无从
+    // 定位条目。预检改为按落库记录同一形状实测后，超限在读取侧即以
+    // 点名文件的错误暴露
+    let app = setup();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oversized-record.zip");
+    let body = format!("{}{}", "𠮷".repeat(90), "中".repeat(349_190));
+    let title = "边界";
+    let tag = "\\".repeat(100);
+    let excerpt: String = body.chars().take(90).collect();
+    let legacy = serde_json::to_string(&body).unwrap().len()
+        + serde_json::to_string(&title).unwrap().len()
+        + tag.len()
+        + 512;
+    let precheck = serde_json::to_vec(&record_value(
+        PRECHECK_ID,
+        title,
+        &excerpt,
+        &tag,
+        PRECHECK_UPDATED,
+        &body,
+    ))
+    .unwrap()
+    .len();
+    // 旧公式放行、落库记录超限——正是 P-078 的窗口
+    assert!(
+        legacy <= crate::backend::store::MAX_RECORD_BYTES,
+        "旧预检公式必须放行，否则测不到 P-078 的窗口（legacy={legacy}）"
+    );
+    assert!(
+        precheck > crate::backend::store::MAX_RECORD_BYTES,
+        "落库记录必须超限（precheck={precheck}）"
+    );
+    archive(
+        &path,
+        &[(
+            "oversized-record.md",
+            worst_case_note_text(349_190).as_bytes(),
+        )],
+    );
+    let error = ipc(
+        &app,
+        "import_notes",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "record_too_large");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains("oversized-record"),
+        "超限错误必须点名文件，实际为：{message}"
+    );
+    assert!(notes(&app).as_array().unwrap().is_empty());
+}
+
+#[test]
+fn note_just_below_the_limit_still_imports() {
+    // P-078：预检改为实测记录长度后不得反向误拒——同一最坏字段组合下
+    // 落库记录仍在 1 MB 内的笔记必须正常导入
+    let app = setup();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("fits-record.zip");
+    let body = format!("{}{}", "𠮷".repeat(90), "中".repeat(349_150));
+    let precheck = serde_json::to_vec(&record_value(
+        PRECHECK_ID,
+        "边界",
+        &body.chars().take(90).collect::<String>(),
+        &"\\".repeat(100),
+        PRECHECK_UPDATED,
+        &body,
+    ))
+    .unwrap()
+    .len();
+    assert!(
+        precheck <= crate::backend::store::MAX_RECORD_BYTES,
+        "未超限的笔记不得被预检拒绝（precheck={precheck}）"
+    );
+    archive(
+        &path,
+        &[("fits-record.md", worst_case_note_text(349_150).as_bytes())],
+    );
+    let result = ipc(
+        &app,
+        "import_notes",
+        json!({"path": path.to_string_lossy()}),
+    )
+    .unwrap();
+    assert_eq!(result["imported"], 1);
+    let imported = notes(&app);
+    assert_eq!(imported.as_array().unwrap().len(), 1);
+    assert_eq!(imported[0]["title"], "边界");
+    assert_eq!(imported[0]["tag"], "\\".repeat(100));
+}

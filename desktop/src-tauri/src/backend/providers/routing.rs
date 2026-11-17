@@ -944,7 +944,8 @@ pub(crate) fn finish<R: Runtime>(
     latest_chat(state, request_id)
 }
 
-fn finish_error<R: Runtime>(
+// pub(crate)：与同族的 finish 一致，供回归测试直接驱动收尾路径
+pub(crate) fn finish_error<R: Runtime>(
     app: &AppHandle<R>,
     state: &ProviderState,
     request_id: &str,
@@ -952,14 +953,41 @@ fn finish_error<R: Runtime>(
 ) -> Result<()> {
     let store = state.store()?;
     let tx = store.conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE provider_route_runs SET status = 'failed', error_code = ?1, error_message = ?2, updated_at = ?3 WHERE request_id = ?4",
-        params![error.code, error.message, now()?, request_id],
+    // P-019：只翻仍处 running/cancelling 的行——原先无条件 UPDATE，迟到
+    // 的失败会把已落终态（done/cancelled）的路由行覆写为 failed 并重复
+    // 发事件；守卫同时让本函数可重复调用（收尾兜底幂等）
+    // P-092：取消优先于迟到失败——路由行已置 cancelling 时终态固定为
+    // cancelled（对齐 finish() 的 174#1 实现与架构文档 §11 的取消优先
+    // 规则），不得被预流阶段的失败覆写为 failed
+    let current: Option<String> = tx
+        .query_row(
+            "SELECT status FROM provider_route_runs WHERE request_id = ?1",
+            params![request_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let cancelled = current.as_deref() == Some("cancelling");
+    let cancelled_error = BackendError::new("cancelled", "路由请求已取消");
+    let (status, payload) = if cancelled {
+        ("cancelled", &cancelled_error)
+    } else {
+        ("failed", error)
+    };
+    let changed = tx.execute(
+        "UPDATE provider_route_runs SET status = ?1, error_code = ?2, error_message = ?3, updated_at = ?4 WHERE request_id = ?5 AND status IN ('running', 'cancelling')",
+        params![status, payload.code, payload.message, now()?, request_id],
     )?;
+    if changed == 0 {
+        return Ok(());
+    }
     let event = Store::event(
         &tx,
-        "provider.route_failed",
-        json!({"requestId": request_id, "error": error}),
+        if cancelled {
+            "provider.route_cancelled"
+        } else {
+            "provider.route_failed"
+        },
+        json!({"requestId": request_id, "error": payload}),
     )?;
     tx.commit()?;
     emit(app, &event);
@@ -1213,187 +1241,200 @@ pub fn stream_chat<R: Runtime>(
     )?;
     tx.commit()?;
     emit(app, &event);
-    let mut candidates = vec![(profile.clone(), model.clone())];
-    if mode == "routing" {
-        let profiles = list(state)?;
-        for id in &settings.failover {
-            if id != &profile.id {
-                if let Some(profile) = profiles
-                    .iter()
-                    .find(|profile| &profile.id == id && profile.enabled)
-                {
-                    let model = if profile.models.contains(&model) {
-                        model.clone()
-                    } else {
-                        profile.default_model.clone()
-                    };
-                    candidates.push((profile.clone(), model));
-                }
-            }
-        }
-    }
-    let mut last_result = None;
-    for (index, (candidate, model)) in candidates.into_iter().enumerate() {
-        let attempt = index as u32 + 1;
-        if route_cancelled(state, request_id) {
-            let mut result = match last_result {
-                Some(result) => result,
-                None => failure_request(
-                    request_id,
-                    &candidate.id,
-                    &model,
-                    "cancelled",
-                    BackendError::new("cancelled", "路由请求已取消"),
-                )?,
-            };
-            result.status = "cancelled".into();
-            result.error = Some(BackendError::new("cancelled", "路由请求已取消"));
-            result.request_id = request_id.into();
-            return finish(app, state, request_id, &result);
-        }
+    // P-019：路由尝试落库、熔断记账或收尾失败时，route run 行会停留
+    // running——行永久悬挂（同 id 重试被幂等短路、故障转移日志页永远
+    // 「运行中」）。候选循环整体收进闭包，任一失败出口先落终态再返回
+    let outcome = (|| -> Result<ProviderRequest> {
+        let mut candidates = vec![(profile.clone(), model.clone())];
         if mode == "routing" {
-            if let Some(error) = circuit_permit(
-                &store.conn,
-                profile_id(&candidate.id)?,
-                settings.circuit.cooldown,
-            )? {
-                let status = error.code.clone();
-                save_attempt(
-                    app,
-                    state,
-                    request_id,
-                    attempt,
-                    &candidate,
-                    &model,
-                    None,
-                    &status,
-                    None,
-                    Some(error),
-                )?;
-                continue;
+            let profiles = list(state)?;
+            for id in &settings.failover {
+                if id != &profile.id {
+                    if let Some(profile) = profiles
+                        .iter()
+                        .find(|profile| &profile.id == id && profile.enabled)
+                    {
+                        let model = if profile.models.contains(&model) {
+                            model.clone()
+                        } else {
+                            profile.default_model.clone()
+                        };
+                        candidates.push((profile.clone(), model));
+                    }
+                }
             }
         }
-        let upstream = if index == 0 {
-            request_id.to_string()
-        } else {
-            format!("{request_id}-f{index}")
-        };
-        save_attempt(
-            app,
-            state,
-            request_id,
-            attempt,
-            &candidate,
-            &model,
-            Some(&upstream),
-            "running",
-            None,
-            None,
-        )?;
-        let result = super::stream_chat_with_policy(
-            app,
-            state,
-            &upstream,
-            &candidate.id,
-            messages,
-            max_tokens,
-            Some(&model),
-            tools,
-            super::openai::StreamPolicy {
-                max_attempts: settings.circuit.retries + 1,
-                request_timeout: Duration::from_secs(settings.circuit.timeout),
-                chunk_timeout: Duration::from_secs(settings.circuit.timeout),
-            },
-            Some(Arc::clone(&cancel)),
-        );
-        match result {
-            Err(error) => {
-                save_attempt(
-                    app,
-                    state,
-                    request_id,
-                    attempt,
-                    &candidate,
-                    &model,
-                    Some(&upstream),
-                    "failed",
-                    None,
-                    Some(error.clone()),
-                )?;
-                // 34#13：本地错误（预算超限/provider_disabled 等）也要回写熔断
-                // 状态——原先只有 Ok 分支调 record_circuit，半开探测被本地
-                // Err 打断后 half_open 无人翻转，该供应商卡死到重启。
-                // 99#3：熔断计数按模式收窄到 routing（circuit_permit 只在
-                // routing 检查）——direct/aggregate 模式下持续 5xx 原先照常
-                // 累计开闸，切到 routing 后「从没配过路由却熔断」；计数与
-                // 消费对称后语义一致（aggregate 为单选无替补，属既有口径）
-                if mode == "routing" {
-                    record_circuit(
-                        app,
-                        state,
+        let mut last_result = None;
+        for (index, (candidate, model)) in candidates.into_iter().enumerate() {
+            let attempt = index as u32 + 1;
+            if route_cancelled(state, request_id) {
+                let mut result = match last_result {
+                    Some(result) => result,
+                    None => failure_request(
+                        request_id,
                         &candidate.id,
-                        false,
-                        Some(error.clone()),
-                        &settings.circuit,
-                    )?;
-                }
-                finish_error(app, state, request_id, &error)?;
-                return Err(error);
-            }
-            Ok(mut result) => {
-                save_attempt(
-                    app,
-                    state,
-                    request_id,
-                    attempt,
-                    &candidate,
-                    &model,
-                    Some(&upstream),
-                    &result.status,
-                    result.latency_ms,
-                    result.error.clone(),
-                )?;
-                // 99#3：同上，计数收窄到 routing 模式
-                if mode == "routing" {
-                    record_circuit(
-                        app,
-                        state,
-                        &candidate.id,
-                        result.status == "done",
-                        result.error.clone(),
-                        &settings.circuit,
-                    )?;
-                }
-                let retry = mode == "routing"
-                    && result.status == "failed"
-                    && result.output.is_empty()
-                    && result.reasoning.is_empty()
-                    && result.tool_calls.is_empty()
-                    && result.error.as_ref().is_some_and(can_failover);
+                        &model,
+                        "cancelled",
+                        BackendError::new("cancelled", "路由请求已取消"),
+                    )?,
+                };
+                result.status = "cancelled".into();
+                result.error = Some(BackendError::new("cancelled", "路由请求已取消"));
                 result.request_id = request_id.into();
-                if result.status == "done" || result.status == "cancelled" || !retry {
-                    return finish(app, state, request_id, &result);
-                }
-                // 继续尝试下一个候选（跨上游故障转移，无需等待）；同上游的
-                // 逐次重试在协议层循环内完成，已带指数退避（10#2）
-                last_result = Some(result);
+                return finish(app, state, request_id, &result);
             }
+            if mode == "routing" {
+                if let Some(error) = circuit_permit(
+                    &store.conn,
+                    profile_id(&candidate.id)?,
+                    settings.circuit.cooldown,
+                )? {
+                    let status = error.code.clone();
+                    save_attempt(
+                        app,
+                        state,
+                        request_id,
+                        attempt,
+                        &candidate,
+                        &model,
+                        None,
+                        &status,
+                        None,
+                        Some(error),
+                    )?;
+                    continue;
+                }
+            }
+            let upstream = if index == 0 {
+                request_id.to_string()
+            } else {
+                format!("{request_id}-f{index}")
+            };
+            save_attempt(
+                app,
+                state,
+                request_id,
+                attempt,
+                &candidate,
+                &model,
+                Some(&upstream),
+                "running",
+                None,
+                None,
+            )?;
+            let result = super::stream_chat_with_policy(
+                app,
+                state,
+                &upstream,
+                &candidate.id,
+                messages,
+                max_tokens,
+                Some(&model),
+                tools,
+                super::openai::StreamPolicy {
+                    max_attempts: settings.circuit.retries + 1,
+                    request_timeout: Duration::from_secs(settings.circuit.timeout),
+                    chunk_timeout: Duration::from_secs(settings.circuit.timeout),
+                },
+                Some(Arc::clone(&cancel)),
+            );
+            match result {
+                Err(error) => {
+                    save_attempt(
+                        app,
+                        state,
+                        request_id,
+                        attempt,
+                        &candidate,
+                        &model,
+                        Some(&upstream),
+                        "failed",
+                        None,
+                        Some(error.clone()),
+                    )?;
+                    // 34#13：本地错误（预算超限/provider_disabled 等）也要回写熔断
+                    // 状态——原先只有 Ok 分支调 record_circuit，半开探测被本地
+                    // Err 打断后 half_open 无人翻转，该供应商卡死到重启。
+                    // 99#3：熔断计数按模式收窄到 routing（circuit_permit 只在
+                    // routing 检查）——direct/aggregate 模式下持续 5xx 原先照常
+                    // 累计开闸，切到 routing 后「从没配过路由却熔断」；计数与
+                    // 消费对称后语义一致（aggregate 为单选无替补，属既有口径）
+                    if mode == "routing" {
+                        record_circuit(
+                            app,
+                            state,
+                            &candidate.id,
+                            false,
+                            Some(error.clone()),
+                            &settings.circuit,
+                        )?;
+                    }
+                    finish_error(app, state, request_id, &error)?;
+                    return Err(error);
+                }
+                Ok(mut result) => {
+                    save_attempt(
+                        app,
+                        state,
+                        request_id,
+                        attempt,
+                        &candidate,
+                        &model,
+                        Some(&upstream),
+                        &result.status,
+                        result.latency_ms,
+                        result.error.clone(),
+                    )?;
+                    // 99#3：同上，计数收窄到 routing 模式
+                    if mode == "routing" {
+                        record_circuit(
+                            app,
+                            state,
+                            &candidate.id,
+                            result.status == "done",
+                            result.error.clone(),
+                            &settings.circuit,
+                        )?;
+                    }
+                    let retry = mode == "routing"
+                        && result.status == "failed"
+                        && result.output.is_empty()
+                        && result.reasoning.is_empty()
+                        && result.tool_calls.is_empty()
+                        && result.error.as_ref().is_some_and(can_failover);
+                    result.request_id = request_id.into();
+                    if result.status == "done" || result.status == "cancelled" || !retry {
+                        return finish(app, state, request_id, &result);
+                    }
+                    // 继续尝试下一个候选（跨上游故障转移，无需等待）；同上游的
+                    // 逐次重试在协议层循环内完成，已带指数退避（10#2）
+                    last_result = Some(result);
+                }
+            }
+        }
+        let result = match last_result {
+            Some(result) => result,
+            None => failure_request(
+                request_id,
+                "",
+                &model,
+                "failed",
+                BackendError::new(
+                    "all_providers_unavailable",
+                    "路由队列中的所有上游均处于熔断状态，未发起新的上游请求",
+                ),
+            )?,
+        };
+        finish(app, state, request_id, &result)
+    })();
+    match outcome {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            // 终态收尾：仅当 route run 仍处 running/cancelling 时翻转
+            let _ = finish_error(app, state, request_id, &error);
+            Err(error)
         }
     }
-    let result = match last_result {
-        Some(result) => result,
-        None => failure_request(
-            request_id,
-            "",
-            &model,
-            "failed",
-            BackendError::new(
-                "all_providers_unavailable",
-                "路由队列中的所有上游均处于熔断状态，未发起新的上游请求",
-            ),
-        )?,
-    };
-    finish(app, state, request_id, &result)
 }
 
 pub fn cancel(state: &ProviderState, request_id: &str) -> Result<bool> {

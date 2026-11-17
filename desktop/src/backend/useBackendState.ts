@@ -3,6 +3,8 @@ import { backend, backendErrorMessage, onBackendEvent, reportBackendError, type 
 import { storageBackend } from './storage'
 import { backupBackend } from './backup'
 import { notesBackend } from './notes'
+import { guardAppSnapshot } from './appSnapshot'
+import { decideTransientRetry } from './transientRetry'
 
 // 103#8：keyring 会话槽丢失须显式重登，与过期/吊销同走登录界面
 const authenticationErrors = new Set(['invalid_session', 'session_expired', 'session_revoked', 'account_disabled', 'login_required', 'session_credentials_unavailable'])
@@ -14,6 +16,13 @@ const emptySnapshot: AppSnapshot = {
   lastEventId: 0,
   workspaceId: 0,
 }
+
+// 128#7：后端返回自由 Value——TS 断言静默通过，键形漂移（改名/缺失）时
+// 渲染层读出 undefined 空白。运行时守卫已抽到 backend/appSnapshot.ts
+// （P-090：import_notes 的 state 同样是自由 Value，备份与笔记两条导入
+// 路径同口径；返工补上非对象入参的可读错误——此前 null/undefined 会在
+// 读 raw.workspaceId 时抛 TypeError，用户看到的是 "Cannot read
+// properties of null" 而非版本不兼容提示）
 
 export function useBackendState() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot)
@@ -87,6 +96,9 @@ export function useBackendState() {
     let settled = false
     let timer: number | undefined
     let transientRetries = 0
+    // P-089：待触发的瞬态重试定时器——成功同步后撤销（数据已新鲜，
+    // 无需再重试），卸载时一并清理
+    let transientTimer: number | undefined
     // 136#5：会中期连续失败计数——一次瞬时坏读不再撕裂整个 UI
     let sessionFailures = 0
     // 111#4：错误页恢复轮询的 single-flight——错误页期间每个后端事件/每次
@@ -150,13 +162,35 @@ export function useBackendState() {
       // 24#1：database_busy 是瞬态读争用（备份导入大事务/流式写入高峰），
       // 不得把整个应用卸载成错误页——保留当前快照与界面，静默延迟重试；
       // 连续 5 次仍失败才视为持续故障进入错误页
-      if (code === 'database_busy' && transientRetries < 5) {
-        transientRetries += 1
+      // P-089：重试回调原先以 settled 短路，而 settled 在 bootstrap 成功后
+      // 恒为 true——稳态期的静默延迟重试从不发生，界面停留在旧快照且无
+      // 任何提示（读类 database_busy 不弹 toast），只能靠下一个后端事件
+      // 或手动切回窗口自愈。改为按「同代 + 仍存活」判定，成功同步会撤销
+      // 待触发的重试定时器
+      if (code === 'database_busy') {
+        // P-089 返工：重试上限与间隔下沉到 backend/transientRetry.ts 的
+        // 纯函数——策略此前只存在于本闭包内，改回即无测试发现
+        const decision = decideTransientRetry(transientRetries)
+        if (decision.kind === 'retry') {
+          transientRetries = decision.attempt
+          reportBackendError(error)
+          if (transientTimer !== undefined) window.clearTimeout(transientTimer)
+          transientTimer = window.setTimeout(() => {
+            transientTimer = undefined
+            if (!alive() || generation.current !== expectedGeneration) return
+            requestSync()
+          }, decision.delayMs)
+          return
+        }
+        // P-089：5 次重试用尽即持续故障——原先掉进 136#5 的会中期静默分支
+        // 再计 5 次，实际要 10 连败才进错误页，与本分支注释承诺的
+        // 「连续 5 次仍失败才视为持续故障进入错误页」不符
+        transientRetries = 0
+        settled = true
         reportBackendError(error)
-        window.setTimeout(() => {
-          if (!alive() || settled || generation.current !== expectedGeneration) return
-          requestSync()
-        }, 1500)
+        setStartupError(backendErrorMessage(error))
+        setReady(false)
+        armRecoveryPoll(expectedGeneration, 3000, false)
         return
       }
       // 106#1：startup_not_ready 单独放宽——bootstrap 20s 轮询窗口耗尽时
@@ -230,6 +264,11 @@ export function useBackendState() {
         // 原实现要等 sync 追平才置 settled，临界误报会把整树切到错误页
         settled = true
         transientRetries = 0
+        // P-089：数据已新鲜——撤销待触发的瞬态重试
+        if (transientTimer !== undefined) {
+          window.clearTimeout(transientTimer)
+          transientTimer = undefined
+        }
         applySnapshot(state, requestedGeneration)
         return sync()
       }).then(() => {
@@ -261,6 +300,11 @@ export function useBackendState() {
         if (!alive() || generation.current !== requestedGeneration) return
         settled = true
         transientRetries = 0
+        // P-089：数据已新鲜——撤销待触发的瞬态重试
+        if (transientTimer !== undefined) {
+          window.clearTimeout(transientTimer)
+          transientTimer = undefined
+        }
         // 136#5：会中期失败被成功同步纠正——连续计数复位
         sessionFailures = 0
         setStartupError('')
@@ -311,6 +355,8 @@ export function useBackendState() {
       mounted.current = false
       if (timer !== undefined) window.clearTimeout(timer)
       if (coalesceTimer !== undefined) window.clearTimeout(coalesceTimer)
+      // P-089：待触发的瞬态重试一并清理
+      if (transientTimer !== undefined) window.clearTimeout(transientTimer)
       unlisten?.()
       window.removeEventListener('focus', refreshVisible)
       document.removeEventListener('visibilitychange', refreshVisible)
@@ -362,23 +408,20 @@ export function useBackendState() {
     const requestedGeneration = generation.current
     const next = await backupBackend.import(path)
     // 128#7：import_full_backup 后端返回自由 Value——TS 断言静默通过，
-    // 键形漂移（改名/缺失）时渲染层读出 undefined 空白；对齐
-    // guardLearningPlan 范式做运行时守卫，坏形状以可定位错误暴露
-    const raw = next as unknown as Record<string, unknown>
-    if (typeof raw.workspaceId !== 'number' || typeof raw.lastEventId !== 'number'
-      || raw.tasks === undefined || raw.notes === undefined || raw.resources === undefined
-      || raw.projects === undefined || raw.preferences === undefined || raw.versions === undefined) {
-      console.error('guardAppSnapshot: 导入快照形状断言失败（核心集合/versions/workspaceId 缺失，后端 JSON 键变更？）', next)
-      throw new Error('导入返回的数据结构与当前应用版本不兼容，请更新应用后再试。')
-    }
-    applySnapshot(next, requestedGeneration)
-    return next
+    // 键形漂移（改名/缺失）时渲染层读出 undefined 空白；P-090：守卫抽为
+    // 共用函数，笔记导入同口径
+    const snapshot = guardAppSnapshot(next, '备份导入')
+    applySnapshot(snapshot, requestedGeneration)
+    return snapshot
   }, [applySnapshot])
 
   const importNotes = useCallback(async (path: string) => {
     const requestedGeneration = generation.current
     const result = await notesBackend.import(path)
-    applySnapshot(result.state, requestedGeneration)
+    // P-090：import_notes 的 state 同样是后端自由 Value——补 importBackup
+    // 同款运行时守卫，键漂移时不再「导入成功却渲染空白」
+    const snapshot = guardAppSnapshot(result.state, '笔记导入')
+    applySnapshot(snapshot, requestedGeneration)
     return result.imported
   }, [applySnapshot])
 

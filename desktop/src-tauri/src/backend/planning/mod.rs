@@ -6,7 +6,7 @@ use super::commands::emit;
 use super::error::{BackendError, Result};
 use super::learning::{LearningState, Plan};
 use super::store::Store;
-use rusqlite::{params, TransactionBehavior};
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -763,6 +763,41 @@ pub fn update_goal<R: Runtime>(
         ));
     }
     Store::insert_json(&tx, "preferences", "current", &preferences)?;
+    // P-074：事务内复查方案状态——事务外的状态/次数校验与开事务之间可能
+    // 被并发 regenerate 穿插（status 置 running、result 置 NULL、version
+    // 自增），无守卫会提交目标改写却不重生成，留下 25#4 要避免的部分提交
+    // 状态（用户只看到「只有完成或降级的方案可以调整目标」，目标其实已改）。
+    // 对照 apply_intensity 的 34#21 同型守卫与 regenerate 自身的三重前置校验
+    let (status, version): (String, i64) = tx.query_row(
+        "SELECT status, version FROM learning_plans WHERE id = ?1",
+        params![numeric],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if !["done", "degraded"].contains(&status.as_str()) {
+        return Err(BackendError::new(
+            "plan_not_ready",
+            "方案正在生成或重生成，暂不能调整目标",
+        ));
+    }
+    if version > i64::from(regeneration_limit) {
+        return Err(BackendError::new(
+            "regeneration_limit",
+            &format!("每个方案最多局部重生成 {regeneration_limit} 次"),
+        ));
+    }
+    let adopted: Option<i64> = tx
+        .query_row(
+            "SELECT project_id FROM learning_plan_adoptions WHERE plan_id = ?1",
+            params![numeric],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if adopted.is_some() {
+        return Err(BackendError::new(
+            "plan_adopted",
+            "已采用的方案不能直接重生成，请保留历史并创建新方案",
+        ));
+    }
     tx.execute(
         "UPDATE learning_plans SET input_json = ?1, updated_at = ?2 WHERE id = ?3",
         params![

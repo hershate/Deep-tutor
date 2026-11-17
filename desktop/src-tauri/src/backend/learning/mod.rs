@@ -308,7 +308,15 @@ fn validate_input(state: &LearningState, input: &PlanInput) -> Result<PlanInput>
             "每日时长必须位于 10 到 600 分钟",
         ));
     }
-    let _ = validate::deadline(&input.deadline)?;
+    // P-085：截止日期不得早于今天——原先只验格式，过去日期静默放行；
+    // 排期从今天起算必然晚于该截止日，方案落地即带 within_deadline=false
+    // 的降级标记，用户白等一轮真实模型生成才拿到「天生不达标」的方案
+    if validate::deadline(&input.deadline)? < validate::today() {
+        return Err(BackendError::new(
+            "invalid_deadline",
+            "截止日期不能早于今天",
+        ));
+    }
     if input.material_ids.len() > 8 {
         return Err(BackendError::new(
             "invalid_materials",
@@ -331,6 +339,19 @@ fn validate_input(state: &LearningState, input: &PlanInput) -> Result<PlanInput>
         .map(validate::deadline)
         .transpose()?
         .map(|date| date.to_string());
+    // P-085：硬里程碑日期同样不得早于今天——过去日期的硬里程碑必然不满足，
+    // 方案落地即带 within_milestone=false 的降级标记
+    if milestone_date
+        .as_deref()
+        .map(validate::deadline)
+        .transpose()?
+        .is_some_and(|date| date < validate::today())
+    {
+        return Err(BackendError::new(
+            "invalid_milestone_date",
+            "硬里程碑日期不能早于今天",
+        ));
+    }
     let provider_id = match &input.provider_id {
         Some(id) => id.clone(),
         None => providers::routing::provider_for_task(&state.providers, "plan")?,

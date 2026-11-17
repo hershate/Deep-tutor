@@ -429,3 +429,44 @@ fn goal_update_accepts_a_goal_longer_than_two_hundred_bytes() {
     let plan = crate::backend::learning::get(&learning, "plan-1").unwrap();
     assert_eq!(plan.goal, long_goal);
 }
+
+#[test]
+fn goal_update_refuses_a_plan_that_started_regenerating_concurrently() {
+    // P-074：事务外的状态校验与开事务之间可能被并发 regenerate 穿插
+    // （status 置 running、result 置 NULL）——无事务内复查时会提交目标改写
+    // 却不重生成，留下 25#4 要避免的部分提交状态（目标已改但未重生成）
+    let (app, learning) = setup();
+    insert_plan(&learning.store().unwrap());
+    // 触发器模拟并发 regenerate：偏好写入（update_goal 的事务内第一步）
+    // 之后立刻把方案置为 running——位置正落在事务外校验与事务内复查之间
+    learning
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "CREATE TRIGGER simulate_concurrent_regenerate AFTER UPDATE ON kv WHEN NEW.namespace = 'preferences' BEGIN UPDATE learning_plans SET status = 'running' WHERE id = 1; END",
+            [],
+        )
+        .unwrap();
+    learning
+        .store()
+        .unwrap()
+        .conn
+        .execute(
+            "CREATE TRIGGER simulate_concurrent_regenerate_insert AFTER INSERT ON kv WHEN NEW.namespace = 'preferences' BEGIN UPDATE learning_plans SET status = 'running' WHERE id = 1; END",
+            [],
+        )
+        .unwrap();
+    let error = ipc(
+        &app,
+        "update_learning_goal",
+        json!({"input":{"planId":"plan-1","goal":"并发窗口里的新目标","deadline":"2099-02-01","weeklyHours":21,"level":"基础"}}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "plan_not_ready");
+    let plan = crate::backend::learning::get(&learning, "plan-1").unwrap();
+    // 目标不得被改写——半提交状态正是 25#4 要避免的
+    assert_eq!(plan.goal, "真实目标");
+    assert_eq!(plan.status, "done");
+    assert!(plan.result.is_some());
+}

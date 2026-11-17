@@ -1983,6 +1983,46 @@ fn route_cancellation_wins_a_late_success_terminal() {
     assert_eq!(events[0].kind, "provider.route_cancelled");
 }
 
+/// P-092：取消优先于迟到的失败——路由行已置 cancelling 时，预流阶段的失败
+/// （预算超限、凭据缺失、begin_chat 失败）不得把终态覆写为 failed，
+/// 否则取消被吞、上层按失败而非取消收尾
+#[test]
+fn late_failure_after_cancel_request_keeps_the_cancelled_terminal() {
+    let (app, state) = setup();
+    let timestamp = now().unwrap();
+    let store = state.store().unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO provider_route_runs (request_id, task, mode, status, provider_id, model, created_at, updated_at) VALUES ('route-cancel-then-fail', 'agent', 'routing', 'cancelling', 1, 'test-model', ?1, ?1)",
+            params![timestamp],
+        )
+        .unwrap();
+    let before = store.latest_event_id().unwrap();
+    drop(store);
+    routing::finish_error(
+        app.handle(),
+        &state,
+        "route-cancel-then-fail",
+        &BackendError::new("budget_exceeded", "预算超限"),
+    )
+    .unwrap();
+    let store = state.store().unwrap();
+    let (status, code): (String, Option<String>) = store
+        .conn
+        .query_row(
+            "SELECT status, error_code FROM provider_route_runs WHERE request_id = 'route-cancel-then-fail'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "cancelled");
+    assert_eq!(code.as_deref(), Some("cancelled"));
+    let events = store.events_since(before).unwrap().events;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, "provider.route_cancelled");
+}
+
 /// P-019：请求异常路径的终态收尾——provider_requests 与 provider_route_runs
 /// 两张表的 running 行一并翻终态。原先只有 panic 路径收尾 provider_requests，
 /// 路由行无任何收尾：行永久悬挂（本会话内 get_provider_chat 恒为「运行中」、

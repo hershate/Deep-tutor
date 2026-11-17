@@ -656,3 +656,50 @@ fn scan_skips_vanished_entries_instead_of_failing_the_report() {
     let report = ipc(&app, "get_maintenance_report", json!({})).unwrap();
     assert_eq!(report["database"]["integrity"], "ok");
 }
+
+#[test]
+fn cleanup_counts_orphans_vanished_after_scan_as_processed_not_failures() {
+    // P-081 返工：扫描完成→删除前被外部移除的孤儿按「已处理」入账，不进
+    // failures——删除会因目标不存在而报错，误报成清理失败，用户看到的是
+    // 「清理失败」而文件早已不在（导入 rename、sync 自剪枝、用户手动删）。
+    // 该窗口无法用线程竞态稳定复现，按 31#3 的同款做法注入删除钩子。
+    *GRACE_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = Some(std::time::Duration::ZERO);
+    let (app, learning) = setup();
+    let root = learning.database_path().parent().unwrap();
+    write(root, "materials/originals/vanished.txt", "orphan");
+    write(root, "agent-workspaces/999/scratch/vanished.json", "{}");
+    // 扫描把两个文件都列为孤儿；钩子在删除循环开始前把它们删掉
+    *VANISH_BEFORE_DELETE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = Some(Box::new(|path: &Path| {
+        // 钩子是全局静态——只删本用例的两个文件，并行跑其他用例时不得误删
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        if name.starts_with("vanished.") {
+            let _ = std::fs::remove_file(path);
+        }
+    }));
+    let cleanup = ipc(&app, "cleanup_orphan_files", json!({})).unwrap();
+    *VANISH_BEFORE_DELETE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner()) = None;
+    assert_eq!(
+        cleanup["failures"],
+        json!([]),
+        "扫描后消失的孤儿不得记为清理失败：{cleanup}"
+    );
+    assert_eq!(
+        cleanup["deletedFiles"],
+        json!(0),
+        "本轮未删除的文件不得计入删除数：{cleanup}"
+    );
+    assert_eq!(cleanup["remaining"], json!(0), "{cleanup}");
+    assert!(!root.join("materials/originals/vanished.txt").exists());
+    assert!(!root
+        .join("agent-workspaces/999/scratch/vanished.json")
+        .exists());
+}

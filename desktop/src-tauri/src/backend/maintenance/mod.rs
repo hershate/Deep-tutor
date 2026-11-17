@@ -290,6 +290,15 @@ const CLEANUP_BATCH: usize = 500;
 #[cfg(test)]
 static GRACE_OVERRIDE: std::sync::Mutex<Option<std::time::Duration>> = std::sync::Mutex::new(None);
 
+// P-081 返工：测试注入的「扫描完成 → 删除前」消失窗口——孤儿清单在扫描期
+// 生成，真实环境里文件可能在扫描后、删除前被外部移除（导入 rename、sync
+// 自剪枝、用户手动删除）。该窗口无法用线程竞态稳定复现，故按 31#3 的
+// 同款做法注入一个钩子：回调收到每个待删项的绝对路径，测试在其中把文件
+// 删掉。生产构建不含此钩子。
+#[cfg(test)]
+static VANISH_BEFORE_DELETE: std::sync::Mutex<Option<Box<dyn Fn(&Path) + Send + Sync>>> =
+    std::sync::Mutex::new(None);
+
 fn in_flight_grace() -> std::time::Duration {
     #[cfg(test)]
     {
@@ -879,6 +888,18 @@ pub fn cleanup<R: Runtime>(
         // 符号链接等）保留在 issues，不再混入失败列表同图标警示
         let mut failures = Vec::new();
         let root = service.root();
+        // P-081 返工：测试钩子——在「扫描完成」与「开始删除」之间移除文件，
+        // 复现外部并发删除窗口（仅测试构建存在，生产路径不经过此处）
+        #[cfg(test)]
+        if let Some(hook) = VANISH_BEFORE_DELETE
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .as_ref()
+        {
+            for item in orphans.originals.iter().chain(&orphans.scratch) {
+                hook(&root.join(&item.path));
+            }
+        }
         let mut batch = purged_files;
         // 34#18：宽限跳过项不计入 remaining——原先「还有 N 项未处理」把 24h
         // 内清不掉的项也算进去，用户按提示重跑得到同样数字，提示空转

@@ -9,7 +9,7 @@
 ```mermaid
 graph TD
     subgraph WebView
-        P[React 16 个页面] --> CL[25 个后端客户端文件]
+        P[React 16 个页面] --> CL[27 个后端客户端文件]
         CL --> IP[invoke / listen]
     end
     subgraph Rust 进程

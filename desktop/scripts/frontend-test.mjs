@@ -26,6 +26,8 @@ import { applyAccountTheme, cacheTheme, readCachedTheme } from '../src/theme.ts'
 import { readableErrorMessage } from '../src/errors.ts'
 import { EMPTY_RATE_VALUES, editRateDraft, hasSavedRate, rateDisplayValues, rateDraftCommitted, savedRateValues } from '../src/usageRateDraft.ts'
 import { deliversTo, pluginSetShrunk } from '../src/pluginEventScope.ts'
+import { guardAppSnapshot, SNAPSHOT_INCOMPATIBLE_MESSAGE } from '../src/backend/appSnapshot.ts'
+import { decideTransientRetry, MAX_TRANSIENT_RETRIES, TRANSIENT_RETRY_DELAY_MS } from '../src/backend/transientRetry.ts'
 
 /** 读取前端源文件（用于「行为只能靠源码断言」的场景） */
 function readSource(relative) {
@@ -728,3 +730,149 @@ test('P-034：「在资源管理器中显示」按钮只在下载任务落盘完
     '定位按钮仍需按目标路径渲染',
   )
 })
+
+// P-090 返工：快照守卫此前只在 useBackendState 内，且对 null/undefined
+// 抛 TypeError（"Cannot read properties of null"）——守卫的价值正在于
+// 形状漂移时给出可定位错误，用户看到的却是运行时崩溃提示。
+/** 临时静音守卫的错误日志（守卫按设计要 console.error） */
+function withSilencedConsoleError(run) {
+  const original = console.error
+  console.error = () => {}
+  try {
+    return run()
+  } finally {
+    console.error = original
+  }
+}
+
+/** 构造形状完整的快照（守卫的正例夹具） */
+function validSnapshot() {
+  return {
+    tasks: [],
+    notes: [],
+    resources: [],
+    projects: [],
+    preferences: { theme: 'light' },
+    versions: { tasks: 0, notes: 0, resources: 0, projects: 0, preferences: 0, drafts: 0 },
+    lastEventId: 0,
+    workspaceId: 0,
+  }
+}
+
+test('P-090 返工：快照守卫对 null/undefined 抛可读错误，不抛 TypeError', () => {
+  for (const value of [null, undefined]) {
+    withSilencedConsoleError(() => {
+      assert.throws(
+        () => guardAppSnapshot(value, '备份导入'),
+        (error) => {
+          assert.ok(error instanceof Error, '必须抛 Error')
+          assert.notEqual(error.name, 'TypeError', `不得抛 TypeError，实际 ${error.name}: ${error.message}`)
+          assert.equal(error.message, SNAPSHOT_INCOMPATIBLE_MESSAGE)
+          assert.ok(
+            !/Cannot read properties of/.test(error.message),
+            `不得出现 "Cannot read properties of"，实际 ${error.message}`,
+          )
+          return true
+        },
+      )
+    })
+  }
+})
+
+test('P-090 返工：快照守卫对非对象入参（数组/数字/字符串）同样给可读错误', () => {
+  for (const value of [[], 42, 'x', true]) {
+    withSilencedConsoleError(() => {
+      assert.throws(
+        () => guardAppSnapshot(value, '笔记导入'),
+        (error) => {
+          assert.equal(error.message, SNAPSHOT_INCOMPATIBLE_MESSAGE)
+          return true
+        },
+      )
+    })
+  }
+})
+
+test('P-090 返工：快照守卫对键形漂移抛可读错误，对完整快照原样放行', () => {
+  withSilencedConsoleError(() => {
+    const drifted = validSnapshot()
+    delete drifted.workspaceId
+    assert.throws(
+      () => guardAppSnapshot(drifted, '备份导入'),
+      (error) => {
+        assert.equal(error.message, SNAPSHOT_INCOMPATIBLE_MESSAGE)
+        return true
+      },
+    )
+    const snapshot = validSnapshot()
+    assert.equal(guardAppSnapshot(snapshot, '备份导入'), snapshot, '形状完整的快照必须原样放行')
+  })
+})
+
+test('P-090 返工：importBackup 与 importNotes 两条路径同走 guardAppSnapshot 快照守卫', () => {
+  const source = readSource('../src/backend/useBackendState.ts')
+  assert.ok(
+    source.includes("guardAppSnapshot(next, '备份导入')"),
+    '备份导入必须过守卫——键漂移时导入「成功」却渲染空白',
+  )
+  assert.ok(
+    source.includes("guardAppSnapshot(result.state, '笔记导入')"),
+    '笔记导入必须过守卫——import_notes 的 state 同样是后端自由 Value',
+  )
+})
+
+// P-089 返工：瞬态 database_busy 的重试策略此前只存在于 useBackendState
+// 的闭包内，改回即无测试发现。
+test('P-089 返工：database_busy 瞬态失败最多静默重试 5 次，第 6 次落错误页', () => {
+  for (let retries = 0; retries < MAX_TRANSIENT_RETRIES; retries += 1) {
+    const decision = decideTransientRetry(retries)
+    assert.equal(decision.kind, 'retry', `第 ${retries + 1} 次失败必须静默重试`)
+    assert.equal(decision.attempt, retries + 1)
+    assert.equal(decision.delayMs, TRANSIENT_RETRY_DELAY_MS)
+  }
+  assert.equal(
+    decideTransientRetry(MAX_TRANSIENT_RETRIES).kind,
+    'error-page',
+    '重试用尽后必须落错误页（24#1 承诺的「连续 5 次仍失败才视为持续故障」）',
+  )
+})
+
+test('P-089 返工：useBackendState 的 database_busy 重试回调不再被 settled 短路，成功同步与卸载撤销待触发 transientTimer', () => {
+  const source = readSource('../src/backend/useBackendState.ts')
+  const start = source.indexOf('transientTimer = window.setTimeout(')
+  assert.ok(start > 0, '未找到瞬态重试定时器')
+  const end = source.indexOf('requestSync()', start)
+  assert.ok(end > start, '瞬态重试定时器内未调用 requestSync')
+  const body = stripLineComments(source.slice(start, end))
+  assert.ok(
+    !body.includes('settled'),
+    '重试回调不得以 settled 短路——settled 在 bootstrap 成功后恒为 true，静默延迟重试永不发生',
+  )
+  assert.ok(body.includes('alive()'), '重试回调必须判存活')
+  assert.ok(
+    body.includes('generation.current !== expectedGeneration'),
+    '重试回调必须判代际——换代后的旧重试不得再拉快照',
+  )
+  const clears = source.match(/window\.clearTimeout\(transientTimer\)/g) || []
+  assert.ok(
+    clears.length >= 3,
+    `成功同步（bootstrap/事件）与卸载都要撤销待触发的重试，实际 ${clears.length} 处`,
+  )
+})
+
+test('P-086：已评价成果数取后端全库计数，不在 200 行版本窗口内自行统计', () => {
+  const source = readSource('../src/pages/Projects.tsx')
+  assert.ok(
+    source.includes('setEvaluatedVersions(workspace.evaluatedVersions)'),
+    '工作区加载必须取后端全库计数',
+  )
+  assert.ok(
+    source.includes('setEvaluatedVersions(result.evaluatedVersions)'),
+    '提交/取消/恢复三处都必须取后端返回值',
+  )
+  assert.ok(
+    !source.includes("versions.filter(item => item.status === 'done').length"),
+    '不得在 200 行版本窗口内自行统计已评价数——被挤出窗口的完成版本不再计入',
+  )
+})
+

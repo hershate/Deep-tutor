@@ -17,6 +17,11 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_NOTE_BYTES: u64 = 1024 * 1024;
 const MAX_ENTRIES: usize = 1000;
+/// P-078：预检用的最大 id 位数（i64 十进制上限 19 位）——落库 id 由
+/// Store::next_free_id 以毫秒时间戳为基（约 13 位），取上限只高估不低估
+const PRECHECK_ID: i64 = 9_223_372_036_854_775_807;
+/// P-078：预检用的 RFC3339 UTC 最长形态（9 位纳秒，30 字符）
+const PRECHECK_UPDATED: &str = "2026-11-18T12:34:56.789012345Z";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +34,26 @@ struct NoteSource {
     title: String,
     content: String,
     tag: String,
+}
+
+/// P-078：落库记录的字段构成——预检与写入共用同一形状，保证 1 MB 判定
+/// 与 store::validate_collection 的整条记录序列化长度同一口径
+fn record_value(
+    id: i64,
+    title: &str,
+    excerpt: &str,
+    tag: &str,
+    updated: &str,
+    content: &str,
+) -> Value {
+    json!({
+        "id": id,
+        "title": title,
+        "excerpt": excerpt,
+        "tag": tag,
+        "updated": updated,
+        "content": content,
+    })
 }
 
 fn invalid(code: &str, message: &str) -> BackendError {
@@ -126,28 +151,47 @@ fn note_source(file_title: &str, text: String) -> Result<NoteSource> {
     }
     // 11#16：落库前的真实约束是“序列化后记录 ≤ 1 MB”（含转义膨胀）；
     // 在读取侧预检并把具体文件名带进错误，避免整批 ZIP 导入到最后一步才失败
-    let serialized = serde_json::to_string(&content)
+    // P-078：预检与落库同一口径——原先用「content 序列化长度 + title 序列化
+    // 长度 + tag 原始字节长度 + 512」的固定预算，漏算 excerpt、updated、id、
+    // JSON 键名标点与 tag 的转义膨胀，最坏字段组合下净超预算 53 字节，
+    // 记录改由 store::validate_collection 拒绝且错误不含文件名（整批导入
+    // 到最后一步才失败且无从定位条目）。改为按落库记录的同一形状实测
+    // 序列化长度（id 取十进制最长位数、updated 取 RFC3339 最长形态），
+    // 预检只高估不低估
+    let title = truncate(title.trim(), 500);
+    let tag = truncate(&tag, 100);
+    let excerpt: String = content.chars().take(90).collect();
+    let record = record_value(
+        PRECHECK_ID,
+        &title,
+        &excerpt,
+        &tag,
+        PRECHECK_UPDATED,
+        &content,
+    );
+    let serialized = serde_json::to_vec(&record)
         .map_err(|_| invalid("invalid_note_content", "笔记正文无法序列化"))?
-        .len()
-        + serde_json::to_string(&title)
-            .map(|value| value.len())
-            .unwrap_or_default()
-        + tag.len()
-        + 512;
+        .len();
     if serialized > crate::backend::store::MAX_RECORD_BYTES {
         return Err(BackendError::new(
             "record_too_large",
             &format!("笔记「{file_title}」超过单条 1 MB 上限（含 JSON 转义后约 {serialized} 字节），请拆分后重试"),
         ));
     }
-    let title = truncate(title.trim(), 500);
     if title.is_empty() {
-        return Err(invalid("invalid_note_title", "笔记标题不能为空"));
+        // P-134：错误必须点名文件——原先只报「笔记标题不能为空」，批量导入
+        // 时用户无从判断是哪个条目
+        let message = if file_title.is_empty() {
+            "笔记标题不能为空".to_string()
+        } else {
+            format!("笔记标题不能为空（文件「{file_title}」）")
+        };
+        return Err(invalid("invalid_note_title", &message));
     }
     Ok(NoteSource {
         title,
         content,
-        tag: truncate(&tag, 100),
+        tag,
     })
 }
 
@@ -166,18 +210,27 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<NoteSource>> {
         let mut entry = archive
             .by_index(index)
             .map_err(|_| invalid("invalid_notes_archive", "无法读取笔记压缩包条目"))?;
-        let path = entry
+        entry
             .enclosed_name()
             .ok_or_else(|| invalid("unsafe_archive_path", "压缩包包含不安全的文件路径"))?;
         if entry.is_dir() {
             continue;
         }
-        let extension = path
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if !["md", "txt"].contains(&extension.as_str()) {
+        // 154#4：标题按 UTF-8→GB18030→默认 的顺序解码显示名——GBK 压缩
+        // 包名原先经 cp437 解出乱码且报「不是有效 UTF-8」
+        let display = super::materials::archive::entry_display_name(&entry);
+        let file_name = display.rsplit(['/', '\\']).next().unwrap_or("");
+        // P-134：扩展名与标题统一按「最后一个点之后是扩展名」判定——
+        // 扩展名白名单原先走 std 的 file_stem（把「.md」视作没有扩展名的
+        // 文件，直接静默跳过），标题派生却按最后一个点切分（得到空 stem
+        // 后报「笔记标题不能为空」且不带条目名）。两处口径统一后：前导点
+        // 条目按扩展名 md/txt 正常导入，标题取条目名本身（可定位），
+        // 批量导入不再整批失败
+        let (stem, extension) = match file_name.rsplit_once('.') {
+            Some((stem, extension)) => (stem, extension),
+            None => (file_name, ""),
+        };
+        if !["md", "txt"].contains(&extension.to_ascii_lowercase().as_str()) {
             continue;
         }
         if entry.size() > MAX_NOTE_BYTES {
@@ -186,17 +239,11 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<NoteSource>> {
                 "单条笔记超过 1 MB 上限",
             ));
         }
-        // 154#4：标题按 UTF-8→GB18030→默认 的顺序解码显示名——GBK 压缩
-        // 包名原先经 cp437 解出乱码且报「不是有效 UTF-8」
-        let display = super::materials::archive::entry_display_name(&entry);
-        let title = display
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or("")
-            .rsplit_once('.')
-            .map(|(stem, _)| stem)
-            .unwrap_or_else(|| display.rsplit(['/', '\\']).next().unwrap_or(""))
-            .to_string();
+        let title = if stem.trim().is_empty() {
+            file_name.to_string()
+        } else {
+            stem.to_string()
+        };
         let mut bytes = Vec::new();
         entry
             .by_ref()
@@ -300,14 +347,18 @@ pub fn import<R: Runtime>(
     guard.ensure_quota_in_tx(&tx, "notes", notes.len() as u64)?;
     for source in &notes {
         let id = Store::next_free_id(&tx, "notes")?;
-        let note = json!({
-            "id": id.parse::<i64>().map_err(|_| BackendError::new("invalid_id", "笔记标识无效"))?,
-            "title": source.title,
-            "excerpt": source.content.chars().take(90).collect::<String>(),
-            "tag": source.tag,
-            "updated": updated,
-            "content": source.content,
-        });
+        let numeric = id
+            .parse::<i64>()
+            .map_err(|_| BackendError::new("invalid_id", "笔记标识无效"))?;
+        // P-078：与预检共用 record_value——记录形状与 1 MB 判定口径同源
+        let note = record_value(
+            numeric,
+            &source.title,
+            &source.content.chars().take(90).collect::<String>(),
+            &source.tag,
+            &updated,
+            &source.content,
+        );
         super::store::validate_collection("notes", &Value::Array(vec![note.clone()]))?;
         Store::insert_json(&tx, "notes", &id, &note)?;
     }
