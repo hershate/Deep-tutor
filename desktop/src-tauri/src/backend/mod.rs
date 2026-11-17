@@ -55,13 +55,51 @@ pub(crate) fn reject_data_root_destination<R: tauri::Runtime>(
         Some(parent) => parent.join(destination.file_name().unwrap_or_default()),
         None => lexical_absolute(destination),
     };
-    if candidate.starts_with(&root) || candidate.starts_with(&default_root) {
+    // P-056：两侧形态可能不同——canonicalize 产出 `\\?\C:\…` verbatim 前缀
+    // （Prefix::VerbatimDisk），词法绝对化产出 `C:\…`（Prefix::Disk），按组件
+    // 精确比较恒不相等：父目录不存在时目的地回退词法形态，遏制被绕过，
+    // 数据根内可新建子目录并写盘。归一后逐组件比较
+    if path_within(&candidate, &root) || path_within(&candidate, &default_root) {
         return Err(error::BackendError::new(
             "unsafe_export_destination",
             "导出目的地不能位于应用数据目录内",
         ));
     }
     Ok(())
+}
+
+/// P-056：路径归属比较——两侧归一到同一形态后逐组件比较，语义等价于
+/// `Path::starts_with`，但不受 canonicalize（verbatim 前缀）与词法绝对化
+/// （普通前缀）形态差异影响。Windows 路径本身不区分大小写，比较时忽略
+/// 大小写（`Path::starts_with` 按字节比较，大小写差异同样会漏判）。
+pub(crate) fn path_within(candidate: &std::path::Path, root: &std::path::Path) -> bool {
+    let candidate = path_components(candidate);
+    let root = path_components(root);
+    candidate.len() >= root.len() && candidate[..root.len()] == root[..]
+}
+
+/// 归一后的路径组件：剥掉 Windows verbatim 前缀（`\\?\C:\…` 与
+/// `\\?\UNC\…`）、统一分隔符，Windows 下再统一小写；空段与 `.` 段丢弃，
+/// 组件边界与 `Path::components` 一致。
+fn path_components(path: &std::path::Path) -> Vec<String> {
+    let text = path.to_string_lossy();
+    let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        text.to_string()
+    };
+    let text = text.replace('\\', "/");
+    let text = if cfg!(windows) {
+        text.to_lowercase()
+    } else {
+        text
+    };
+    text.split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .map(str::to_string)
+        .collect()
 }
 
 /// 词法绝对化：清除 `.`/`..` 组件但不解析符号链接，用于路径尚不存在、
@@ -78,7 +116,13 @@ pub(crate) fn lexical_absolute(path: &std::path::Path) -> std::path::PathBuf {
     for component in absolute.components() {
         match component {
             std::path::Component::ParentDir => {
-                result.pop();
+                // P-056：原先无条件 pop 会连根/盘符一起弹出（「C:\..\x」退化为
+                // 盘符相对路径「C:x」），比较与后续落盘都落到意外位置——
+                // 父目录不存在时回退的就是本函数的词法形态，必须保持绝对
+                let text = result.to_string_lossy();
+                if !(text.ends_with('/') || text.ends_with('\\')) {
+                    result.pop();
+                }
             }
             std::path::Component::CurDir => {}
             other => result.push(other.as_os_str()),

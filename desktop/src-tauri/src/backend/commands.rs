@@ -255,48 +255,61 @@ pub async fn reset_application<R: Runtime + 'static>(app: AppHandle<R>) -> Resul
     tauri::async_runtime::spawn_blocking(move || {
         super::security::with_principal(principal, || {
             let state = app.state::<BackendState>();
+            // REVIEW：停机在切换写锁之外——stop_all 最坏约 50s（sync 域
+            // deadline，73#9），而 guard 在每条 IPC 派发瞬间都要取
+            // WORKSPACE_SWITCH 读锁，写锁在位期间全应用 IPC 被阻塞，
+            // 重置这种用户日常路径会表现为「整体无响应」
             super::security::guard::stop_all(&state)?;
-            let provider_ids = super::providers::credential_ids(&state.providers)?;
-            let backup = super::materials::prepare_reset(&state.materials)?;
-            let result = {
-                state
-                    .store
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .reset()
-            };
-            match result {
-                Ok(mutation) => {
-                    let file_result =
-                        super::materials::finish_reset(&state.materials, backup, true);
-                    let credential_result =
-                        super::providers::purge_credentials(&state.providers, &provider_ids);
-                    file_result?;
-                    credential_result?;
-                    super::plugins::reset_files(&state.plugins)?;
-                    // 65#2：reset 清空了 agent/sync 两域表行，但两目录的文件原先
-                    // 不在任何清理面——「数据已清空」后 scratch 产物与同步副本仍
-                    // 在盘上。成功路径尽力删除两目录；失败的残留由孤儿扫描兜底
-                    // 73#10：目录删除（上限 ~10GB）移后台一次性线程——reset
-                    // 返回不等删除完成，失败仅孤儿扫描兜底
-                    if let Some(user_root) = state.learning.workspace_path().parent() {
-                        let agent_dir = user_root.join("agent-workspaces");
-                        let sync_dir = user_root.join("sync");
-                        std::thread::spawn(move || {
-                            let _ = std::fs::remove_dir_all(agent_dir);
-                            let _ = std::fs::remove_dir_all(sync_dir);
-                        });
+            // 150#9：与登录切换互斥——guard 的 WORKSPACE_SWITCH 读锁只在
+            // IPC 派发瞬间持有，不覆盖本命令体；命令体先 stop_all 再取
+            // store 锁，其间可发生工作区切换，导致清空另一用户的工作区。
+            // 持切换写锁直到重置结束（与 PAT 认证路径同口径）
+            super::security::guard::exclusive(|| -> Result<Value> {
+                // 150#9：进入关键段时复核工作区归属——命令发起后可能发生过
+                // 切换，此时不得清空另一用户的工作区
+                super::security::guard::ensure_workspace(&app, principal)?;
+                let provider_ids = super::providers::credential_ids(&state.providers)?;
+                let backup = super::materials::prepare_reset(&state.materials)?;
+                let result = {
+                    state
+                        .store
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .reset()
+                };
+                match result {
+                    Ok(mutation) => {
+                        let file_result =
+                            super::materials::finish_reset(&state.materials, backup, true);
+                        let credential_result =
+                            super::providers::purge_credentials(&state.providers, &provider_ids);
+                        file_result?;
+                        credential_result?;
+                        super::plugins::reset_files(&state.plugins)?;
+                        // 65#2：reset 清空了 agent/sync 两域表行，但两目录的文件原先
+                        // 不在任何清理面——「数据已清空」后 scratch 产物与同步副本仍
+                        // 在盘上。成功路径尽力删除两目录；失败的残留由孤儿扫描兜底
+                        // 73#10：目录删除（上限 ~10GB）移后台一次性线程——reset
+                        // 返回不等删除完成，失败仅孤儿扫描兜底
+                        if let Some(user_root) = state.learning.workspace_path().parent() {
+                            let agent_dir = user_root.join("agent-workspaces");
+                            let sync_dir = user_root.join("sync");
+                            std::thread::spawn(move || {
+                                let _ = std::fs::remove_dir_all(agent_dir);
+                                let _ = std::fs::remove_dir_all(sync_dir);
+                            });
+                        }
+                        // 107#1：重置停机后同样走统一恢复点——复位资料解析闸门，
+                        // 同会话内新库可继续解析（原先进程不重启就静默停摆）
+                        super::security::guard::resume_background(&app);
+                        finish(&app, mutation)
                     }
-                    // 107#1：重置停机后同样走统一恢复点——复位资料解析闸门，
-                    // 同会话内新库可继续解析（原先进程不重启就静默停摆）
-                    super::security::guard::resume_background(&app);
-                    finish(&app, mutation)
+                    Err(error) => {
+                        super::materials::finish_reset(&state.materials, backup, false)?;
+                        Err(error)
+                    }
                 }
-                Err(error) => {
-                    super::materials::finish_reset(&state.materials, backup, false)?;
-                    Err(error)
-                }
-            }
+            })?
         })
     })
     .await
@@ -609,6 +622,42 @@ mod tests {
             &app,
             "export_usage_csv_file",
             json!({"destination": outside.path().join("usage.csv").to_string_lossy()}),
+        )
+        .unwrap();
+    }
+
+    // P-056：父目录不存在时仍须拒绝——canonicalize 产出 `\\?\` verbatim 前缀，
+    // 词法回退形态无此前缀，按组件精确比较恒不匹配，遏制曾被绕过，数据根内
+    // 可新建子目录并写盘
+    #[test]
+    fn export_destination_with_missing_parent_inside_root_is_rejected() {
+        let app = test_app();
+        let data_root = tempfile::tempdir().unwrap();
+        let default_root = tempfile::tempdir().unwrap();
+        app.manage(crate::startup::StartupState::for_tests(
+            data_root.path(),
+            default_root.path(),
+        ));
+        let error = ipc(
+            &app,
+            "export_usage_csv_file",
+            json!({"destination": data_root.path().join("尚未创建").join("导出.csv").to_string_lossy()}),
+        )
+        .unwrap_err();
+        assert_eq!(error["code"], "unsafe_export_destination");
+        let error = ipc(
+            &app,
+            "export_usage_csv_file",
+            json!({"destination": default_root.path().join("尚未创建").join("导出.csv").to_string_lossy()}),
+        )
+        .unwrap_err();
+        assert_eq!(error["code"], "unsafe_export_destination");
+        // 数据根之外的同形路径仍放行
+        let outside = tempfile::tempdir().unwrap();
+        ipc(
+            &app,
+            "export_usage_csv_file",
+            json!({"destination": outside.path().join("尚未创建").join("导出.csv").to_string_lossy()}),
         )
         .unwrap();
     }

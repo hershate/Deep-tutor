@@ -71,16 +71,10 @@ fn ipc(
 }
 
 fn profile(name: &str) -> ProfileInput {
-    // 47#4：起止相等（原先 00:00==00:00 的全天静音语义）已被校验拒绝——
-    // 改用「当前时刻 ±1 分钟」的窗口，任何时刻运行测试都处于免打扰期
-    let minute_of_day = {
-        let local = super::super::store::now_local();
-        u32::from(local.time().hour()) * 60 + u32::from(local.time().minute())
-    };
-    let (start, end) = (
-        (minute_of_day + 1440 - 1) % 1440,
-        (minute_of_day + 1) % 1440,
-    );
+    // 114#2：47#4 的「起止相等一律拒绝」禁令已撤销——相等组合合法，
+    // enabled + 00:00/00:00 即设置页的「全天不通知」（命中 quiet() 的
+    // start==end 全天分支），任何时刻运行都处于免打扰期，不再需要
+    // 「当前时刻 ±1 分钟」的窗口技巧
     ProfileInput {
         name: name.into(),
         role: "自学者".into(),
@@ -89,8 +83,8 @@ fn profile(name: &str) -> ProfileInput {
         weekly_hours: 8,
         learning_style: "案例与练习结合".into(),
         explanation_style: "先追问，再针对讲解".into(),
-        quiet_start: format!("{:02}:{:02}", start / 60, start % 60),
-        quiet_end: format!("{:02}:{:02}", end / 60, end % 60),
+        quiet_start: "00:00".into(),
+        quiet_end: "00:00".into(),
         quiet_enabled: true,
         diagnostic_started_at: None,
     }
@@ -236,6 +230,81 @@ fn due_notifications_are_deduplicated_read_and_quiet() {
         .value["quietEnabled"]
         .as_bool()
         .unwrap());
+}
+
+#[test]
+fn due_notification_body_tracks_realtime_due_count() {
+    // P-082：当日到期通知的数字必须随实时口径更新——同 id 正文冻结在首次
+    // 数值时，首页/复习页显示 2 张而通知中心仍写 1 张（89#9 同类口径缺口）
+    let (app, _learning) = setup();
+    // 114#6 同款拓扑：sync 命令走 thread-local（root 库），async 通知命令
+    // 走 session principal（user1 工作区）——测试内统一以 user1 身份执行，
+    // 否则卡片写入与通知读取落在两个不同的库
+    let call = |command: &str, arguments: Value| {
+        crate::backend::security::with_user(1, || ipc(&app, command, arguments))
+    };
+    call(
+        "save_learning_profile",
+        json!({"input":profile("真实学习者")}),
+    )
+    .unwrap();
+    call("create_review_card", json!({"input":{"front":"真实问题一","back":"真实答案一","tag":null,"planId":null,"nodeId":null}})).unwrap();
+    let first = call("get_notifications", json!({})).unwrap();
+    let review = first["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["kind"] == "review")
+        .expect("首次到期通知缺失")
+        .clone();
+    assert!(review["title"].as_str().unwrap().contains("1 张"));
+    call("create_review_card", json!({"input":{"front":"真实问题二","back":"真实答案二","tag":null,"planId":null,"nodeId":null}})).unwrap();
+    let second = call("get_notifications", json!({})).unwrap();
+    let reviews = second["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["kind"] == "review")
+        .collect::<Vec<_>>();
+    assert_eq!(reviews.len(), 1);
+    assert_eq!(reviews[0]["id"], review["id"]);
+    assert!(reviews[0]["title"].as_str().unwrap().contains("2 张"));
+}
+
+#[test]
+fn corrupt_plan_row_and_invalid_room_time_do_not_break_notifications() {
+    // P-083：一条损坏的方案 input_json 或非 RFC3339 的预约 start_at 不得让
+    // 整个通知中心失败——原先两条路径都直穿上抛，前端 30s 轮询每轮报错，
+    // 铃铛角标与免打扰提示一并失效
+    let (app, learning) = setup();
+    // 114#6 同款拓扑：通知命令按 principal 解析读库（root 库或 user1 工作区），
+    // 坏行写进两个库——断言不依赖 principal 解析结果，避免「坏行不在读取库里」
+    // 的假阳性
+    let stores = [
+        learning.store().unwrap(),
+        crate::backend::store::Store::at_user(learning.database_path(), 1).unwrap(),
+    ];
+    let now_text = timestamp(now().unwrap()).unwrap();
+    // start_at 缺时区后缀：字典序落在未来 24 小时窗口内，但不是合法 RFC3339
+    let broken_start = timestamp(now().unwrap() + Duration::hours(1))
+        .unwrap()
+        .trim_end_matches('Z')
+        .to_string();
+    for store in &stores {
+        store.conn.execute("INSERT INTO learning_plans (status, provider_id, input_json, result_json, created_at, updated_at) VALUES ('done', 'p1', '{损坏的 json', '{}', ?1, ?1)", params![now_text]).unwrap();
+        store.conn.execute("INSERT INTO community_rooms (title, topic, start_at, duration_minutes, status, created_at) VALUES ('真实预约', '真实主题', ?1, 30, 'scheduled', ?2)", params![broken_start, now_text]).unwrap();
+        let room_id = store.conn.last_insert_rowid();
+        store
+            .conn
+            .execute(
+                "INSERT INTO community_reservations (room_id, reserved_at) VALUES (?1, ?2)",
+                params![room_id, now_text],
+            )
+            .unwrap();
+    }
+    let notifications = ipc(&app, "get_notifications", json!({})).unwrap();
+    assert!(notifications["items"].is_array());
+    assert!(notifications["unreadCount"].as_u64().is_some());
 }
 
 #[test]

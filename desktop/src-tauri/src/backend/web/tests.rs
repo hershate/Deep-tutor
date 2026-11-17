@@ -227,6 +227,47 @@ fn html_parser_handles_quoted_angle_brackets_and_separate_snippets() {
 }
 
 #[test]
+fn html_parser_skips_xhtml_self_closed_script_and_style() {
+    // P-079：XHTML 风格自闭合 <script/>、<style/>——浏览器把非 void HTML
+    // 元素的自闭合斜杠忽略，仍按开启标签处理，其后源码直到 </script>、
+    // </style> 都不是页面文本；原先整段源码泄漏进提取正文
+    let parsed = html::parse(
+        "<p>正文一</p><script src=\"app.js\"/>var leaked = 1;</script><p>正文二</p><style/>body { color: red; }</style>",
+        false,
+    )
+    .unwrap();
+    assert!(parsed.text.contains("正文一"));
+    assert!(parsed.text.contains("正文二"));
+    assert!(!parsed.text.contains("var leaked"));
+    assert!(!parsed.text.contains("color: red"));
+    // 无同名闭合标签时按空元素处理——跳过状态永不结束会把后续正文全丢掉
+    let parsed = html::parse("<p>正文一</p><script src=\"app.js\"/><p>正文二</p>", false).unwrap();
+    assert!(parsed.text.contains("正文二"));
+}
+
+#[test]
+fn html_parser_scales_on_documents_dense_with_self_closed_tags() {
+    // P-079 性能：自闭合候选标签原先逐个复制并线性扫描文档剩余部分，
+    // N 个候选退化为 O(n²)（1 MB 文档实测停顿十余秒，抓取与检索导入路径
+    // 被单个畸形页面拖住）。预扫描后判定为 O(1)，此处锁定该量级。
+    let mut document = String::with_capacity(1024 * 1024);
+    for _ in 0..116_000 {
+        document.push_str("<script/>");
+    }
+    document.push_str("<p>正文</p>");
+    assert!(document.len() < 1024 * 1024, "夹具需在 1 MB 解析上限内");
+    let started = std::time::Instant::now();
+    let parsed = html::parse(&document, false).unwrap();
+    let elapsed = started.elapsed();
+    assert!(parsed.text.contains("正文"), "自闭合标签不应吞掉正文");
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "自闭合标签密集文档解析耗时 {}ms，应为毫秒级",
+        elapsed.as_millis()
+    );
+}
+
+#[test]
 fn webpage_import_preserves_source_parses_real_text_and_deduplicates_through_ipc() {
     let (app, learning) = ipc_app();
     let server = web_server();

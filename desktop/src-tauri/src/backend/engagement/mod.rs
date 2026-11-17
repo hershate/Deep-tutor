@@ -583,6 +583,30 @@ fn add_notification(
     Ok(())
 }
 
+/// P-082：当日汇总类通知（到期记忆卡数、近 7 天待完成任务数）的正文含实时
+/// 数量——`INSERT OR IGNORE` 使同 id 首次生成后正文冻结在当日首次的数值，
+/// 首页/复习页显示 10 时通知中心仍写 3（同一数量两处打架，与 89#9 同类）。
+/// 此处按 id upsert：同 id 覆盖标题与正文，保留 created_at（不夺走列表首位）
+/// 与 read_at（已读通知不重新计入未读角标）。
+fn upsert_daily_notification(
+    conn: &Connection,
+    id: &str,
+    kind: &str,
+    title: &str,
+    body: &str,
+    page: &str,
+) -> Result<()> {
+    conn.execute("INSERT INTO notifications (id, kind, title, body, page, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body", params![id, kind, title, body, page, timestamp(now()?)?])?;
+    Ok(())
+}
+
+/// P-082：计数归零时撤下当日汇总通知——数字必须与首页/复习页实时口径一致，
+/// 归零后仍留着「N 张记忆卡已到期」同样是两处打架。
+fn remove_daily_notification(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM notifications WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
 fn notification_overview(state: &EngagementState) -> Result<NotificationOverview> {
     let store = state.store()?;
     let preferences = preferences(&store)?;
@@ -617,8 +641,9 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
             // 同一批到期卡两处预估差 3 倍
             // 89#9：去掉 60 分钟封顶——复习页同公式不封顶，200 张到期时
             // 通知说 60 分钟、页面说 134 分钟，同一数字两处打架
+            // P-082：同日到期数变化时正文随实时口径更新，不冻结在首次数值
             let minutes = (due as f64 * 40.0 / 60.0).ceil() as u32;
-            add_notification(
+            upsert_daily_notification(
                 &store.conn,
                 &format!("review-due-{today}"),
                 "review",
@@ -626,6 +651,9 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 &format!("现在适合进行一次主动回忆，预计 {minutes} 分钟。"),
                 "review",
             )?;
+        } else {
+            // P-082：到期数归零——撤下当日汇总通知，正文数字与复习页一致
+            remove_daily_notification(&store.conn, &format!("review-due-{today}"))?;
         }
         // C-10：与 today 同源取本地日期——此前 recent_floor 用 UTC now()，
         // 东八区凌晨窗口实际跨越 8-9 个日历日。
@@ -653,7 +681,8 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
             })
             .collect::<Vec<_>>();
         if !pending.is_empty() {
-            add_notification(
+            // P-082：同日待办数变化时正文随实时口径更新，不冻结在首次数值
+            upsert_daily_notification(
                 &store.conn,
                 &format!("tasks-due-{today}"),
                 "plan",
@@ -661,6 +690,9 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                 "请按方案完成当前任务，也可在方案中调整安排。",
                 "plan",
             )?;
+        } else {
+            // P-082：待办清零——撤下当日汇总通知，正文数字与方案页一致
+            remove_daily_notification(&store.conn, &format!("tasks-due-{today}"))?;
         }
         let end = timestamp(now()? + Duration::hours(24))?;
         // 114#9：房间扫描-判定-插入收进同一 IMMEDIATE 事务——原先先读
@@ -682,6 +714,16 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
         for (id, title, start) in rooms {
             let reserved: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM community_reservations WHERE room_id = ?1 AND cancelled_at IS NULL)", params![id], |row| row.get(0))?;
             if reserved {
+                // P-083：start_at 非 RFC3339 的行跳过——原先直穿上抛
+                // invalid_time，一条坏行就让整个 get_notifications 失败
+                // （前端 30s 轮询每轮失败，通知中心整页错误态）
+                let start_text = match local_time_text(&start) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        eprintln!("community room start_at unreadable, skipped: room {id}");
+                        continue;
+                    }
+                };
                 add_notification(
                     &tx,
                     &format!("room-{id}"),
@@ -690,7 +732,7 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
                     // 114#10：正文时间本地化——原先拼 UTC RFC3339 原始串
                     // （2026-11-12T12:00:00.000Z），与社区页 toLocaleString
                     // 口径差 8 小时，东八区按字面理解会迟到整 8 小时
-                    &format!("开始时间：{}", local_time_text(&start)?),
+                    &format!("开始时间：{start_text}"),
                     "community",
                 )?;
             }
@@ -731,11 +773,20 @@ fn notification_overview(state: &EngagementState) -> Result<NotificationOverview
             .collect::<std::result::Result<Vec<_>, _>>()?;
         drop(statement);
         for (id, input, version) in plans {
-            let goal = serde_json::from_str::<Value>(&input)?
-                .get("goal")
-                .and_then(Value::as_str)
-                .unwrap_or("学习方案")
-                .to_string();
+            // P-083：坏 input_json 行跳过——原先直穿上抛，一条损坏或异常导入
+            // 的方案行就让整个 get_notifications 失败（同仓 75#3 先例：全局
+            // 搜索与方案列表均按行跳过坏行）
+            let goal = match serde_json::from_str::<Value>(&input) {
+                Ok(value) => value
+                    .get("goal")
+                    .and_then(Value::as_str)
+                    .unwrap_or("学习方案")
+                    .to_string(),
+                Err(_) => {
+                    eprintln!("learning plan input_json unreadable, skipped: plan {id}");
+                    continue;
+                }
+            };
             add_notification(
                 &store.conn,
                 &format!("plan-ready-{id}-{version}"),

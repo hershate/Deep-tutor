@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowDownToLine, CalendarDays, Check, Code2, FileArchive, FileText, FolderOpen, Layers3, LoaderCircle, Presentation, Table2 } from 'lucide-react'
 import { Badge, Button, Modal } from './UI'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
@@ -45,13 +45,19 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   const [loadFailed, setLoadFailed] = useState(false)
   const [errorSource, setErrorSource] = useState<'load' | 'lecture' | 'export' | 'reveal'>('export')
   const [reloadToken, setReloadToken] = useState(0)
+  // 方案列表读取中标记——空态提示不得在列表返回前误报（见 planEmpty）
+  const [readingPlans, setReadingPlans] = useState(false)
   // 130#6：plan.* 事件重拉的清错判定读最新值（订阅闭包挂载一次，state 快照会过期）
   const loadFailedRef = useRef(false)
   loadFailedRef.current = loadFailed
 
-  useEffect(() => {
-    if (!open) return
+  // useLayoutEffect：读取标记必须在首帧绘制前置位——passive effect（useEffect）
+  // 在绘制之后才执行，弹窗打开的首帧 busy 仍是 ''，会闪出一帧「尚无已完整
+  // 生成的方案」的误报空态（Modal 在 open 时才渲染子树，该帧确实可见）
+  useLayoutEffect(() => {
+    if (!open) { setReadingPlans(false); return }
     let active = true
+    setReadingPlans(true)
     setBusy('load')
     setError('')
     setLoadFailed(false)
@@ -64,7 +70,7 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
       const ready = items.filter(plan => plan.result && ['done', 'degraded'].includes(plan.status) && (!lectureOnly || plan.adoptedProjectId !== null))
       setPlans(ready)
       setPlanId(current => ready.some(plan => plan.id === current) ? current : ready.find(plan => plan.id === initialPlanId)?.id || ready[0]?.id || '')
-    }).catch(cause => { if (active) { setError(backendErrorMessage(cause)); setErrorSource('load'); setLoadFailed(true) } }).finally(() => { if (active) setBusy('') })
+    }).catch(cause => { if (active) { setError(backendErrorMessage(cause)); setErrorSource('load'); setLoadFailed(true) } }).finally(() => { if (active) { setReadingPlans(false); setBusy('') } })
     return () => { active = false }
   }, [open, initialPlanId, reloadToken, scope])
   useEffect(() => {
@@ -118,6 +124,17 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   const needsPlan = ['plan', 'lecture', 'schedule'].includes(scope)
   const title = scope === 'lecture' ? lecture?.units.find(unit => unit.index === unitIndex)?.content?.title || 'DeepTutor-lecture' : plan?.result?.goal || scopes.find(item => item.id === scope)?.label || 'DeepTutor-export'
   const canExport = (!needsPlan || Boolean(plan?.result)) && (scope !== 'lecture' || unitIndex !== null)
+  // P-121：空态只禁用了选择器与格式按钮，没有任何说明指出「尚无可导出的
+  // 方案/单元」——用户无法分辨是功能不可用还是自身数据尚未就绪
+  const doneUnits = lecture?.units.filter(unit => unit.status === 'done') ?? []
+  // 读取中不报空态——方案列表尚未返回时提示「尚无可导出方案」是误报。
+  // 判定读 readingPlans（读取发起时置位）而非 busy：busy 是与讲义读取、
+  // 导出动作共用的单槽位，讲义读取期间会被覆盖成 'lecture'
+  const planEmpty = needsPlan && !plans.length && !loadFailed && !readingPlans
+  const unitEmpty = scope === 'lecture' && Boolean(lecture) && !doneUnits.length
+  const planEmptyHint = scope === 'lecture'
+    ? '尚无已采用并完整生成的方案：先采用方案并生成讲义后才能导出。'
+    : '尚无已完整生成的方案：完成方案生成后即可导出。'
 
   const run = async (format: ExportFormat, extension: string) => {
     setBusy(format)
@@ -143,10 +160,14 @@ export default function ExportCenter({ open, onClose, notify, initialPlanId }: {
   return <Modal open={open} onClose={onClose} title="导出学习内容" wide><div className="export-center">
     <div className="export-scope"><label>导出范围<select value={scope} onChange={event => { setScope(event.target.value as ExportScope); setDone(null); setError('') }}>{scopes.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div><Badge tone="green">Rust 原生文件生成</Badge><p>内容来自 SQLite 和已保存讲义。PDF 不打开打印窗口；Anki 导出真实 APKG。</p></div></div>
     {needsPlan && <label>学习方案<select value={planId} onChange={event => { setPlanId(event.target.value); setDone(null) }} disabled={!plans.length}><option value="">请选择已完整生成的方案</option>{plans.map(item => <option key={item.id} value={item.id}>{item.goal} · v{item.version}</option>)}</select></label>}
+    {/* P-121：无可导出方案时的空态说明——原先只有禁用的选择器与置灰按钮 */}
+    {planEmpty && <p className="form-help" role="status">{planEmptyHint}</p>}
     {/* 121#5：读取失败的重试入口独立于 error/scope 常驻——原先嵌在错误横幅内，
         切换导出范围清 error 时连唯一入口一起吞掉（plans 仍空、选择器禁用） */}
     {loadFailed && !plans.length && <div className="form-error" role="alert">方案列表读取失败，选择器暂不可用。<Button variant="ghost" size="sm" disabled={busy === 'load'} onClick={() => setReloadToken(token => token + 1)}>{busy === 'load' ? '正在读取…' : '重试读取'}</Button></div>}
-    {scope === 'lecture' && <div className="form-grid"><label>学习阶段<select value={stageId} onChange={event => setStageId(event.target.value)} disabled={!plan?.result}><option value="">请选择阶段</option>{plan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>已保存单元<select value={unitIndex ?? ''} onChange={event => setUnitIndex(event.target.value === '' ? null : Number(event.target.value))} disabled={!lecture}><option value="">请选择已生成单元</option>{lecture?.units.filter(unit => unit.status === 'done').map(unit => <option key={unit.index} value={unit.index}>{unit.index + 1} · {unit.content?.title || unit.nodeId}</option>)}</select></label></div>}
+    {scope === 'lecture' && <div className="form-grid"><label>学习阶段<select value={stageId} onChange={event => setStageId(event.target.value)} disabled={!plan?.result}><option value="">请选择阶段</option>{plan?.result?.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.title}</option>)}</select></label><label>已保存单元<select value={unitIndex ?? ''} onChange={event => setUnitIndex(event.target.value === '' ? null : Number(event.target.value))} disabled={!lecture}><option value="">请选择已生成单元</option>{doneUnits.map(unit => <option key={unit.index} value={unit.index}>{unit.index + 1} · {unit.content?.title || unit.nodeId}</option>)}</select></label></div>}
+    {/* P-121：该阶段尚无已生成单元时的空态说明——原先只有禁用的单元选择器 */}
+    {unitEmpty && <p className="form-help" role="status">该阶段尚未生成任何单元：讲义生成完成后才能导出。</p>}
     {error && <div className="form-error" role="alert">{error}{errorSource === 'load' && <Button variant="ghost" size="sm" disabled={busy === 'load'} onClick={() => setReloadToken(token => token + 1)}>{busy === 'load' ? '正在读取…' : '重试读取'}</Button>}</div>}
     <div className="export-grid">{available.map(format => <button key={format.id} onClick={() => void run(format.id, format.ext)} disabled={Boolean(busy) || !canExport}><format.icon size={22} /><div><strong>{format.name}</strong><span>{format.description}</span></div>{busy === format.id ? <LoaderCircle size={18} className="spin" /> : done?.format === format.id ? <Check size={18} /> : <ArrowDownToLine size={18} />}</button>)}</div>
     {done && <div className="export-receipt" role="status"><Check size={16} /><div><strong>{done.title}</strong><p>已写入 {done.bytes.toLocaleString()} 字节 · SHA-256 {done.sha256}</p>{done.warning && <p className="export-warning" role="alert">{done.warning}</p>}</div>{donePath && <Button variant="ghost" size="sm" onClick={() => void reveal()}><FolderOpen size={15} />在资源管理器中显示</Button>}</div>}

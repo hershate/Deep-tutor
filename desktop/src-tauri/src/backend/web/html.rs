@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::{BackendError, Result};
 
 #[derive(Default)]
@@ -69,6 +71,59 @@ fn tag_name(tag: &str) -> String {
         .next()
         .unwrap_or("")
         .to_ascii_lowercase()
+}
+
+/// P-079：预扫描文档中的闭合标签——记录每个标签名最后一次出现的合法闭合
+/// 标签字节偏移。
+///
+/// 原实现在每个自闭合候选标签上把文档剩余部分整体转小写（整段复制）再线性
+/// 查找，N 个候选标签退化为 O(n²)：1 MB 文档实测停顿十余秒，抓取与检索
+/// 导入路径（web/mod.rs 的 fetch / search）会被单个塞满自闭合标签的页面拖住。
+/// 改为一次性预扫描后，「当前位置之后是否存在同名闭合标签」的判定降为 O(1)。
+struct ClosingTags {
+    last_offset: HashMap<String, usize>,
+}
+
+impl ClosingTags {
+    fn scan(html: &str) -> Self {
+        let mut last_offset: HashMap<String, usize> = HashMap::new();
+        let mut cursor = 0;
+        while let Some(offset) = html[cursor..].find("</") {
+            let start = cursor + offset;
+            cursor = start + 2;
+            // 标签名按与 tag_name 相同的规则截取（空白、'/' 或 '>' 之前），
+            // 其后必须是空白或 `>`——避免 `</scripture` 之类的同前缀标签被误判
+            let name_start = start + 2;
+            let mut name_end = name_start;
+            let mut delimiter = None;
+            for (offset, character) in html[name_start..].char_indices() {
+                if character.is_whitespace() || character == '/' || character == '>' {
+                    name_end = name_start + offset;
+                    delimiter = Some(character);
+                    break;
+                }
+                name_end = name_start + offset + character.len_utf8();
+            }
+            let valid = match delimiter {
+                Some(character) => character.is_whitespace() || character == '>',
+                // 文档以标签名结尾（截断的闭合标签）——与原判定的空尾一致
+                None => true,
+            };
+            if valid && name_end > name_start {
+                let name = html[name_start..name_end].to_ascii_lowercase();
+                // 扫描顺序即偏移升序，最后一次写入即该名的最大偏移
+                last_offset.insert(name, start);
+            }
+        }
+        Self { last_offset }
+    }
+
+    /// `rest_start` 之后是否存在同名闭合标签（忽略大小写）。
+    fn has_closing_after(&self, rest_start: usize, name: &str) -> bool {
+        self.last_offset
+            .get(name)
+            .is_some_and(|offset| *offset >= rest_start)
+    }
 }
 
 fn attribute(tag: &str, wanted: &str) -> Option<String> {
@@ -202,6 +257,7 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
         ));
     }
     let mut parsed = ParsedHtml::default();
+    let closing_tags = ClosingTags::scan(html);
     let mut cursor = 0;
     let mut skip_tag = String::new();
     let mut skip_depth = 0_u32;
@@ -276,7 +332,17 @@ pub fn parse(html: &str, search: bool) -> Result<ParsedHtml> {
         ]
         .contains(&name.as_str())
         {
-            if !closing && !self_closing {
+            // P-079：XHTML 风格自闭合写法（<script src="x"/>、<style/>）——
+            // 浏览器把非 void HTML 元素的自闭合斜杠忽略，仍按开启标签处理，
+            // 其后源码直到 </script> 都不是页面文本；原先当作已完结的空元素
+            // 直接跳过，整段 JavaScript / CSS 源码泄漏进提取正文。
+            // svg 属外来内容，自闭合标志被承认，仍按空元素处理。
+            // 文档中没有同名闭合标签时仍按空元素处理——否则跳过状态永不
+            // 结束，其后正文全部丢失
+            let opens = !closing
+                && (!self_closing
+                    || (name != "svg" && closing_tags.has_closing_after(end + 1, &name)));
+            if opens {
                 skip_tag = name;
                 skip_depth = 1;
             }
