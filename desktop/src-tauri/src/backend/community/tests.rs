@@ -482,3 +482,20 @@ fn ended_room_reminders_are_not_claimed() {
         "已结束房间的提醒不应被领取，实际：{stale}"
     );
 }
+
+// P-158：周期领取命令原先是同步命令，按 Tauri 2 语义在主线程执行；
+// claim_due_reminders 无条件开 IMMEDIATE 写事务，写锁竞争时 UI 线程最长
+// 阻塞至 busy_timeout（10 秒）。回归守卫盯住命令声明本身——改回同步命令
+// 即视为回归（运行时无法从返回值观察执行线程）。
+#[test]
+fn claim_reminders_command_is_declared_async() {
+    let source = include_str!("commands.rs");
+    let declaration = source
+        .split("#[tauri::command")
+        .find(|chunk| chunk.contains("pub async fn claim_community_reminders"))
+        .expect("未找到 claim_community_reminders 的命令声明");
+    assert!(
+        declaration.starts_with("(async)]"),
+        "claim_community_reminders 必须标注 #[tauri::command(async)]，否则按 Tauri 2 语义在主线程同步执行，实际：{declaration}"
+    );
+}

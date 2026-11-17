@@ -31,6 +31,14 @@ function readSource(relative) {
   return readFileSync(new URL(relative, import.meta.url), 'utf8')
 }
 
+/** 去掉行注释（源码断言不能被注释里的示例代码命中） */
+function stripLineComments(source) {
+  return source
+    .split(/\r?\n/)
+    .map(line => line.replace(/\/\/.*$/, ''))
+    .join('\n')
+}
+
 /** 前端源码根目录 */
 const SRC_ROOT = new URL('../src/', import.meta.url)
 
@@ -433,10 +441,19 @@ test('P-161：全局搜索的 ↑↓ 高亮对读屏可见', () => {
 })
 
 test('P-164：装饰性图标统一经包装层补 aria-hidden', () => {
-  const wrapper = readSource('../src/components/icons.tsx')
+  const wrapper = stripLineComments(readSource('../src/components/icons.tsx'))
+  const body = wrapper.slice(wrapper.indexOf('function decorative'))
   assert.ok(
-    wrapper.includes('aria-hidden="true"'),
-    '图标包装层必须补 aria-hidden——lucide-react 的 svg 默认无可访问名称语义',
+    !/aria-hidden="true"\s*\{\.\.\./.test(body),
+    '图标包装层不得用「默认值在前、props 展开在后」的写法——调用方传 aria-hidden={undefined} 会把默认值覆盖掉',
+  )
+  assert.ok(
+    body.includes('aria-hidden={ariaHidden ?? true}'),
+    '图标包装层必须显式合并 aria-hidden：undefined/null 落回装饰模式，false/' + "'false'" + ' 退出装饰模式',
+  )
+  assert.ok(
+    body.indexOf('aria-hidden={ariaHidden ?? true}') > body.indexOf('{...rest}'),
+    '合并后的 aria-hidden 必须写在 props 展开之后，否则仍会被静默覆盖',
   )
   const direct = listSourceFiles()
     .filter(file => readFileSync(file, 'utf8').includes("from 'lucide-react'"))
@@ -445,6 +462,51 @@ test('P-164：装饰性图标统一经包装层补 aria-hidden', () => {
     direct,
     ['components/icons.tsx'],
     `只有图标包装层可以从 lucide-react 取图标，实际：${direct.join('、')}`,
+  )
+})
+
+test('P-164：图标包装层的「退出装饰模式」开关不被 undefined 覆盖', () => {
+  const wrapper = stripLineComments(readSource('../src/components/icons.tsx'))
+  const body = wrapper.slice(wrapper.indexOf('function decorative'))
+  const merged = body.match(/aria-hidden=\{([^}]+)\}/)
+  assert.ok(merged, '未找到包装层的 aria-hidden 合并表达式')
+  assert.ok(
+    /\?\?/.test(merged[1]) && !/\|\|/.test(merged[1]),
+    '合并必须用 ??——|| 会把调用方显式传的 false 变成 true，等于关掉退出装饰模式的开关',
+  )
+  // 用包装层里真实的合并表达式求值：undefined/null 落回 true，显式 false/'false' 退出装饰模式
+  const merge = new Function('ariaHidden', `return ${merged[1]}`)
+  assert.equal(merge(undefined), true, 'aria-hidden={undefined} 必须落回装饰模式')
+  assert.equal(merge(null), true, 'aria-hidden={null} 必须落回装饰模式')
+  assert.equal(merge(false), false, 'aria-hidden={false} 必须能退出装饰模式')
+  assert.equal(merge('false'), 'false', "aria-hidden='false' 必须能退出装饰模式")
+})
+
+test('P-164：带 aria-label 的图标必须声明 role="img"', () => {
+  const offenders = []
+  for (const file of listSourceFiles()) {
+    const source = readFileSync(file, 'utf8')
+    // 只查图标包装层导出的图标（按本地别名解析），不查 Button 等 UI 组件
+    const iconNames = new Set()
+    for (const match of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*'[^']*icons'/g)) {
+      for (const raw of match[1].split(',')) {
+        const parts = raw.trim().split(/\s+as\s+/)
+        const local = (parts[1] ?? parts[0]).trim()
+        if (local) iconNames.add(local)
+      }
+    }
+    for (const match of source.matchAll(/<([A-Z][A-Za-z0-9]*)\b([^>]*aria-label[^>]*)>/g)) {
+      const [, name, attrs] = match
+      if (!iconNames.has(name)) continue
+      if (!attrs.includes('role="img"')) {
+        offenders.push(`${file.href.slice(SRC_ROOT.href.length)} → <${name}>`)
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `带 aria-label 的图标必须同时声明 role="img"，否则读屏播报的是无角色节点：${offenders.join('、')}`,
   )
 })
 

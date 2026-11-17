@@ -14,7 +14,7 @@ graph TD
     end
     subgraph Rust 进程
         IP --> GH[security::guard_handler]
-        GH --> CMD[188 个注册命令]
+        GH --> CMD[189 个注册命令]
         CMD --> DOM[21 个业务域]
         DOM --> ST[Store / SQLite / events outbox]
         DOM --> FS[工作区文件区]
@@ -32,7 +32,7 @@ graph TD
 
 ## 2. 应用装配与模块职责
 
-`main.rs` 注册 dialog、opener 和 188 个命令，所有命令经 `security::guard_handler` 包装。正常启动在后台初始化数据层，主窗口立即显示。`--verify-native` 使用独立绝对目录，清空窗口配置，不占用单实例互斥体，完成真实装配和快照检查后退出。
+`main.rs` 注册 dialog、opener 和 189 个命令，所有命令经 `security::guard_handler` 包装。正常启动在后台初始化数据层，主窗口立即显示。`--verify-native` 使用独立绝对目录，清空窗口配置，不占用单实例互斥体，完成真实装配和快照检查后退出。
 
 | 模块 | 职责 | 主要运行状态 |
 |---|---|---|
@@ -249,12 +249,12 @@ graph TD
 | 启动与通用 | 14 | bootstrap、replace_collection、reset_application、set_storage_location |
 | 安全 | 10 | login_local_user、create_access_token、set_security_quota |
 | 供应商、路由与用量 | 20 | route_provider_chat、test_provider、export_usage_csv_file |
-| 材料、笔记与网页导入 | 15 | import_material_archive、read_material_media_chunk、import_webpage |
+| 材料、笔记与网页导入 | 16 | import_material_archive、read_material_media_chunk、import_webpage |
 | 学习、讲义、知识与排期 | 29 | start_learning_plan、generate_lecture、ask_knowledge |
-| 练习、复习与项目 | 28 | submit_practice_answer、grade_review_card、submit_project_version |
+| 练习、复习与项目 | 29 | submit_practice_answer、grade_review_card、submit_project_version |
 | Agent | 9 | send_agent_message、approve_agent_request |
 | 备份、分享、同步与运维 | 20 | import_full_backup、read_shared_plan、restore_sync_version |
-| 社区、插件、导出、报告与搜索 | 43 | install_plugin、export_content、get_learning_report、search_workspace |
-| **合计** | **188** | 前端直接调用 173 个 |
+| 社区、插件、导出、报告与搜索 | 42 | install_plugin、export_content、get_learning_report、search_workspace |
+| **合计** | **189** | 前端直接调用 189 个 |
 
 `events_since` 仅在 `cfg(test)` 构建中保留，用于 outbox 分页验证；`stream_provider_chat` 和 `get_agent_run` 已删除，分别由 `route_provider_chat` 和 `get_agent_session` 替代。`fetch_webpage` IPC 壳已删除，网页导入复用后端内部抓取链。模型中心手动测试由前端调用 `route_provider_chat`；全局导师通过 Agent 命令进入 Rust 工具循环。

@@ -1,6 +1,6 @@
 import { Children, useEffect, useId, useRef } from 'react'
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, RefObject } from 'react'
-import { X, Inbox, FolderOpen } from 'lucide-react'
+import { X, Inbox, FolderOpen } from './icons'
 import { openExternalUrl, revealInFileManager } from '../backend/shell'
 import { reportBackendError } from '../backend/client'
 
@@ -99,13 +99,16 @@ export function ProgressRing({ value, size = 112, children }: { value: number; s
   const radius = 43
   const circumference = 2 * Math.PI * radius
   // 74#1：对齐 ProgressBar（09#7）——裸 svg 读屏听不到「方案生成进度 X%」
+  // P-091：钳位值同时用于描边与环内文本——原先 strokeDashoffset 与文本
+  // 取未钳位的原始 value，value>100 时圆环过绘、value<0 时环为空，
+  // 与 aria-valuenow（恒 0–100）不一致
   const clamped = Math.max(0, Math.min(100, Math.round(value)))
   return <div className="progress-ring" style={{ width: size, height: size }} role="progressbar" aria-label={`完成进度 ${clamped}%`} aria-valuenow={clamped} aria-valuemin={0} aria-valuemax={100}>
     <svg viewBox="0 0 100 100" aria-hidden="true">
       <circle className="ring-track" cx="50" cy="50" r={radius} />
-      <circle className="ring-value" cx="50" cy="50" r={radius} strokeDasharray={circumference} strokeDashoffset={circumference * (1 - value / 100)} />
+      <circle className="ring-value" cx="50" cy="50" r={radius} strokeDasharray={circumference} strokeDashoffset={circumference * (1 - clamped / 100)} />
     </svg>
-    <div className="ring-content" aria-hidden="true">{children || <strong>{value}%</strong>}</div>
+    <div className="ring-content" aria-hidden="true">{children || <strong>{clamped}%</strong>}</div>
   </div>
 }
 
@@ -205,7 +208,10 @@ export function Modal({ open, onClose, title, children, wide = false }: { open: 
     overflowLocks += 1
     document.body.style.overflow = 'hidden'
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      // P-072：IME 组字期间按 Esc 是取消候选词，不是关闭弹层——Chromium
+      // 在组字时派发的 keydown 带 isComposing=true，消费它会连同半填内容
+      // 一起关掉弹层（Enter 路径早有同款守卫）
+      if (event.key !== 'Escape' || event.isComposing) return
       // 24#2：非最顶层弹层不响应——一次 Esc 只关闭一个叠加层
       const top = MODAL_STACK[MODAL_STACK.length - 1]
       if (!top || top.id !== id) return

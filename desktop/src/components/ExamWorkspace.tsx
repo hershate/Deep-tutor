@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { ArrowRight, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileQuestion, RefreshCw, XCircle } from 'lucide-react'
+import { ArrowRight, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileQuestion, RefreshCw, XCircle } from './icons'
 import { Badge, Button, ConfirmDialog, Modal, ProgressBar, SectionHeader } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, type LearningPlan, deltaThrottle } from '../backend/client'
 import { clampToBytes } from '../limits'
@@ -75,6 +75,22 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
   // 推进流逝量——系统时钟回拨/跨设备时不再与 exam_deadline_exceeded 矛盾
   const [deadlinePassed, setDeadlinePassed] = useState(false)
   const expired = exam?.examExpired === true || deadlinePassed
+  // P-009：考试计时从首次打开试卷起算——后端读取详情不再起算，只有试卷
+  // 真正呈现（本组件挂载）时才起算，避免学生未开卷限时已流逝
+  const timerStarted = useRef<number | null>(null)
+  useEffect(() => {
+    if (!exam || exam.set.status !== 'ready') return
+    if (exam.set.examStartedAt || timerStarted.current === exam.set.id) return
+    timerStarted.current = exam.set.id
+    let active = true
+    void practiceBackend.startExamTimer(exam.set.id)
+      .then(next => { if (active) onUpdated(next) })
+      .catch(error => {
+        timerStarted.current = null
+        reportBackendError(error)
+      })
+    return () => { active = false }
+  }, [exam?.set.id, exam?.set.status, exam?.set.examStartedAt])
   useEffect(() => {
     if (exam?.set.status !== 'ready' || exam.examRemainingSeconds == null) { setSeconds(0); setDeadlinePassed(false); return }
     const base = exam.examRemainingSeconds
@@ -208,10 +224,10 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
         <ProgressBar value={exam.set.answeredQuestions / exam.set.totalQuestions * 100} srLabel={`已判分 ${exam.set.answeredQuestions} / ${exam.set.totalQuestions} 题`} />
         <div className="question-body"><h2>{question.prompt}</h2>
           {question.kind === 'choice' && <div className="option-list">{question.options.map((option, optionIndex) => {
-            const correct = completed && answer?.feedback.answer === optionIndex
+            const correct = completed && answer?.feedback?.answer === optionIndex
             const wrong = completed && selectedValue === optionIndex && answer?.correct === false
             // 48#10：复盘正误补图标双通道——原先仅边框/背景色，红绿色盲无法从选项行分辨对错
-            return <button key={`${option}-${optionIndex}`} disabled={recorded || busy || expired} className={`${selectedValue === optionIndex ? 'selected' : ''} ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} onClick={() => { if (question) selectedByQuestion.current[question.id] = optionIndex; setSelected(optionIndex) }}><span>{String.fromCharCode(65 + optionIndex)}</span><strong>{option}</strong>{correct && <CheckCircle2 size={17} aria-label="正确选项" />}{wrong && <XCircle size={17} aria-label="你的错误选择" />}</button>
+            return <button key={`${option}-${optionIndex}`} disabled={recorded || busy || expired} className={`${selectedValue === optionIndex ? 'selected' : ''} ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} onClick={() => { if (question) selectedByQuestion.current[question.id] = optionIndex; setSelected(optionIndex) }}><span>{String.fromCharCode(65 + optionIndex)}</span><strong>{option}</strong>{correct && <CheckCircle2 size={17} role="img" aria-label="正确选项" aria-hidden={false} />}{wrong && <XCircle size={17} role="img" aria-label="你的错误选择" aria-hidden={false} />}</button>
           })}</div>}
           {/* 144#3：fill 补 answer.response 回退（short/essay 同款）——原先提交后
               setDraft('') 清空，已保存作答立即从界面消失，考生无法确认已保存 */}
@@ -221,11 +237,11 @@ export default function ExamWorkspace({ detail, history, plans, generationOutput
           {recorded && !answer && <div className="answer-feedback"><h3>答案已保存</h3><p>交卷后统一显示得分与解析。</p></div>}
           {answer && ['grading', 'cancelling'].includes(answer.status) && <div className="answer-feedback" aria-live="polite"><h3>正在按评分要点判分</h3><pre className="streaming-output">{output || '作答已保存，等待评分模型输出…'}</pre><Button variant="secondary" onClick={() => void cancelAnswer()} disabled={busy || answer.status === 'cancelling'}>{busy ? '正在取消…' : '取消评分'}</Button></div>}
           {answer && ['failed', 'cancelled', 'interrupted'].includes(answer.status) && <div className="answer-feedback is-wrong"><h3>评分未完成</h3><p>{answer.error ? backendErrorMessage(answer.error) : '评分已停止'}</p><p>可恢复评分重试；模型持续失败时可放弃该题按 0 分交卷。</p><Button onClick={() => void resumeAnswer()}>恢复评分<RefreshCw size={17} /></Button><Button variant="secondary" onClick={() => setAbandonOpen(true)} disabled={busy}>放弃本题，按 0 分计<XCircle size={17} /></Button></div>}
-          {completed && answer && <div className="subjective-rubric"><div><CheckCircle2 size={20} /><h3>{answer.feedback.unanswered ? '未作答，按 0 分计' : answer.correct ? '达到本题掌握阈值' : '本题仍需巩固'}</h3>{answer.score !== null && <strong>{answer.score.toFixed(2)} / {answer.maxScore?.toFixed(2)}</strong>}</div>
-            {answer.feedback.overallFeedback && <p>{answer.feedback.overallFeedback}</p>}
-            {answer.feedback.criteria?.map(criterion => <div className="rubric-result" key={criterion.id}><span>{criterion.description}</span><strong>{criterion.score.toFixed(2)} / {criterion.maxScore.toFixed(2)}</strong><p>{criterion.feedback}</p><small>评分依据：{criterion.evidence}</small></div>)}
-            {answer.feedback.answer !== undefined && <p>参考答案：{question.kind === 'choice' && typeof answer.feedback.answer === 'number' ? question.options[answer.feedback.answer] : answer.feedback.answer}</p>}
-            {answer.feedback.explanation && <p>{answer.feedback.explanation}</p>}
+          {completed && answer && <div className="subjective-rubric"><div><CheckCircle2 size={20} /><h3>{answer.feedback?.unanswered ? '未作答，按 0 分计' : answer.correct ? '达到本题掌握阈值' : '本题仍需巩固'}</h3>{answer.score !== null && <strong>{answer.score.toFixed(2)} / {answer.maxScore?.toFixed(2)}</strong>}</div>
+            {answer.feedback?.overallFeedback && <p>{answer.feedback.overallFeedback}</p>}
+            {answer.feedback?.criteria?.map(criterion => <div className="rubric-result" key={criterion.id}><span>{criterion.description}</span><strong>{criterion.score.toFixed(2)} / {criterion.maxScore.toFixed(2)}</strong><p>{criterion.feedback}</p><small>评分依据：{criterion.evidence}</small></div>)}
+            {answer.feedback?.answer !== undefined && <p>参考答案：{question.kind === 'choice' && typeof answer.feedback.answer === 'number' ? question.options[answer.feedback.answer] : answer.feedback.answer}</p>}
+            {answer.feedback?.explanation && <p>{answer.feedback.explanation}</p>}
           </div>}
           {question.citations.length > 0 && <div className="practice-citations"><strong>资料依据</strong>{question.citations.map((citation, citationIndex) => <p key={`${citation.materialId}-${citationIndex}`}>资料 #{citation.materialId}：{citation.quote}</p>)}</div>}
         </div>
