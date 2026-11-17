@@ -2,12 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, AlertTriangle, ArrowDownToLine, Blocks, Code2, FileCode2, Layers3, Plug, RefreshCw, ShieldCheck, Trash2, Upload, Zap } from 'lucide-react'
 import { Badge, Button, ConfirmDialog, EmptyState, IconButton, RevealExport, SectionHeader, Toggle } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
-import { pluginBackend, type PluginEvent, type PluginOverview } from '../backend/plugins'
+import { pluginBackend, type PluginEvent, type PluginOverview, type PluginRecord } from '../backend/plugins'
 import UsagePanel from '../components/UsagePanel'
 
 // 61#1/117#3：与后端 EVENT_NAMESPACES 白名单同步（后端一致性测试校验两侧一致；
 // state.changed 为高频内部状态同步，不开放订阅）
 const namespaces = ['plan', 'practice', 'review', 'material', 'agent', 'knowledge', 'community', 'provider', 'plugin', 'share', 'content', 'backup', 'sync', 'maintenance', 'focus', 'study', 'lecture', 'report', 'security', 'notifications', 'usage', 'project']
+
+// P-140：投递判定与后端 plugins::matches 同口径（pattern == "*" 或
+// "<命名空间>.*" 命中 "<命名空间>." 前缀）——原先刷新只按 plugin./material./
+// practice./knowledge. 四个前缀过滤，其余 18 个白名单命名空间的插件投递
+// 不刷新记录列表；按插件实际订阅判定既覆盖全部命名空间，又保住 32#22
+// 「无关事件不触发全量刷新」的意图
+function deliversTo(plugins: PluginRecord[], kind: string) {
+  return plugins.some(plugin => plugin.enabled && plugin.subscriptions.some(pattern =>
+    pattern === '*' || (pattern.endsWith('.*') && kind.startsWith(pattern.slice(0, -1)))
+  ))
+}
 
 export default function Integrations({ notify }: { notify: (message: string) => void }) {
   const [tab, setTab] = useState('插件体系')
@@ -19,6 +30,11 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   // 144#4：补序号守卫（51#2 家族）——原先成功与失败分支均无守卫，旧请求
   // 失败晚到会覆盖新请求成功后的清错，成功分支还可能以旧快照覆盖新快照
   const refreshSeq = useRef(0)
+  // P-027：已加载的「更早投递记录」分页缓存只在插件集变化时清空——原先每次
+  // 成功刷新都清空，而事件驱动的 250ms 节流刷新会被高频落库事件反复触发
+  // （store.rs 每次落库都调 plugins::dispatch，provider.chat_delta 等流式
+  // 事件落库即产生投递），用户已翻页的历史记录每次刷新都被丢弃
+  const installedIds = useRef<string[]>([])
   const refresh = useCallback(async () => {
     const ticket = ++refreshSeq.current
     try {
@@ -29,11 +45,20 @@ export default function Integrations({ notify }: { notify: (message: string) => 
       // 156#5：插件集变化（卸载/重装）时清空 earlier 分页缓存——服务端
       // plugin_deliveries 已随卸载 CASCADE 清空，内存旧行原先在「卸载后
       // 重装同 id」时复活为幽灵投递记录；B-19 的过滤只对「当前未安装」
-      // 生效，重装同 id 后不可辨
-      setEarlier(current => current.length ? [] : current)
-      setEarlierDone(false)
+      // 生效，重装同 id 后不可辨。判据为「已安装插件 id 有减少」——
+      // 单纯新增插件不使既有历史失效，无需丢弃已翻页的记录
+      const nextIds = overview.plugins.map(plugin => plugin.id).sort()
+      if (installedIds.current.some(id => !nextIds.includes(id))) {
+        setEarlier(current => current.length ? [] : current)
+        setEarlierDone(false)
+      }
+      installedIds.current = nextIds
     } catch (cause) { if (ticket === refreshSeq.current) setLoadError(backendErrorMessage(cause)) }
   }, [])
+  // P-140：事件回调需要最新的插件订阅清单——用 ref 取当前快照，避免因 data
+  // 变化重建事件订阅（重建窗口会丢事件）
+  const pluginsRef = useRef<PluginRecord[]>([])
+  useEffect(() => { pluginsRef.current = data?.plugins ?? [] }, [data])
   // 14#18：事件记录游标分页——overview 只带最新 100 条，更早历史按需加载
   const [earlier, setEarlier] = useState<PluginEvent[]>([])
   const [earlierDone, setEarlierDone] = useState(false)
@@ -64,12 +89,12 @@ export default function Integrations({ notify }: { notify: (message: string) => 
     // 不再逐事件全量重拉 overview
     let refreshTimer: number | undefined
     onBackendEvent(event => {
-      // 32#22：过滤收窄——原先 `.completed` 等后缀命中 provider.chat_completed，
-      // 任意模型请求完成都触发插件 overview 全量刷新
-      if (event.kind.startsWith('plugin.') || event.kind.startsWith('material.') || event.kind.startsWith('practice.') || event.kind.startsWith('knowledge.')) {
-        if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
-        refreshTimer = window.setTimeout(() => { refreshTimer = undefined; void refresh() }, 250)
-      }
+      // P-140：按插件实际订阅判定是否会产生投递——原先只匹配 4 个命名空间
+      // 前缀，其余白名单命名空间（community./provider./agent./focus. 等）
+      // 的投递不刷新记录列表；32#22 的「无关事件不触发全量刷新」意图保留
+      if (!deliversTo(pluginsRef.current, event.kind)) return
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => { refreshTimer = undefined; void refresh() }, 250)
     }).then(stop => { if (disposed) stop(); else unlisten = stop }).catch(reportBackendError)
     return () => { disposed = true; unlisten?.(); if (refreshTimer !== undefined) window.clearTimeout(refreshTimer) }
   }, [refresh])
@@ -100,7 +125,18 @@ export default function Integrations({ notify }: { notify: (message: string) => 
   const uninstall = async (id: string) => {
     if (busy) return
     setBusy(true)
-    try { await pluginBackend.uninstall(id); await refresh(); setUninstallId(null); notify('插件记录与安装清单已删除') }
+    try {
+      await pluginBackend.uninstall(id)
+      // P-027：服务端已随卸载 CASCADE 清掉该插件的 plugin_deliveries，
+      // 内存里的 earlier 行同步丢弃——卸载与「重装同 id」之间若没有一次
+      // 成功的 overview 快照（刷新失败），id 集合对比看不出变化，旧行会
+      // 以幽灵投递记录复活
+      setEarlier(current => current.length ? [] : current)
+      setEarlierDone(false)
+      await refresh()
+      setUninstallId(null)
+      notify('插件记录与安装清单已删除')
+    }
     catch (error) { reportBackendError(error, 'write') } finally { setBusy(false) }
   }
   const ping = async () => {

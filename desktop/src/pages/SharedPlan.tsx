@@ -17,6 +17,9 @@ const validationNames: [LearningCheckName, string][] = [
 export default function SharedPlan({ token = null }: { token?: string | null }) {
   const [view, setView] = useState<SharedPlanView | null>(null)
   const [error, setError] = useState('')
+  // P-141：打开另一个分享包失败时就地提示——原先清空视图，正在浏览的有效
+  // 分享直接消失且页面无恢复入口；失败只提示，保留原视图继续可读
+  const [openError, setOpenError] = useState('')
   const [loading, setLoading] = useState(Boolean(token))
   const [opening, setOpening] = useState(false)
 
@@ -32,20 +35,20 @@ export default function SharedPlan({ token = null }: { token?: string | null }) 
 
   const openPackage = async () => {
     setOpening(true)
-    setError('')
+    setOpenError('')
     try {
       const path = await sharingBackend.openFile()
       if (!path) return
       setView(await sharingBackend.readFile(path))
     } catch (cause) {
-      // 打开新包失败时清空旧内容并给出提示，避免用户误以为新包已打开
-      setView(null)
-      setError(backendErrorMessage(cause))
+      // P-141：失败只提示不清空——原分享/离线包视图继续保留，用户可关闭
+      // 提示继续浏览或重新选择文件；清空会让有效内容凭空消失且无恢复入口
+      setOpenError(backendErrorMessage(cause))
     } finally { setOpening(false) }
   }
 
   if (loading) return <div className="shared-missing" role="status"><LoaderCircle size={32} className="spin" /><h1>正在读取真实分享</h1><p>正在校验本机快照、撤销状态与有效期。</p></div>
-  if (!view) return <div className="shared-missing"><LockKeyhole size={36} /><h1>{token ? '分享内容不可用' : '打开只读学习方案'}</h1><p>{error || '选择由知舟导出的 .dtshare 分享包，查看不可变的方案快照。'}</p><p className="form-help">离线包仅校验完整性与包内声明的有效期，不验证发送者身份，也无法接收创建者的后续撤销；请只打开来自信任来源的文件。</p><Button onClick={() => void openPackage()} disabled={opening}><FileUp size={17} />{opening ? '正在等待选择文件' : '选择分享包'}</Button></div>
+  if (!view) return <div className="shared-missing"><LockKeyhole size={36} /><h1>{token ? '分享内容不可用' : '打开只读学习方案'}</h1><p>{error || openError || '选择由知舟导出的 .dtshare 分享包，查看不可变的方案快照。'}</p><p className="form-help">离线包仅校验完整性与包内声明的有效期，不验证发送者身份，也无法接收创建者的后续撤销；请只打开来自信任来源的文件。</p><Button onClick={() => void openPackage()} disabled={opening}><FileUp size={17} />{opening ? '正在等待选择文件' : '选择分享包'}</Button></div>
 
   const { plan } = view
   return <div className="shared-plan">
@@ -58,6 +61,7 @@ export default function SharedPlan({ token = null }: { token?: string | null }) 
       <section><h2>知识结构</h2><div className="shared-nodes">{plan.graph.nodes.map(node => <details key={node.id}><summary><BookOpen size={16} /><strong>{node.title}</strong><span>难度 {node.difficulty}/5</span></summary><p>{node.summary}</p></details>)}</div></section>
       <section><h2>方案校验</h2><div className="shared-validation">{validationNames.map(([key, name]) => { const check = plan.validation[key]; return <div key={key}><span>{check.status === 'pass' ? <Check size={15} /> : <AlertTriangle size={15} />}{name}</span><Badge tone={check.status === 'pass' ? 'green' : check.status === 'warn' ? 'amber' : 'red'}>{check.status === 'pass' ? '通过' : check.status === 'warn' ? '警告' : '未通过'}</Badge>{check.details && <p>{check.details}</p>}</div>})}</div>{plan.validation.fixes.length > 0 && <ul>{plan.validation.fixes.map(fix => <li key={fix}>{fix}</li>)}</ul>}</section>
       <section><h2>本方案包含</h2><div className="shared-includes"><span><BookOpen size={17} />{plan.graph.nodes.length} 个知识节点</span><span><Route size={17} />{plan.graph.edges.length} 条依赖关系</span><span><CalendarDays size={17} />{plan.schedule.entries.length} 个学习日程</span></div></section>
+      {openError && <><div className="form-error" role="alert"><AlertTriangle size={16} />{openError}<Button variant="ghost" size="sm" onClick={() => setOpenError('')}>关闭</Button></div><p className="form-help">当前分享内容仍然有效，可关闭提示后继续浏览，或重新选择分享包。</p></>}
       <Button variant="secondary" onClick={() => void openPackage()} disabled={opening}><FileUp size={16} />打开另一个分享包</Button>
     </main>
     <footer>知舟 Deep Tutor · {view.source === 'local' ? '本机只读视图，撤销与过期由原生后端校验' : '离线快照，仅校验内容与有效期'}</footer>

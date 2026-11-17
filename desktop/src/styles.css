@@ -550,12 +550,17 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 .map-legend .legend-locked { background: var(--border-strong); }
 .map-layout { display: grid; gap: 20px; }
 .map-surface { min-width: 0; padding: 22px; }
-.knowledge-canvas { position: relative; flex: none; } /* 147#15：尺寸由 JSX 按 128px/列、76px/行下限内联给定，父级横向滚动兜底 */
+.knowledge-canvas { position: relative; flex: none; } /* 147#15：尺寸由 JSX 按 128px/列、96px/行下限内联给定，父级横向滚动兜底（行距常量见 KnowledgeMap.tsx 的 LEVEL_ROW_GAP，P-037 起为 96px，原 76px 口径已过期） */
 .map-surface { overflow-x: auto; }
 .knowledge-canvas > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .knowledge-canvas line { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
 .knowledge-canvas line.path-edge { stroke: var(--accent); stroke-width: 3; stroke-dasharray: none; }
-.map-node { position: absolute; transform: translate(-50%, -50%); width: 112px; min-height: 66px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 5px; padding: 9px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--surface-raised); box-shadow: 0 4px 12px oklch(0.25 0.02 160 / .07); text-align: left; transition: transform .18s ease, border-color .18s ease; }
+/* P-037：节点内部改两行网格——原先标题与状态小字同行（auto 1fr auto），
+   标题列被压到约 33px（12px 字号每行 2–3 字），8–12 字标题折 3–5 行，
+   节点实际高度 76–115px，远超画布按 66px 假设的 76px 行距，同层节点互相
+   叠压。改为「状态图标 + 状态小字」一行、标题独占整行（94px 宽），标题最多
+   3 行（-webkit-line-clamp），节点高度上限约 87px，画布行距按 96px 排布 */
+.map-node { position: absolute; transform: translate(-50%, -50%); width: 112px; min-height: 66px; display: grid; grid-template-columns: auto 1fr; grid-template-areas: "status meta" "title title"; align-items: center; column-gap: 5px; row-gap: 2px; padding: 9px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--surface-raised); box-shadow: 0 4px 12px oklch(0.25 0.02 160 / .07); text-align: left; transition: transform .18s ease, border-color .18s ease; }
 .map-node:hover { transform: translate(-50%, -50%) scale(1.04); }
 /* 128#4：选中态改 border-color 提亮不加粗——1px→2px 会挤压内容区
 （点击瞬间内容微移），对齐 .option-list 的 border-color 范式 */
@@ -564,9 +569,9 @@ kind 如需专属色须在此显式定义，否则回落默认边框 */
 /* 130#7：组合态（选中且在路径上）显式合并两态阴影——原先与 on-path 同
    特异度且靠前，选中环被 5px 光晕整体替换，路径视图里选中标记只剩边框色差 */
 .map-node.selected.on-path { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 0 5px var(--accent-soft), 0 4px 12px oklch(0.25 0.02 160 / .07); }
-.map-node strong { font-size: 12px; }
-.map-node small { color: var(--muted); font-size: 12px; }
-.node-status { color: var(--accent); }
+.map-node strong { grid-area: title; min-width: 0; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.map-node small { grid-area: meta; color: var(--muted); font-size: 12px; line-height: 1.35; text-align: right; }
+.node-status { grid-area: status; color: var(--accent); }
 /* 63#1：类名与 KnowledgeMap 实际拼接对齐——原先写成中文状态名（死规则），
    英文类无定义导致三种掌握状态图标恒为默认绿，图例色承诺失效 */
 .node-learning .node-status { color: var(--warning); }
@@ -1181,8 +1186,22 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .result-stage h3 { margin: 0 0 5px; font-size: 15px; }
 .result-stage p { margin: 0 0 3px; font-size: 12px; }
 .result-stage small { color: var(--muted); font-size: 12px; }
-.validation-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.validation-grid > div { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 7px; padding: 11px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+/* 列数按容器宽度自适应，不再按视口宽度固定 5 列——1024px 视口下
+   .result-grid 已是两列（主列约 402px、面板内宽约 354px），固定 5 列时
+   每卡仅约 64px，卡内「16px 图标 + 14px 间距 + 「未通过」徽标 52px」已
+   占 82px，名称列被压到 0px、徽标溢出卡片。auto-fit + 170px 最小轨宽：
+   窄容器降到 2–3 列，最小列宽下名称列仍约 66px，5 字名称（里程碑可达）
+   单行放得下 */
+.validation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+/* P-036：校验卡片按「图标 + 名称 + 状态」一行、说明独占整行排布——原先 4 个
+   子元素按 CSS Grid 自动放置落进 3 列网格的第 2 行第 1 列，整句说明的
+   max-content 撑开 auto 轨道，校验名与说明都被挤进约 1 字/行的窄列竖排；
+   首列改为固定 16px（图标宽度），说明跨三列且可任意折行 */
+.validation-grid > div { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; grid-template-areas: "icon name badge" "details details details"; align-items: center; column-gap: 7px; row-gap: 4px; padding: 11px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+.validation-grid > div > svg { grid-area: icon; }
+.validation-grid > div > span:not(.badge) { grid-area: name; min-width: 0; overflow-wrap: anywhere; }
+.validation-grid > div > .badge { grid-area: badge; }
+.validation-grid > div > small { grid-area: details; min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
 .capacity-warning { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; padding: 14px; border: 1px solid var(--warning-strong); border-radius: 9px; color: var(--warning-strong); }
 .capacity-warning p { margin: 4px 0 0; font-size: 12px; }
 .result-resources > button { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 62px; padding: 9px 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; text-align: left; }
@@ -1292,7 +1311,8 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
   .generator-stepper button > svg { display: block; }
   .source-item > .badge { max-width: none; padding: 3px 8px; font-size: 12px; }
   .tool-run-list > div > code { display: block; }
-  .validation-grid { grid-template-columns: repeat(5, 1fr); }
+  /* .validation-grid 的列数改由容器宽度自适应（auto-fit），此处不再按视口
+     宽度固定 5 列——主列在 1024px 视口下仅约 402px，固定 5 列会把名称列压没 */
 }
 @media (min-width: 1024px) {
   .generator-source-layout { grid-template-columns: minmax(0, 1.45fr) minmax(300px, .8fr); }
@@ -1981,9 +2001,9 @@ h1, h2, h3 { text-wrap: balance; }
 .reading-article { overflow-x: clip; }
 .reading-article table { display: block; max-width: 100%; overflow-x: auto; }
 
-/* 147#4：知识地图节点文本列折行（节点固定 112px 宽） */
-.map-node > div { min-width: 0; }
-.map-node strong { overflow-wrap: anywhere; }
+/* P-037：原 `.map-node > div { min-width: 0; }` 是死规则——节点 DOM 没有 div
+   子元素（子元素为 span.node-status、strong 标题、small 状态小字）；折行与
+   最小宽度改由 `.map-node strong` 承担（147#4 的折行意图保留） */
 
 /* 147#7：首屏目标徽章限宽（配合 Dashboard 的回退文案与 title 提示） */
 .today-hero .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }

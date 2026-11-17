@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Brain, CalendarClock, Check, ChevronRight, CircleHelp, Clock3, Layers3, Plus, RotateCcw, Sparkles } from 'lucide-react'
-import { Badge, Button, ConfirmDialog, EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
+import { Badge, Button, ConfirmDialog, EmptyState, hasOpenModal, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import { backend, onBackendEvent, reportBackendError, type LearningPlan, backendErrorMessage } from '../backend/client'
 import { reviewBackend, type ReviewCard, type ReviewCardInput, type ReviewGrade, type ReviewHistoryEntry, type ReviewStats } from '../backend/review'
 import { clampToBytes } from '../limits'
@@ -90,7 +90,10 @@ export default function Review({ notify }: { notify: (message: string) => void }
       // 19#1：全局搜索/通知/快速记录/导师抽屉/专注层等 App 级弹层打开时
       // 不响应复习快捷键——否则空格被吞无法输入，翻面态数字键会在后台
       // 真实评分写库；焦点在输入框内同样跳过
-      if (document.querySelector('.overlay, .drawer-overlay, .focus-overlay')) return
+      // P-142：弹层判定改用 MODAL_STACK 真源（133#7 同型修复）——原先用
+      // document.querySelector('.overlay') 类名查询判「有弹层打开」，自绘弹层
+      // 或类名重构即静默失效；App 级抽屉与专注层不入弹层栈，仍按其专用类名判定
+      if (hasOpenModal() || document.querySelector('.drawer-overlay, .focus-overlay')) return
       if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
       if (event.code === 'Space') {
         // 68#2：焦点在按钮上时空格应激活按钮——只对 flashcard 之外的按钮让位

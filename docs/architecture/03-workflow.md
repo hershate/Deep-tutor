@@ -236,13 +236,14 @@ JWT 使用 HS256 和 7 天有效期；单活动会话在签发时撤销旧会话
 | Integrations | 插件安装、启停、重载、卸载、事件与资产 | plugin |
 | ProviderHub | 档案、路由、熔断、日志、test_provider、route_provider_chat | 命令返回与主动刷新 |
 | Settings | 偏好、学习档案、安全、备份、同步、运维和导出 | security.session_started、state.changed |
-| SharedPlan | read_shared_plan、read_shared_plan_package | 只读命令返回 |
+| SharedPlan | read_shared_plan、read_shared_plan_file | 只读命令返回 |
 
 17 个组件为 DataDirectoryPanel、BackupPanel、SecurityPanel、SyncPanel、MaintenancePanel、UsagePanel、ProviderRouting、ExportCenter、SharePlanDialog、MediaPlayer、WikiPanel、ExamWorkspace、SubjectivePractice、TutorPanel、AgentTaskCenter、ReportViews 和 UI。
 
 ## 8. 命令与事件一致性
 
 - `main.rs` 注册 188 个命令，25 个前端客户端文件直接调用其中 173 个；命令名和 camelCase 参数由 IPC 测试与 TypeScript 类型共同约束。
+- `read_shared_plan_package`（按分享包字符串读取）只有客户端封装 `sharingBackend.readPackage`，没有页面调用方；SharedPlan 页实际只调用 `read_shared_plan`（令牌）与 `read_shared_plan_file`（文件路径）。
 - `events_since` 仅在 `cfg(test)` 构建中保留；`stream_provider_chat` 和 `get_agent_run` 已删除，当前读取与执行分别使用 `route_provider_chat` 和 `get_agent_session`。`fetch_webpage` IPC 壳已删除。
 - 所有后端事件使用 `{id,kind,payload,createdAt}` 和唯一 `backend://event` 通道。
 - 前端通常只消费事件 kind/prefix 及 materialId、planId、sessionId、runId、requestId、stageId、namespace 等标识，再执行命令读取权威状态；其他 payload 字段用于审计。

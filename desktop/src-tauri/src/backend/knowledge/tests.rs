@@ -60,7 +60,15 @@ fn ipc(
     .map(|body| body.deserialize::<Value>().unwrap())
 }
 
-fn model_server(material_id: i64, valid: bool, gate: Option<Arc<AtomicBool>>) -> TestServer {
+// P-145：模型引用形态——可逐字定位、无法定位（范围外/定位失败）、一条不给
+#[derive(Clone, Copy)]
+enum CitationMode {
+    Valid,
+    Unlocatable,
+    Missing,
+}
+
+fn model_server(material_id: i64, mode: CitationMode, gate: Option<Arc<AtomicBool>>) -> TestServer {
     server(move |_request, stream| {
         if let Some(gate) = &gate {
             start_stream(stream);
@@ -73,10 +81,17 @@ fn model_server(material_id: i64, valid: bool, gate: Option<Arc<AtomicBool>>) ->
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
+        let citations = match mode {
+            CitationMode::Valid => json!([{"materialId": material_id, "quote": "先验概率"}]),
+            CitationMode::Unlocatable => {
+                json!([{"materialId": material_id, "quote": "并不存在的资料原文"}])
+            }
+            CitationMode::Missing => json!([]),
+        };
         let body = json!({
             "answer": "先验概率是在看到新证据之前的判断。",
             "sufficient": true,
-            "citations": [{"materialId": material_id, "quote": if valid { "先验概率" } else { "并不存在的资料原文" }}],
+            "citations": citations,
         });
         let event =
             serde_json::to_string(&json!({"choices": [{"delta": {"content": body.to_string()}}]}))
@@ -86,7 +101,7 @@ fn model_server(material_id: i64, valid: bool, gate: Option<Arc<AtomicBool>>) ->
 }
 
 fn prepare_with_gate(
-    valid: bool,
+    mode: CitationMode,
     gate: Option<Arc<AtomicBool>>,
 ) -> (
     tauri::App<tauri::test::MockRuntime>,
@@ -114,7 +129,7 @@ fn prepare_with_gate(
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(5));
     }
-    let server = model_server(id, valid, gate);
+    let server = model_server(id, mode, gate);
     let profile = providers::upsert(
         app.handle(),
         &state.providers,
@@ -144,7 +159,7 @@ fn prepare() -> (
     i64,
     String,
 ) {
-    prepare_with_gate(true, None)
+    prepare_with_gate(CitationMode::Valid, None)
 }
 
 fn wait(state: &KnowledgeState, id: i64) -> KnowledgeSession {
@@ -232,7 +247,7 @@ fn search_and_answer_use_real_notes_material_text_and_citation_locations() {
 
 #[test]
 fn citations_outside_scope_fail_without_becoming_an_answer() {
-    let (app, state, server, material_id, _) = prepare_with_gate(false, None);
+    let (app, state, server, material_id, _) = prepare_with_gate(CitationMode::Unlocatable, None);
     let started = ask(
         app.handle(),
         &state,
@@ -252,10 +267,32 @@ fn citations_outside_scope_fail_without_becoming_an_answer() {
     assert_eq!(server.request_count(), 2);
 }
 
+// P-145：模型声称依据充分但一条引用都不提供时，错误码必须是
+// citation_mismatch（docs/architecture/03-workflow.md 规定），不得与空回答、
+// 超长回答共用 invalid_model_output——调用方需按码区分「模型输出违约」与
+// 「引用定位失败」
+#[test]
+fn sufficient_answer_without_any_citation_fails_with_citation_mismatch() {
+    let (app, state, _server, material_id, _) = prepare_with_gate(CitationMode::Missing, None);
+    let started = ask(
+        app.handle(),
+        &state,
+        "先验概率是什么？".into(),
+        vec![material_id],
+    )
+    .unwrap();
+    let failed = wait(&state, started.id);
+    assert_eq!(failed.status, "failed");
+    assert_eq!(failed.error.unwrap().code, "citation_mismatch");
+    assert_eq!(failed.answer, None);
+    assert_eq!(failed.citations.len(), 0);
+}
+
 #[test]
 fn cancellation_resume_and_reset_preserve_real_history() {
     let gate = Arc::new(AtomicBool::new(false));
-    let (app, state, server, material_id, _) = prepare_with_gate(true, Some(Arc::clone(&gate)));
+    let (app, state, server, material_id, _) =
+        prepare_with_gate(CitationMode::Valid, Some(Arc::clone(&gate)));
     let started = ask(
         app.handle(),
         &state,
@@ -328,5 +365,55 @@ fn interrupted_answer_reuses_completed_provider_output() {
         restored.answer.as_deref(),
         Some("先验概率是在看到新证据之前的判断。")
     );
+    assert_eq!(server.request_count(), 1);
+}
+
+// P-065：提问/恢复问答命令已移入阻塞线程池（逐份开库读 5 MiB 级解析文本
+// 不再占主线程）——回归锁：满额资料范围（8 份）经 IPC 提问仍须建出会话、
+// 挂齐 8 份来源并跑完真实模型请求
+#[test]
+fn a_full_scope_question_survives_the_background_command() {
+    let (app, state, server, material_id, _provider_id) = prepare();
+    let mut ids = vec![material_id];
+    for index in 0..7 {
+        let material = crate::backend::materials::import_text(
+            app.handle(),
+            &state.materials,
+            format!("补充资料 {index}"),
+            format!("第 {index} 份补充资料：先验概率是在看到证据前的判断。"),
+        )
+        .unwrap()
+        .material;
+        crate::backend::materials::enqueue(app.handle(), &state.materials, material.id).unwrap();
+        ids.push(material.id);
+    }
+    // 解析队列单线程——等待全部资料产出解析文本
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let parsed = ids.iter().all(|id| {
+            crate::backend::materials::detail(&state.materials, *id)
+                .unwrap()
+                .text
+                .is_some()
+        });
+        if parsed {
+            break;
+        }
+        assert!(Instant::now() < deadline, "资料解析未在限时内完成");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let asked = ipc(
+        &window,
+        "ask_knowledge",
+        json!({"question": "先验概率是什么？", "materialIds": ids}),
+    )
+    .unwrap();
+    assert_eq!(asked["status"], "running");
+    let session = wait(&state, asked["id"].as_i64().unwrap());
+    assert_eq!(session.status, "done");
+    assert_eq!(session.sources.len(), 8);
     assert_eq!(server.request_count(), 1);
 }

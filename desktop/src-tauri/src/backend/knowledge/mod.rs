@@ -653,13 +653,20 @@ fn run<R: Runtime>(app: &AppHandle<R>, state: &KnowledgeState, id: i64) -> Resul
         ));
     }
     let draft: ModelAnswer = learning::pipeline::parse_model_json(&result.output)?;
-    if draft.answer.trim().is_empty()
-        || draft.answer.len() > 30_000
-        || (draft.sufficient && draft.citations.is_empty())
-    {
+    if draft.answer.trim().is_empty() || draft.answer.len() > 30_000 {
         return Err(BackendError::new(
             "invalid_model_output",
-            "回答为空、过长或缺少必要的资料引用",
+            "回答为空或超出长度上限",
+        ));
+    }
+    // P-145：声称依据充分却一条引用都不给，与 docs/architecture/03-workflow.md
+    // 规定的 citation_mismatch 对齐——原先与空回答/超长回答归并进
+    // invalid_model_output，按码分支的调用方无法区分「模型输出违约」与
+    // 「引用定位失败」
+    if draft.sufficient && draft.citations.is_empty() {
+        return Err(BackendError::new(
+            "citation_mismatch",
+            "模型声称依据充分，但未提供任何资料引用，回答不可信",
         ));
     }
     let mut seen = HashSet::new();

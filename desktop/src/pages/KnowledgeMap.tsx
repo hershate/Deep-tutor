@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, BookOpen, Check, CircleDashed, GitBranch, List, Map as MapIcon, Play, Route, Target } from 'lucide-react'
+import { ArrowRight, BookOpen, Check, CircleDashed, GitBranch, List, LoaderCircle, Map as MapIcon, Play, Route, Target } from 'lucide-react'
 import type { PageId } from '../data'
 import { Badge, Button, ProgressBar, SectionHeader } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import type { KnowledgeOverview, LearningGraph, LearningPlan } from '../backend/client'
 
 type Position = { x: number; y: number; depth: number }
+
+// P-037：同层节点行距——节点标题改为独占整行且最多 3 行后，节点高度上限
+// 约 87px（12px 字号 ×1.35 行高 ×3 行 + 图标行 + 内边距），行距取 96px
+// 留出间隙；原先 76px 行距按 66px 节点高假设排布，长标题节点互相叠压
+const LEVEL_ROW_GAP = 96
 
 // 150#3：取后端错误码——backendErrorMessage 只给「码：文案」的拼接串，
 // 横幅需要按码区分「换参数才有意义」与「重试即可」两类失败
@@ -36,10 +41,12 @@ function graphLayout(graph: LearningGraph) {
   const positions = new Map<string, Position>()
   // 147#15：画布按节点最小间距动态扩展——固定 760×390 下深图（层数≥5）
   // 列距 <112px 节点宽、同层多节点行距 <66px 节点高，节点互相重叠并叠到
-  // 顶边；按 128px/列、76px/行的下限扩画布，稀疏图保持原 760×390 紧凑
+  // 顶边；按 128px/列、LEVEL_ROW_GAP/行的下限扩画布，稀疏图保持原 760×390 紧凑
+  // P-037：行距改用 LEVEL_ROW_GAP（96px）——节点实际高度可达约 87px，
+  // 76px 行距会让同层长标题节点互相叠压
   const perLevel = Math.max(1, ...Array.from(groups.values(), ids => ids.length))
   const width = Math.max(760, (maximum + 2) * 128)
-  const height = Math.max(390, (perLevel + 1) * 76)
+  const height = Math.max(390, (perLevel + 1) * LEVEL_ROW_GAP)
   for (const [level, ids] of groups) {
     ids.forEach((id, index) => positions.set(id, {
       x: (level + 1) * width / (maximum + 2),
@@ -53,6 +60,9 @@ function graphLayout(graph: LearningGraph) {
 export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, initialPlanId, focusTarget, onFocusConsumed }: { onNavigate: (page: PageId) => void; notify: (message: string) => void; onStudy?: (planId: string, stageId: string) => void; onPractice?: (planId: string, stageId: string, nodeId: string) => void; initialPlanId?: string | null; focusTarget?: { planId: string; nodeId: string; nonce: number } | null; onFocusConsumed?: () => void }) {
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [plan, setPlan] = useState<LearningPlan | null>(null)
+  // P-136：方案列表首次拉取完成前不渲染「尚未采用学习方案」假空态——
+  // 挂载时 plans 为空、plan 为 null，早退分支会把加载中误报为没有方案
+  const [plansLoaded, setPlansLoaded] = useState(false)
   const [overview, setOverview] = useState<KnowledgeOverview | null>(null)
   const [selected, setSelected] = useState('')
   const [target, setTarget] = useState('')
@@ -93,6 +103,9 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
       const preferred = initialPlanId
       setPlan(current => preferred ? items.find(item => item.id === preferred) || items[0] || null : current ? items.find(item => item.id === current.id) || items[0] || null : items[0] || null)
     } catch (cause) { if (ticket === plansSeq.current) { setError(backendErrorMessage(cause)); setErrorCode(errorCodeOf(cause)); setErrorSource('plans') } } /* 156#4：catch 补同 ticket 复查 */
+    // P-136：首次拉取结束（成功或失败）即退出加载态——失败走错误态，
+    // 成功且零方案才走「尚未采用学习方案」空态
+    finally { if (ticket === plansSeq.current) setPlansLoaded(true) }
   }, [initialPlanId])
   useEffect(() => { void refreshPlans() }, [refreshPlans])
   useEffect(() => { void refreshOverview() }, [refreshOverview])
@@ -181,7 +194,8 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
   // 与改选指引，不再提供注定失败的重试入口
   const pathUnreachable = errorSource === 'path' && errorCode === 'path_not_found'
 
-  if (!plan || !graph) return <div className="page map-page"><div className="page-heading"><div><h1>知识地图</h1><p>地图来自你实际采用的学习方案，不展示预设成绩。</p></div></div>{error ? <div className="provider-empty"><MapIcon size={26} /><h2>知识地图读取失败</h2><p role="alert">{error}</p><Button variant="secondary" onClick={retry}>重新读取</Button></div> : <div className="provider-empty"><MapIcon size={26} /><h2>尚未采用学习方案</h2><p>先根据目标生成并采用方案，辅助资料可选；知识节点、依赖和阅读记录会出现在这里。</p><Button onClick={() => onNavigate('generator')}>前往 AI 方案生成<ArrowRight size={16} /></Button></div>}</div>
+  // P-136：加载态与空态分离——方案列表未回来前不显示「尚未采用学习方案」
+  if (!plan || !graph) return <div className="page map-page"><div className="page-heading"><div><h1>知识地图</h1><p>地图来自你实际采用的学习方案，不展示预设成绩。</p></div></div>{!plansLoaded ? <div className="provider-empty" role="status"><LoaderCircle size={26} className="spin" /><h2>正在读取知识地图</h2><p>正在拉取已采用的学习方案与知识依赖，稍候即可看到真实图谱。</p></div> : error ? <div className="provider-empty"><MapIcon size={26} /><h2>知识地图读取失败</h2><p role="alert">{error}</p><Button variant="secondary" onClick={retry}>重新读取</Button></div> : <div className="provider-empty"><MapIcon size={26} /><h2>尚未采用学习方案</h2><p>先根据目标生成并采用方案，辅助资料可选；知识节点、依赖和阅读记录会出现在这里。</p><Button onClick={() => onNavigate('generator')}>前往 AI 方案生成<ArrowRight size={16} /></Button></div>}</div>
 
   return <div className="page map-page">
     <div className="page-heading"><div><h1>知识地图</h1><p>{plan.goal} · 每个掌握度都有证据，每条路径都来自真实依赖。</p></div><div className="heading-actions"><select aria-label="选择已采用方案" value={plan.id} onChange={event => { setPlan(plans.find(item => item.id === event.target.value) || null); setError(''); setErrorCode('') }}>{plans.map(item => <option value={item.id} key={item.id}>{item.goal} · v{item.version}</option>)}</select><div className="segmented">{['图谱', '列表'].map(item => <button className={view === item ? 'active' : ''} aria-pressed={view === item} key={item} onClick={() => setView(item)}>{item === '图谱' ? <MapIcon size={16} /> : <List size={16} />}{item}</button>)}</div></div></div>
@@ -196,7 +210,7 @@ export default function KnowledgeMap({ onNavigate, notify, onStudy, onPractice, 
         {/* 146#10：show-path 死类已删（无 CSS 规则、无脚本消费）；路径高亮由 path-edge/on-path 类承载 */}
         {view === '图谱' ? <div className="knowledge-canvas" style={{ width: mapWidth, height: mapHeight }}>
           <svg viewBox={`0 0 ${mapWidth} ${mapHeight}`} preserveAspectRatio="none" aria-hidden="true">{graph.edges.map(edge => { const a = positions.get(edge.from); const b = positions.get(edge.to); const onPath = path?.some((id, index) => index < path.length - 1 && id === edge.from && path[index + 1] === edge.to); return a && b ? <line key={`${edge.from}-${edge.to}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={onPath ? 'path-edge' : ''} /> : null })}</svg>
-          {graph.nodes.map(item => { const nodeProgress = overview?.nodes.find(progress => progress.nodeId === item.id); const mastery = nodeProgress?.mastery; const position = positions.get(item.id); if (!position) return null; const hasEvidence = mastery !== null && mastery !== undefined; const middle = hasEvidence || nodeProgress?.readingCompleted; return <button key={item.id} className={`map-node ${hasEvidence ? ((mastery ?? 0) >= 80 ? 'node-mastered' : 'node-learning') : middle ? 'node-learning' : 'node-locked'} ${selected === item.id ? 'selected' : ''} ${path?.includes(item.id) ? 'on-path' : ''}`} aria-current={selected === item.id ? 'true' : undefined} style={{ left: position.x, top: position.y }} onClick={() => { setSelected(item.id); setPath(null); setError(''); setErrorCode('') }}><span className="node-status">{hasEvidence && (mastery ?? 0) >= 80 ? <Check size={15} /> : middle ? <GitBranch size={15} /> : <CircleDashed size={15} />}</span><strong>{item.title}</strong><small>{!hasEvidence ? (nodeProgress?.readingCompleted ? '已阅读' : '待评估') : `${mastery}%`}</small></button> })}
+          {graph.nodes.map(item => { const nodeProgress = overview?.nodes.find(progress => progress.nodeId === item.id); const mastery = nodeProgress?.mastery; const position = positions.get(item.id); if (!position) return null; const hasEvidence = mastery !== null && mastery !== undefined; const middle = hasEvidence || nodeProgress?.readingCompleted; return <button key={item.id} className={`map-node ${hasEvidence ? ((mastery ?? 0) >= 80 ? 'node-mastered' : 'node-learning') : middle ? 'node-learning' : 'node-locked'} ${selected === item.id ? 'selected' : ''} ${path?.includes(item.id) ? 'on-path' : ''}`} aria-current={selected === item.id ? 'true' : undefined} title={item.title} style={{ left: position.x, top: position.y }} onClick={() => { setSelected(item.id); setPath(null); setError(''); setErrorCode('') }}><span className="node-status">{hasEvidence && (mastery ?? 0) >= 80 ? <Check size={15} /> : middle ? <GitBranch size={15} /> : <CircleDashed size={15} />}</span><strong>{item.title}</strong><small>{!hasEvidence ? (nodeProgress?.readingCompleted ? '已阅读' : '待评估') : `${mastery}%`}</small></button> })}
         </div> : <div className="knowledge-list">{graph.nodes.map(item => { const mastery = overview?.nodes.find(progress => progress.nodeId === item.id)?.mastery; return <button key={item.id} onClick={() => { setSelected(item.id); setError(''); setErrorCode('') }} className={selected === item.id ? 'active' : ''} aria-current={selected === item.id ? 'true' : undefined}><div><strong>{item.title}</strong><span>{item.summary}</span></div><div><span>{mastery === null || mastery === undefined ? '待评估' : `${mastery}%`}</span><ProgressBar value={mastery || 0} srLabel={`节点掌握度 ${mastery ?? 0}%`} /></div><ArrowRight size={17} /></button> })}</div>}
       </section>
       {node && <aside className="surface node-detail">

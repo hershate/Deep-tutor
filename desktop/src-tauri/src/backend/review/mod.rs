@@ -468,6 +468,9 @@ pub fn grade<R: Runtime>(
     };
     let due_at =
         timestamp(OffsetDateTime::now_utc() + Duration::seconds_f64(next_interval * 86_400.0))?;
+    // P-144：条件 UPDATE 的判据是「due_at <= 当前时刻」（?8 取本次写事务的
+    // now()），不是与读取到的原 due_at 比对；并发重复评分由 IMMEDIATE 写事务
+    // 串行化与读取阶段的 card_not_due 早检查挡住，本条件是第二道兜底
     let changed = tx.execute(
         "UPDATE review_cards SET due_at = ?1, interval_days = ?2, ease = ?3, repetitions = ?4, lapses = ?5, updated_at = ?6 WHERE id = ?7 AND deleted = 0 AND suspended = 0 AND due_at <= ?8",
         params![due_at, next_interval, ease, if grade == "again" { 0 } else { card.repetitions + 1 }, if grade == "again" { card.lapses + 1 } else { card.lapses }, now()?, id, now()?],
