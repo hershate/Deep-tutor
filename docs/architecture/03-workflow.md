@@ -47,7 +47,7 @@ CI 不部署应用，也不创建 GitHub Release。构建脚本在复制安装�
 
 ### 2.1 测试组织
 
-- 当前有 370 个 Rust `#[test]`，使用 release、锁定依赖和 `--test-threads=1` 串行执行。共享进程状态包括检索端点、迁移计数和同步测试开关。
+- 当前有 373 个 Rust `#[test]`，使用 release、锁定依赖和 `--test-threads=1` 串行执行。共享进程状态包括检索端点、迁移计数和同步测试开关。
 - Node 测试通道两条：`scripts/frontend-test.mjs`（前端 Markdown 与主题缓存等）与 `scripts/build-test.mjs`（构建脚本：安装包发布顺序与旧版本清理），均用 Node 自带 test runner，不新增依赖，`make test` 与 CI 各执行一次。
 - 每域测试与实现同目录；providers、security、practice、sync 等按协议、守卫、考试、主观题、变式或版本拆分。
 - `tauri::test::MockRuntime` 驱动真实命令 IPC；SQLite 使用真实临时数据库；系统密钥库在测试中使用内存实现。

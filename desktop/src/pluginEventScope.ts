@@ -35,6 +35,18 @@ export function deliversTo(plugins: PluginSubscription[], kind: string): boolean
 }
 
 /**
+ * 订阅模式是否指向内部命名空间——后端 plugins::matches 对内部命名空间提前
+ * 返回 false，因此显式订阅（如 draft.*、application.reset）同样不投递。
+ * 存量插件若订阅了这些命名空间，其「真实投递」计数不会再增长：集成页据此
+ * 给出可见提示，避免订阅静默失效（NEW 4）。
+ */
+export function subscriptionTargetsInternalNamespace(pattern: string): boolean {
+  if (pattern === '*') return false
+  const namespace = pattern.split('.')[0] ?? ''
+  return INTERNAL_EVENT_NAMESPACES.includes(namespace)
+}
+
+/**
  * 已安装插件集合是否减少——只有减少才使已加载的「更早投递」分页缓存失效。
  * 单纯新增插件不使既有历史失效；减少时服务端已随卸载 CASCADE 清空对应投递，
  * 内存里的旧行必须一并丢弃，否则「卸载后重装同 id」会让旧行复活为幽灵记录。

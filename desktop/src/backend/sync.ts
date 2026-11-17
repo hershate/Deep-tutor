@@ -29,7 +29,9 @@ export type SyncJob = {
   createdAt: string
   updatedAt: string
 }
-export type SyncOverview = { config: SyncConfigView | null; jobs: SyncJob[] }
+// P-150：nextAutoSyncAt 由后端按调度器同源口径给出（调度器锚点取全表最新
+// upload 行，面板 job 列表只含最近 50 行，无法自行推导锚点）
+export type SyncOverview = { config: SyncConfigView | null; jobs: SyncJob[]; nextAutoSyncAt: string | null }
 export type SyncVersion = { path: string; size: number | null; etag: string | null; lastModified: string | null }
 
 export const syncBackend = {

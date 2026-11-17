@@ -35,6 +35,11 @@
   /* 87#2/87#3：亮色文字级深琥珀——amber-500 亮度只适配深底，作亮色正文
   1.95-2.44:1 系统性欠对比；取 badge-amber 深字色同款（6.75:1） */
   --warning-strong: oklch(0.43 0.09 65);
+  /* P-160：琥珀色进度条填充单列令牌——--warning（亮色即 --amber-500
+  oklch(0.73 0.13 75)）对亮色轨道 --border 只有 1.70:1，低于 WCAG 1.4.11
+  非文字 3:1，填充与轨道近乎同色、进度值目视不可辨；深琥珀
+  oklch(0.55 0.13 75) 对轨道 3.46:1、对页面底色 4.75:1 */
+  --progress-amber: oklch(0.55 0.13 75);
   --focus-ring: var(--accent);
   --danger: var(--red-500);
   --info: var(--blue-500);
@@ -83,6 +88,8 @@
   --info: oklch(0.78 0.1 235);
   /* 暗色沿用既有 warning（已达标）；焦点圈保持高对比 lime */
   --warning-strong: var(--warning);
+  /* P-160：暗色进度条填充沿用既有 warning——对暗色轨道 --border 5.88:1 */
+  --progress-amber: var(--warning);
   --focus-ring: var(--accent-bright);
   /* 87#7：0.70→0.74——主题选中卡/翻卡底注等 accent-soft 深底上的小字
   4.33/4.08:1 边缘不达标，提亮后 ≥4.6:1 */
@@ -216,7 +223,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 .progress-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .progress-track { flex: 1; height: 6px; overflow: hidden; border-radius: 3px; background: var(--border); }
 .progress-fill { height: 100%; border-radius: inherit; background: var(--accent); transition: width .3s ease; }
-.progress-amber { background: var(--warning); }
+.progress-amber { background: var(--progress-amber); }
 .progress-blue { background: var(--info); }
 .progress-label { font-size: 12px; color: var(--muted); }
 .progress-ring { position: relative; display: grid; place-items: center; }
@@ -1380,7 +1387,9 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 .plugin-summary strong { font-size: 20px; }
 .plugin-summary small { color: var(--muted); font-size: 12px; }
 .plugin-upload { margin-left: auto; }
-.plugin-upload label { cursor: pointer; }
+/* P-163：插件安装的可访问路径改由真实按钮承担（原为不可聚焦的 label），
+   样式跟随元素类型调整 */
+.plugin-upload button { cursor: pointer; }
 .integration-main-grid { display: grid; gap: 20px; }
 .plugin-grid { display: grid; gap: 12px; align-content: start; }
 .plugin-card { min-width: 0; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
@@ -1515,7 +1524,7 @@ html.reduce-motion, html.reduce-motion *, html.reduce-motion *::before, html.red
 }
 @media (max-width: 639px) {
   .plugin-upload { margin-left: 0; width: 100%; }
-  .plugin-upload label { width: 100%; }
+  .plugin-upload button { width: 100%; }
   .shared-plan > header > span { display: none; }
 }
 

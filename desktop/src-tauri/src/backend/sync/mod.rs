@@ -113,6 +113,10 @@ pub struct SyncConfigView {
 pub struct SyncOverview {
     pub config: Option<SyncConfigView>,
     pub jobs: Vec<SyncJobView>,
+    /// P-150：调度器下一次到期的时刻（RFC3339）——自动同步未开启、最新
+    /// upload 仍在进行中或锚点不可解析时为 None。面板的「下次自动同步」
+    /// 直接取此字段，不自行推导锚点
+    pub next_auto_sync_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -432,7 +436,20 @@ pub fn overview(service: &SyncService) -> Result<SyncOverview> {
         .iter()
         .map(|id| job_with(&store, id))
         .collect::<Result<Vec<_>>>()?;
-    Ok(SyncOverview { config, jobs })
+    // P-150：下次自动同步的到期时刻由后端按调度器同源口径给出——调度器
+    // 锚点取全表最新 upload 行（rowid 倒序），而 overview 的 job 列表只含
+    // 最近 50 行，前端在窗口内找不到 upload 行时无从推导真实锚点
+    let next_auto_sync_at = match &config {
+        Some(view) if view.config.auto_sync => {
+            scheduler::next_due_at(&store.conn, &view.config.updated_at)?
+        }
+        _ => None,
+    };
+    Ok(SyncOverview {
+        config,
+        jobs,
+        next_auto_sync_at,
+    })
 }
 
 pub fn job(service: &SyncService, id: &str) -> Result<SyncJobView> {
@@ -623,6 +640,10 @@ fn run<R: Runtime>(
                     "本地同步文件写入校验失败",
                 ));
             }
+            // P-034：下载目的地登记 reveal 回执——「在资源管理器中显示」只
+            // 放行数据根目录与本进程近期真实写出的文件，同步下载落盘后
+            // 从未登记，按钮必然被 reveal 白名单拒绝（提示与事实不符）
+            super::reveal::register(&path);
             if import {
                 let imported = providers::sync_config::import(app, &service.providers, &bytes)?;
                 Ok(Outcome {

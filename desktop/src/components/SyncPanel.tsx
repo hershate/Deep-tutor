@@ -149,10 +149,32 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
     } catch (cause) { setRestoreError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
   const configured = Boolean(overview?.config)
+  const config = overview?.config?.config
+  // P-150：凭据缺失须在面板可见——徽章原先只判「有没有配置」，凭据被清除或
+  // 切换同步类型后仍显示「原生同步」，用户只能等任务失败才发现。S3 恒需
+  // Access/Secret，WebDAV 仅 basic/bearer 需要；无认证的 WebDAV 本就没有
+  // 凭据，不算缺失
+  const credentialRequired = Boolean(config) && (config?.kind === 's3' || config?.authKind !== 'none')
+  const missingCredentials = credentialRequired && !overview?.config?.hasCredentials
+  // P-150：下次自动同步时间由后端给出——调度器的锚点是全表最新 upload 行
+  // （rowid 倒序），而 overview 的 job 列表只含最近 50 行，前端在窗口内找不到
+  // upload 行时无从推导真实锚点（退回 config.updated_at 会与调度器口径分叉）。
+  // 后端口径与 due() 一致：成功后 24 小时、失败后 1 小时、时钟回拨按立即到期
+  const nextAutoSync = useMemo(() => {
+    if (!config?.autoSync) return ''
+    const running = overview?.jobs.find(job => job.kind === 'upload' && ['running', 'cancelling'].includes(job.status))
+    if (running) return '同步任务进行中，结束后重新计算'
+    const due = overview?.nextAutoSyncAt
+    if (!due) return ''
+    const timestamp = Date.parse(due)
+    if (Number.isNaN(timestamp)) return ''
+    if (timestamp <= Date.now()) return '已到期，调度器将在下一轮检查（最多 1 分钟）内触发'
+    return new Date(timestamp).toLocaleString()
+  }, [config?.autoSync, overview?.jobs, overview?.nextAutoSyncAt])
   const checkIcon = busy === 'check' ? <LoaderCircle size={16} className="spin" /> : <Eye size={16} />
   const saveIcon = busy === 'save' ? <LoaderCircle size={16} className="spin" /> : <CheckCircle2 size={16} />
   return <section className="surface cloud-sync">
-    <SectionHeader title="配置同步" description="只同步脱敏供应商档案与任务路由；不上传学习数据或密钥" action={<Badge tone={configured ? 'green' : 'neutral'}>{configured ? '原生同步' : '未配置'}</Badge>} />
+    <SectionHeader title="配置同步" description="只同步脱敏供应商档案与任务路由；不上传学习数据或密钥" action={<Badge tone={missingCredentials ? 'amber' : configured ? 'green' : 'neutral'}>{missingCredentials ? '缺少凭据' : configured ? '原生同步' : '未配置'}</Badge>} />
     <p>WebDAV / S3 由 Rust 实际请求并回读校验。API Key、学习资料、笔记和会话不进入同步载荷。</p>
     <div className="data-actions">
       <Button variant="secondary" size="sm" onClick={() => setConfigOpen(true)}><CloudCog size={15} />配置与检测</Button>
@@ -162,7 +184,11 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
       {downloadTarget && <RevealExport path={downloadTarget} />}
     </div>
     <div className="data-actions"><Button variant="ghost" size="sm" disabled={!configured || busy === 'versions'} onClick={() => void openVersions()}><RefreshCw size={15} />{busy === 'versions' ? '正在读取远端版本…' : '浏览远端历史版本'}</Button></div>
-    <p className="form-help">自动同步开启后每 24 小时检查到期任务；上传同时保存历史版本，最多保留最近 10 个。</p>
+    {/* P-150：文案按真实调度口径写——调度器每 60 秒检查一次到期任务，
+        24 小时是「上次成功后的间隔」，失败后 1 小时内重试；原文案只说
+        「每 24 小时检查到期任务」，用户看不到失败后的短退避 */}
+    <p className="form-help">自动同步{config?.autoSync ? '已开启' : '未开启'}：原生调度器每分钟检查一次到期任务——上次成功后 24 小时到期，上次失败后 1 小时内自动重试。{nextAutoSync && `下次自动同步：${nextAutoSync}。`}上传同时保存历史版本，最多保留最近 10 个。</p>
+    {missingCredentials && <div className="form-error" role="alert">系统密钥库中没有本服务的凭据，上传与下载都会失败——请在「配置与检测」中重新填写。</div>}
     {error && <div className="form-error" role="alert">{error}</div>}
     <div className="sync-jobs">
       {overview?.jobs.map(job => <div className="sync-job" key={job.id}>
@@ -202,7 +228,9 @@ export default function SyncPanel({ notify }: { notify: (message: string) => voi
           <label>Secret Key<input type="password" autoComplete="new-password" value={secretKey} onChange={event => setSecretKey(event.target.value)} placeholder="留空则保留已有凭据" /></label>
         </div>}
         <Toggle checked={form.allowPrivate} onChange={value => update('allowPrivate', value)} label="允许本机或私网服务" description="仅用于明确的本地 MinIO / WebDAV。未开启时公网服务必须使用 HTTPS，禁止访问私网地址。" />
-        <Toggle checked={form.autoSync} onChange={value => update('autoSync', value)} label="每 24 小时自动同步" description="保存后由原生调度器检查到期任务；每次上传保留历史版本，最近 10 个可恢复。" />
+        {/* P-150：开关标签只写「每 24 小时」只覆盖成功后的间隔，失败后 1 小时
+            的短退避重试在界面上不可见——标签与说明按真实调度口径写 */}
+        <Toggle checked={form.autoSync} onChange={value => update('autoSync', value)} label="自动同步" description="原生调度器每分钟检查一次到期任务：上次成功后 24 小时到期，上次失败后 1 小时内重试。每次上传保留历史版本，最近 10 个可恢复。" />
         <Toggle checked={clearCredentials} onChange={setClearCredentials} label="清除此服务的已保存凭据" description="保存后删除系统密钥库中对应的同步凭据，不影响模型供应商密钥。" />
         {error && <div className="form-error" role="alert">{error}</div>}
         <div className="share-actions">

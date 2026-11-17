@@ -25,10 +25,7 @@ pub fn run_due<R: Runtime>(
         return Ok(None);
     }
     let store = service.store()?;
-    let (anchor_text, last_status) = match upload_anchor(&store.conn)? {
-        Some(row) => row,
-        None => (Some(config.updated_at.clone()), None),
-    };
+    let (anchor_text, last_status) = resolve_anchor(&store.conn, &config.updated_at)?;
     let Some(anchor_text) = anchor_text else {
         // 124#4：最新 upload 行 finished_at 为 NULL（任务进行中）——原先
         // 按非空列解析抛 InvalidColumnType，长上传期间每分钟报错一次；
@@ -82,9 +79,57 @@ pub(crate) fn due(anchor: OffsetDateTime, last_failed: bool, now: OffsetDateTime
     if anchor > now {
         return true;
     }
-    // 47#5：失败后 1 小时短退避重试，成功/取消按滚动 24h
-    let interval = if last_failed { 1 } else { 24 };
-    anchor + time::Duration::hours(interval) <= now
+    anchor + time::Duration::hours(interval_hours(last_failed)) <= now
+}
+
+/// 47#5：失败后 1 小时短退避重试，成功/取消按滚动 24h。
+/// due() 与 next_due_at() 共用该口径——面板显示的到期时刻与调度器判定
+/// 不得各自维护一份间隔常数
+pub(crate) fn interval_hours(last_failed: bool) -> i64 {
+    if last_failed {
+        1
+    } else {
+        24
+    }
+}
+
+/// P-150：调度锚点的单一解析口径——全表最新 upload 行的 (finished_at,
+/// status)；表内从未有过 upload 行时退回配置的 updated_at（与 run_due 同源，
+/// 面板显示的到期时刻不得另立一份锚点口径）
+pub(crate) fn resolve_anchor(
+    conn: &rusqlite::Connection,
+    config_updated_at: &str,
+) -> Result<(Option<String>, Option<String>)> {
+    Ok(match upload_anchor(conn)? {
+        Some(row) => row,
+        None => (Some(config_updated_at.to_string()), None),
+    })
+}
+
+/// P-150：调度器下一次到期的时刻（RFC3339）。
+/// 面板的「下次自动同步」必须与调度器同源：调度器锚点取全表最新 upload 行
+/// （rowid 倒序，见 upload_anchor），而 overview 只返回最近 50 条 job，
+/// 前端在窗口内找不到 upload 行时无从推导真实锚点（此前退回 config.updated_at
+/// 会与调度器口径分叉）。口径与 due() 一致：时钟回拨（锚点落在未来）按立即
+/// 到期处理；最新 upload 仍在进行中（finished_at 为 NULL）时无到期时刻。
+pub(crate) fn next_due_at(
+    conn: &rusqlite::Connection,
+    config_updated_at: &str,
+) -> Result<Option<String>> {
+    let (anchor_text, last_status) = resolve_anchor(conn, config_updated_at)?;
+    let Some(anchor_text) = anchor_text else {
+        return Ok(None);
+    };
+    let anchor = OffsetDateTime::parse(&anchor_text, &Rfc3339).map_err(|_| {
+        super::super::error::BackendError::new("invalid_sync_schedule", "同步调度时间无效")
+    })?;
+    let now = OffsetDateTime::now_utc();
+    let due_at = if anchor > now {
+        now
+    } else {
+        anchor + time::Duration::hours(interval_hours(last_status.as_deref() == Some("failed")))
+    };
+    Ok(Some(due_at.format(&Rfc3339)?))
 }
 
 #[cfg(not(test))]

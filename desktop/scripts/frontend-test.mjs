@@ -25,7 +25,7 @@ import { prepareMarkdown } from '../src/markdown/prepare.ts'
 import { applyAccountTheme, cacheTheme, readCachedTheme } from '../src/theme.ts'
 import { readableErrorMessage } from '../src/errors.ts'
 import { EMPTY_RATE_VALUES, editRateDraft, hasSavedRate, rateDisplayValues, rateDraftCommitted, savedRateValues } from '../src/usageRateDraft.ts'
-import { deliversTo, pluginSetShrunk } from '../src/pluginEventScope.ts'
+import { deliversTo, pluginSetShrunk, subscriptionTargetsInternalNamespace } from '../src/pluginEventScope.ts'
 import { guardAppSnapshot, SNAPSHOT_INCOMPATIBLE_MESSAGE } from '../src/backend/appSnapshot.ts'
 import { decideTransientRetry, MAX_TRANSIENT_RETRIES, TRANSIENT_RETRY_DELAY_MS } from '../src/backend/transientRetry.ts'
 
@@ -674,7 +674,7 @@ test('P-024：前端投递判定与后端 plugins::matches 同口径（内部事
   )
   const source = readSource('../src/pages/Integrations.tsx')
   assert.ok(
-    source.includes("import { deliversTo, pluginSetShrunk } from '../pluginEventScope'"),
+    /import \{[^}]*\bdeliversTo\b[^}]*\} from '\.\.\/pluginEventScope'/.test(source),
     '集成页必须使用与后端同口径的判据实现',
   )
   assert.ok(
@@ -951,5 +951,226 @@ test('P-133 返工：排期日期上限等于后端可表示的最后一个日�
   assert.ok(
     !plan.includes('9999-12-30'),
     '不得再把 9999-12-30 当作最后一个可用日期——该日所在周起点 +7 天越过 9999-12-31',
+  )
+})
+
+// P-150：自动同步帮助文案与真实调度口径不一致——调度器每 60 秒检查一次到期
+// 任务，成功后 24 小时、失败后 1 小时短退避重试（scheduler.rs 的 due()）；
+// 面板原文案只写「每 24 小时检查到期任务」，失败后的短退避在界面上完全
+// 不可见，且凭据被清除后徽章仍显示「原生同步」，用户只能等任务失败才发现。
+test('P-150：自动同步文案按真实调度口径写，面板消费凭据状态', () => {
+  const source = readSource('../src/components/SyncPanel.tsx')
+  assert.ok(
+    !source.includes('自动同步开启后每 24 小时检查到期任务'),
+    '不得再写「每 24 小时检查到期任务」——调度器每分钟检查一次，24 小时只是成功后的间隔',
+  )
+  assert.ok(
+    source.includes('上次失败后 1 小时内自动重试'),
+    '失败后的 1 小时短退避必须在面板文案里可见',
+  )
+  assert.ok(
+    source.includes('label="自动同步"'),
+    '开关标签不得只表达 24 小时口径',
+  )
+  assert.ok(
+    source.includes('hasCredentials'),
+    '面板必须消费后端契约字段 hasCredentials——凭据被清除后徽章不得仍显示「原生同步」',
+  )
+  assert.ok(
+    source.includes("missingCredentials ? '缺少凭据'"),
+    '凭据缺失时徽章必须给出可区分的提示',
+  )
+  assert.ok(
+    source.includes("自动同步{config?.autoSync ? '已开启' : '未开启'}"),
+    '主面板必须展示自动同步开关状态——该开关原先只在配置弹窗内可见',
+  )
+  // 残余（NEW 1）：面板原先用 overview.jobs 里的首个 upload 推导锚点，
+  // 而后端 overview 只返回最近 50 条 job、调度器锚点取全表最新 upload 行
+  // （从未上传过时退回 config.updated_at）——两者分叉时面板显示的下次同步
+  // 时刻与真实调度不一致。锚点改由后端按调度器同源口径给出。
+  assert.ok(
+    source.includes('nextAutoSyncAt'),
+    '面板必须消费后端给出的 nextAutoSyncAt——自行从 job 列表推导锚点会与调度器口径分叉',
+  )
+  assert.ok(
+    !source.includes("overview?.jobs.find(job => job.kind === 'upload')"),
+    '面板不得再从 job 列表推导调度锚点——该列表只含最近 50 条，与调度器的全表锚点不同源',
+  )
+  const syncTypes = readSource('../src/backend/sync.ts')
+  assert.ok(
+    syncTypes.includes('nextAutoSyncAt'),
+    '前端契约类型必须声明 nextAutoSyncAt——后端 overview 已返回该字段',
+  )
+})
+
+// NEW 4：内部事件命名空间（state/draft/application）不对插件开放——后端
+// plugins::matches 提前返回 false，显式订阅（如 draft.*）同样不投递。存量
+// 插件若订阅了这些命名空间，其「真实投递」计数不再增长；集成页原先只有
+// 「只允许下列真实命名空间」一句，未提示旧订阅失效。
+test('NEW 4：集成页对内部命名空间的存量订阅给出可见提示', () => {
+  // 判定本身先验一遍：显式订阅内部命名空间确实不再投递，通配与业务命名空间不受影响
+  for (const pattern of ['state.*', 'draft.saved', 'application.reset']) {
+    assert.equal(
+      subscriptionTargetsInternalNamespace(pattern),
+      true,
+      `${pattern} 指向内部命名空间——后端 matches 提前返回 false，不会投递`,
+    )
+  }
+  assert.equal(subscriptionTargetsInternalNamespace('*'), false, '通配订阅不指向单个内部命名空间')
+  assert.equal(subscriptionTargetsInternalNamespace('practice.*'), false, '业务命名空间订阅不得被判为内部订阅')
+  const scope = readSource('../src/pluginEventScope.ts')
+  assert.ok(
+    scope.includes('export function subscriptionTargetsInternalNamespace'),
+    '必须提供判定「订阅是否指向内部命名空间」的纯函数——页面与回归测试共用同一份实现',
+  )
+  const integrations = readSource('../src/pages/Integrations.tsx')
+  assert.ok(
+    integrations.includes('subscriptionTargetsInternalNamespace'),
+    '集成页必须消费该判定，标出不再投递的存量订阅',
+  )
+  assert.ok(
+    integrations.includes('内部命名空间，不投递'),
+    '内部命名空间的订阅必须有可见标注——否则订阅静默失效',
+  )
+  assert.ok(
+    integrations.includes('state / draft / application'),
+    '集成页必须说明内部命名空间既不被通配订阅命中、也不被显式订阅命中',
+  )
+  assert.ok(
+    /plugin\.subscriptions\.filter\(pattern => !subscriptionTargetsInternalNamespace\(pattern\)\)/.test(integrations),
+    '「有效事件订阅」计数必须排除指向内部命名空间的订阅——后端不再投递，计入即失真',
+  )
+})
+
+// P-156：资料库概览的事件订阅无去抖——批量导入每 32 个文件一批调用后端
+// stage，每份文件各发一条 material.staged，入队解析再各发 material.queued
+// 与解析进度事件；原先每条匹配事件直发一次全量 overview 重拉（读整份
+// notes 并逐条正文算 SHA-256，全程持 store 锁）。
+test('P-156：资料库概览的事件重拉必须去抖合并', () => {
+  const raw = readSource('../src/pages/Library.tsx')
+  const source = stripLineComments(raw)
+  assert.ok(
+    source.includes('const throttledLoad = deltaThrottle()'),
+    '概览重拉必须经节流合并——事件风暴下每条事件触发一次全量 overview 读取',
+  )
+  assert.ok(
+    source.includes('throttledLoad(() => void load())'),
+    '事件回调必须走合并后的重拉入口',
+  )
+  assert.ok(
+    !source.includes("))) void load()"),
+    '事件回调不得再直发 load()——批量导入期间数百条事件各触发一次重叠的全量重拉',
+  )
+  assert.ok(
+    raw.includes('deltaThrottle'),
+    'Library 必须引入 deltaThrottle',
+  )
+})
+
+// P-160：亮色主题 .progress-amber 填充取 --warning（= --amber-500
+// oklch(0.73 0.13 75)），对亮色轨道 --border（oklch(0.88 0.015 120)）只有
+// 1.70:1，低于 WCAG 2.1 成功准则 1.4.11（非文字对比）的 3:1——填充与轨道
+// 近乎同色，进度值目视不可辨。本测试按 OKLCH → sRGB → WCAG 相对亮度实测
+// 两套主题的对比度，改回旧值即失败。
+/** OKLCH → 线性 sRGB */
+function oklchToLinearSrgb(L, C, hDeg) {
+  const h = (hDeg * Math.PI) / 180
+  const a = C * Math.cos(h)
+  const b = C * Math.sin(h)
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b
+  const l = l_ * l_ * l_
+  const m = m_ * m_ * m_
+  const s = s_ * s_ * s_
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ]
+}
+
+/** 线性 sRGB → 传输函数编码（0-1） */
+function encodeSrgb(channel) {
+  const c = Math.max(0, Math.min(1, channel))
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055
+}
+
+/** WCAG 相对亮度 */
+function relativeLuminance(L, C, h) {
+  const [r, g, b] = oklchToLinearSrgb(L, C, h).map(channel => {
+    const value = encodeSrgb(channel)
+    return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/** 两组 OKLCH 颜色的 WCAG 对比度 */
+function oklchContrast(first, second) {
+  const a = relativeLuminance(...first)
+  const b = relativeLuminance(...second)
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+/** 从 CSS 块里取自定义属性值（var() 引用在同块内解析） */
+function cssToken(block, name, depth = 0) {
+  const match = block.match(new RegExp(`--${name}:\\s*([^;]+);`))
+  if (!match) return ''
+  const value = match[1].trim()
+  const reference = value.match(/^var\((--[a-z0-9-]+)\)$/)
+  if (reference && depth < 4) return cssToken(block, reference[1].slice(2), depth + 1)
+  return value
+}
+
+/** 解析 oklch(L C H) 为三元组 */
+function parseOklch(value) {
+  const match = value.match(/oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)/)
+  assert.ok(match, `无法解析 OKLCH 取值：${value}`)
+  return [Number(match[1]), Number(match[2]), Number(match[3])]
+}
+
+test('P-160：琥珀色进度条填充对轨道对比度不低于 3:1', () => {
+  const css = readSource('../src/styles.css')
+  const light = css.split(':root {')[1].split(':root[data-theme="dark"] {')[0]
+  const dark = css.split(':root[data-theme="dark"] {')[1]
+  for (const [theme, block] of [['亮色', light], ['暗色', dark]]) {
+    const fill = parseOklch(cssToken(block, 'progress-amber'))
+    const track = parseOklch(cssToken(block, 'border'))
+    const ratio = oklchContrast(fill, track)
+    assert.ok(
+      ratio >= 3,
+      `${theme}主题进度条填充对轨道的对比度须不低于 3:1，实际 ${ratio.toFixed(3)}:1`,
+    )
+  }
+  assert.ok(
+    !/\.progress-amber \{ background: var\(--warning\); \}/.test(css),
+    '进度条填充不得再直接取 --warning——亮色值对轨道仅 1.70:1',
+  )
+})
+
+// P-163：.visually-hidden 的文件输入仍在 Tab 序中且焦点圈被裁剪到不可见，
+// ProviderHub 侧还缺可访问名（读屏只播报浏览器默认的「选择文件 按钮」）。
+test('P-163：隐藏文件输入退出 Tab 序并带可访问名', () => {
+  const hub = readSource('../src/pages/ProviderHub.tsx')
+  assert.ok(
+    /type="file"[^>]*tabIndex=\{-1\}/.test(hub),
+    '模型接入中心的文件输入必须退出 Tab 序——焦点圈画在 1px 裁剪区外不可见',
+  )
+  assert.ok(
+    /type="file"[^>]*aria-label="导入 JSON 配置文件"/.test(hub),
+    '模型接入中心的文件输入必须带可访问名',
+  )
+  const integrations = readSource('../src/pages/Integrations.tsx')
+  assert.ok(
+    /type="file"[^>]*tabIndex=\{-1\}/.test(integrations),
+    '插件安装的文件输入必须退出 Tab 序',
+  )
+  assert.ok(
+    !integrations.includes('<label htmlFor="plugin-file"'),
+    '插件安装的可访问路径不得由原生 label 承担——label 不可聚焦，键盘用户无法触发',
+  )
+  assert.ok(
+    integrations.includes('pluginFileRef.current?.click()'),
+    '插件安装必须由真实按钮触发文件选择器',
   )
 })

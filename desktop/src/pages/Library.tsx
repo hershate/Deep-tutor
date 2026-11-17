@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { clampToBytes, utf8Bytes } from '../limits'
-import { BookOpen, Check, ChevronRight, Download, File, FileArchive, FileAudio, FileText, Film, Folder, Globe2, Link2, LoaderCircle, NotebookPen, Search, ShieldCheck, Tag, Trash2, Upload, X } from 'lucide-react'
+import { BookOpen, Check, ChevronRight, Download, File, FileArchive, FileAudio, FileText, Film, Folder, Globe2, Link2, LoaderCircle, NotebookPen, Search, ShieldCheck, Tag, Trash2, Upload, X } from '../components/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -11,7 +11,7 @@ import type { Note, Resource } from '../data'
 import { Badge, Button, ConfirmDialog, EmptyState, MarkdownLink, Modal, ProgressBar } from '../components/UI'
 import { localId } from '../ids'
 import WikiPanel from '../components/WikiPanel'
-import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace } from '../backend/client'
+import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace, deltaThrottle } from '../backend/client'
 import type { MaterialDetail, WriteReceipt } from '../backend/client'
 import { exportBackend } from '../backend/export'
 import { importMaterialPaths, summarizeMaterialImport } from '../backend/materialImport'
@@ -34,6 +34,18 @@ const materialStatus: Record<string, string> = {
 // 详情弹窗原先把整篇塞进单个 <pre> 文本节点，打开时秒级卡顿、滚动迟滞。
 // 弹窗只渲染前 120000 字，完整文本走「导出文本」落到本地查看
 const MATERIAL_PREVIEW_CHARS = 120000
+
+// P-013：无标签时的落库值——后端要求标签非空，空标签按「未分类」保存
+const DEFAULT_NOTE_TAG = '未分类'
+
+// P-011：笔记预览 memo 化——每次击键触发 Library 整体重渲染，未 memo 的
+// ReactMarkdown 每次都新建插件数组与 components 对象，React 按引用变化
+// 判定需要更新，于是整篇 Markdown/KaTeX 同步重解析（正文 1 MB 时单次
+// 解析可达秒级，WebView 主线程被独占）。防抖只推迟 previewText 写入，
+// 拦不住重解析；讲义页已用同一 memo 范式修复（80#2），两处口径统一。
+const MemoMarkdown = memo(function MemoMarkdown({ text }: { text: string }) {
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeKatexError]} components={{ a: MarkdownLink }}>{prepareMarkdown(text)}</ReactMarkdown>
+})
 
 // 19#3：updated 字段渲染为相对时间——历史遗留的相对文案（如"刚刚"）原样展示
 function formatUpdated(value: string) {
@@ -75,7 +87,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
   }, [noteContent])
   // 74#11：笔记工具栏作用于光标/选区——原先一律文末追加固定模板，与「加粗」名义不符
   const noteAreaRef = useRef<HTMLTextAreaElement>(null)
-  const [noteTag, setNoteTag] = useState('未分类')
+  const [noteTag, setNoteTag] = useState(DEFAULT_NOTE_TAG)
   const [dirty, setDirty] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
@@ -152,17 +164,23 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     return scope.filter(id => resources.some(resource => resource.id === id))
   }, [resources, wikiSelection, wikiDefault])
   const draftKey = `deep-tutor-draft-${activeNote?.id || 'new'}`
+  // P-013：标签非空是后端口径（空标签整批保存被拒）——清空输入框时按
+  // 「未分类」落库，与打开笔记时的默认标签同口径；不这样做则保存必失败，
+  // 且每次停顿的草稿自动保存都重复报错
+  const noteTagValue = noteTag.trim() ? noteTag : DEFAULT_NOTE_TAG
 
   const enqueueDraft = (force = false) => {
     if (draftBlocked.current && !force) return draftWrite.current
-    const write = draftWrite.current.catch(() => {}).then(() => backend.saveDraft(draftKey, { title: noteTitle, content: noteContent, tag: noteTag, savedAt: Date.now() }, draftRevisionRef.current ?? undefined)).then(snapshot => {
+    const write = draftWrite.current.catch(() => {}).then(() => backend.saveDraft(draftKey, { title: noteTitle, content: noteContent, tag: noteTagValue, savedAt: Date.now() }, draftRevisionRef.current ?? undefined)).then(snapshot => {
       if (typeof snapshot?.versions?.drafts === 'number') draftRevisionRef.current = snapshot.versions.drafts
     }).catch(error => {
       // 75#4：并发冲突停止后续自动保存（防 350ms 循环反复报错），
       // 错误经 reportBackendError 提示用户；重开笔记时重置期望版本
       // 109#4：record_too_large 同置 blocked——正文钳制兜底后理论不可达，
       // 异常路径（如旧草稿恢复后立即超限）不再每停顿报一次错
-      if (typeof error === 'object' && error !== null && ['revision_conflict', 'record_too_large'].includes((error as { code?: string }).code ?? '')) draftBlocked.current = true
+      // P-013：invalid_field 同置 blocked——载荷本身不合法（如标签为空）
+      // 时每次停顿重试都只会重复报错刷屏，停止自动保存并由用户修正
+      if (typeof error === 'object' && error !== null && ['revision_conflict', 'record_too_large', 'invalid_field'].includes((error as { code?: string }).code ?? '')) draftBlocked.current = true
       throw error
     })
     draftWrite.current = write
@@ -224,10 +242,17 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
       } catch (cause) { fail(cause) }
     }
     void load()
+    // P-156：事件风暴下的 overview 重拉去抖——批量导入每 32 个文件一批调用
+    // 后端 stage，每份文件各发一条 material.staged，入队解析再各发
+    // material.queued 与解析进度事件；原先每条匹配事件直发一次 load
+    // （overview 读整份 notes 并逐条正文算 SHA-256，全程持 store 锁），
+    // 数百条事件即数百次重叠的全量重拉与重渲染。改用 deltaThrottle 合并
+    // （PlanGenerator 同款），首帧读取仍立即执行
+    const throttledLoad = deltaThrottle()
     void onBackendEvent(event => {
-      if (active && (event.kind.startsWith('material.') || event.kind.startsWith('plan.') || event.kind === 'study.note_saved' || event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'notes'))) void load()
+      if (active && (event.kind.startsWith('material.') || event.kind.startsWith('plan.') || event.kind === 'study.note_saved' || event.kind === 'security.session_started' || (event.kind === 'state.changed' && event.payload.namespace === 'notes'))) throttledLoad(() => void load())
     }).then(unlisten => { if (active) stop = unlisten; else unlisten() }).catch(fail)
-    return () => { active = false; stop?.() }
+    return () => { active = false; throttledLoad.cancel(); stop?.() }
   }, [libraryReloadKey])
 
   const importMaterials = async () => {
@@ -332,7 +357,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
       draftRevisionRef.current = revision
       setActiveNote(note || null); setDraftRestored(Boolean(draft))
       if (draft) { setNoteTitle(draft.title); setNoteContent(draft.content); setNoteTag(draft.tag); setDirty(true) }
-      else { setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || '未分类'); setDirty(false) }
+      else { setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || DEFAULT_NOTE_TAG); setDirty(false) }
       setNoteOpen(true); setOpeningNoteId(null)
     }).catch(error => {
       if (ticket !== openingNoteSeq.current) return
@@ -340,7 +365,7 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
       // 156#2：兜底路径重置版本基线——草稿读失败时不携带上一次打开的
       // revision（保存前忽略期望版本，由后端按真实版本判定）
       draftRevisionRef.current = null
-      setActiveNote(note || null); setDraftRestored(false); setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || '未分类'); setDirty(false); setNoteOpen(true); setOpeningNoteId(null)
+      setActiveNote(note || null); setDraftRestored(false); setNoteTitle(note?.title || ''); setNoteContent(note?.content || ''); setNoteTag(note?.tag || DEFAULT_NOTE_TAG); setDirty(false); setNoteOpen(true); setOpeningNoteId(null)
     })
   }
   // 82#4：冲突冻结时给出明确出口——原先 draftBlocked 下 closeNote 直接
@@ -382,9 +407,9 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
         ? current => {
             const hit = current.some(n => n.id === activeNote.id)
             existed = hit
-            return hit ? current.map(n => n.id === activeNote.id ? { ...n, title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: stamp } : n) : current
+            return hit ? current.map(n => n.id === activeNote.id ? { ...n, title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTagValue, updated: stamp } : n) : current
           }
-        : current => [{ id: localId(), title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTag, updated: stamp }, ...current])
+        : current => [{ id: localId(), title: noteTitle.trim(), content: noteContent.trim(), excerpt: noteContent.trim().slice(0, 90), tag: noteTagValue, updated: stamp }, ...current])
       await backend.deleteDraft(draftKey)
       setDirty(false); setNoteOpen(false)
       if (activeNote && !existed) notify('这条笔记已在其他窗口被删除，本次修改未保存')
@@ -454,8 +479,8 @@ export default function Library({ notes, setNotes, resources, onImportNotes, not
     <section className="library-bottom"><div><Tag size={18} /><span>资料库概览</span></div><p><strong>{notes.length + resources.length}</strong> 个条目 · <strong>{libraryOverview?.linkedNodes ?? 0}</strong> 个已关联知识节点 · 笔记、原件及解析文本由原生后端管理</p><button onClick={() => setCheckOpen(true)}>检查资料库<ShieldCheck size={16} /></button></section>
 
     <Modal open={checkOpen} onClose={() => setCheckOpen(false)} title="真实资料库检查" wide><div className="form-stack"><p className="form-help">检查当前用户的笔记关联、完全相同的正文、原件可用性和解析状态。不会自动删除笔记或原件。</p><div className="form-grid"><div><strong>{libraryOverview?.unlinkedNotes ?? '—'}</strong><p>未关联笔记</p></div><div><strong>{libraryOverview?.duplicateNoteGroups ?? '—'}</strong><p>重复正文组</p></div><div><strong>{libraryOverview?.missingOriginals ?? '—'}</strong><p>缺失原件</p></div><div><strong>{libraryOverview?.failedMaterials ?? '—'}</strong><p>解析失败</p></div></div><div className="milestone-list">{libraryOverview?.issues.map(issue => <div className="milestone-row" key={issue.id}><span className="milestone-marker"><Tag size={15} /></span><div><strong>{issue.title}</strong><p>{issue.detail}</p></div><Badge tone={issue.severity === 'error' ? 'red' : issue.severity === 'warning' ? 'amber' : 'neutral'}>{issue.severity === 'error' ? '失败' : issue.severity === 'warning' ? '需检查' : '提示'}</Badge>{issue.noteId && notes.some(note => note.id === issue.noteId) ? <Button variant="ghost" size="sm" onClick={() => { const note = notes.find(item => item.id === issue.noteId); if (note) { setCheckOpen(false); openNote(note) } }}>打开笔记</Button> : issue.materialId && resources.some(resource => resource.id === issue.materialId) ? <Button variant="ghost" size="sm" onClick={() => { setCheckOpen(false); void openMaterial(issue.materialId!) }}>打开资料</Button> : null}</div>)}{libraryOverview && !libraryOverview.issues.length && <EmptyState title="当前没有需要提示的条目" description="没有重复正文、未关联笔记、缺失原件或解析失败。此结果只描述上述真实检查范围。" />}{!libraryOverview && (libraryError ? <div className="form-error" role="alert"><p>{libraryError}</p><Button variant="secondary" size="sm" onClick={() => { setLibraryError(''); setLibraryReloadKey(current => current + 1) }}>重新检查</Button></div> : <p>正在读取真实笔记、关联和资料状态…</p>)}</div></div></Modal>
-    <Modal open={noteOpen} onClose={closeNote} title={activeNote ? '编辑笔记' : '新建笔记'} wide><div className="note-editor"><div className="editor-meta"><input value={noteTitle} disabled={saving} onChange={e => { setNoteTitle(clampToBytes(e.target.value, 500)); setDirty(true) }} placeholder="笔记标题" aria-label="笔记标题" />{/* 82#5：标签改为可输入 combobox——原先 select 只有既有标签，词表被冻结无法新增 */}<><input list="note-tag-options" value={noteTag} disabled={saving} onChange={e => { setNoteTag(clampToBytes(e.target.value, 100)); setDirty(true) }} placeholder="输入或选择标签" aria-label="笔记标签" /><datalist id="note-tag-options">{noteTags.map(tag => <option key={tag} value={tag} />)}</datalist></></div>{draftRestored && <div className="draft-notice"><Check size={15} />已恢复未保存草稿；本地草稿与离开警告双重保护。</div>}<div className="editor-toolbar"><span>Markdown + GFM + LaTeX</span>{/* 60#5：51#14 的保存期锁定未覆盖工具栏——点击仍追加内容并置 dirty，不进本次保存载荷 */}<button disabled={saving} onClick={() => insertAtSelection('\n## ', '\n')}>H2</button><button disabled={saving} onClick={() => insertAtSelection('**', '**')}>加粗</button><button disabled={saving} onClick={() => insertAtSelection('\n- ', '')}>列表</button><button disabled={saving} onClick={() => insertAtSelection('\n```ts\n', '\n```\n')}>代码</button><button disabled={saving} onClick={() => insertAtSelection('\n$$\nP(A|B)=\\frac{P(B|A)P(A)}{P(B)}', '\n$$\n')}>公式</button></div>{/* 51#14：保存 IPC 在途期间禁用输入——原先窗口内继续打字的内容不进保存值即被丢弃 */}
-<div className="note-editor-grid"><textarea ref={noteAreaRef} value={noteContent} disabled={saving} onChange={e => { setNoteContent(clampToBytes(e.target.value, 1000000)); setDirty(true) }} placeholder="用自己的话记录理解，而不只是摘抄…" aria-label="笔记 Markdown 正文" /><article className="note-preview"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeKatexError]} components={{ a: MarkdownLink }}>{prepareMarkdown(previewText || '实时预览将在这里显示。')}</ReactMarkdown></article></div><div className="editor-footer"><span>{/* 109#4：后端按 UTF-8 字节限 1MB，原先按 UTF-16 码元计数——纯中文 33 万字即达上限而界面无从预判 */}{utf8Bytes(noteContent).toLocaleString()} / 1,000,000 字节{utf8Bytes(noteContent) > 950000 ? ' · 接近上限' : ''} · {dirty ? '草稿自动暂存中' : '已保存'}</span><div>{activeNote && <Button variant="ghost" disabled={saving} onClick={() => setDeleteNoteOpen(true)}><Trash2 size={16} />删除</Button>}<Button onClick={saveNote} disabled={saving || !noteTitle.trim() || !noteContent.trim()}>保存笔记</Button></div></div></div></Modal>
+    <Modal open={noteOpen} onClose={closeNote} title={activeNote ? '编辑笔记' : '新建笔记'} wide><div className="note-editor"><div className="editor-meta"><input value={noteTitle} disabled={saving} onChange={e => { setNoteTitle(clampToBytes(e.target.value, 500)); setDirty(true) }} placeholder="笔记标题" aria-label="笔记标题" />{/* 82#5：标签改为可输入 combobox——原先 select 只有既有标签，词表被冻结无法新增 */}<><input list="note-tag-options" value={noteTag} disabled={saving} onChange={e => { setNoteTag(clampToBytes(e.target.value, 100)); setDirty(true) }} placeholder="输入或选择标签（留空按未分类保存）" aria-label="笔记标签" /><datalist id="note-tag-options">{noteTags.map(tag => <option key={tag} value={tag} />)}</datalist></></div>{draftRestored && <div className="draft-notice"><Check size={15} />已恢复未保存草稿；本地草稿与离开警告双重保护。</div>}<div className="editor-toolbar"><span>Markdown + GFM + LaTeX</span>{/* 60#5：51#14 的保存期锁定未覆盖工具栏——点击仍追加内容并置 dirty，不进本次保存载荷 */}<button disabled={saving} onClick={() => insertAtSelection('\n## ', '\n')}>H2</button><button disabled={saving} onClick={() => insertAtSelection('**', '**')}>加粗</button><button disabled={saving} onClick={() => insertAtSelection('\n- ', '')}>列表</button><button disabled={saving} onClick={() => insertAtSelection('\n```ts\n', '\n```\n')}>代码</button><button disabled={saving} onClick={() => insertAtSelection('\n$$\nP(A|B)=\\frac{P(B|A)P(A)}{P(B)}', '\n$$\n')}>公式</button></div>{/* 51#14：保存 IPC 在途期间禁用输入——原先窗口内继续打字的内容不进保存值即被丢弃 */}
+<div className="note-editor-grid"><textarea ref={noteAreaRef} value={noteContent} disabled={saving} onChange={e => { setNoteContent(clampToBytes(e.target.value, 1000000)); setDirty(true) }} placeholder="用自己的话记录理解，而不只是摘抄…" aria-label="笔记 Markdown 正文" /><article className="note-preview"><MemoMarkdown text={previewText || '实时预览将在这里显示。'} /></article></div><div className="editor-footer"><span>{/* 109#4：后端按 UTF-8 字节限 1MB，原先按 UTF-16 码元计数——纯中文 33 万字即达上限而界面无从预判 */}{utf8Bytes(noteContent).toLocaleString()} / 1,000,000 字节{utf8Bytes(noteContent) > 950000 ? ' · 接近上限' : ''} · {dirty ? '草稿自动暂存中' : '已保存'}</span><div>{activeNote && <Button variant="ghost" disabled={saving} onClick={() => setDeleteNoteOpen(true)}><Trash2 size={16} />删除</Button>}<Button onClick={saveNote} disabled={saving || !noteTitle.trim() || !noteContent.trim()}>保存笔记</Button></div></div></div></Modal>
     {/* 126#3：确认文案与后端真实行为一致——被方案/Wiki/项目/Agent 产物引用的资料会被
         material_in_use 拒绝删除（65#6 防护），原先承诺「引用会失效」与结果相反；
         P-125：补第四域 Agent 产物——后端 154#7 起同样拦截产物内嵌的引用 */}

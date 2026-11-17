@@ -246,9 +246,16 @@ fn webdav_upload_download_import_and_terminal_events_are_real() {
     let downloaded = wait_job(&service, downloaded["id"].as_str().unwrap());
     assert_eq!(downloaded.status, "done");
     assert_eq!(downloaded.result.unwrap()["profiles"], 1);
-    assert!(std::fs::read_to_string(destination)
+    assert!(std::fs::read_to_string(&destination)
         .unwrap()
         .contains("真实本地模型"));
+    // P-034：下载目的地须登记 reveal 回执——「在资源管理器中显示」只放行
+    // 数据根目录与本进程近期真实写出的文件，下载落盘后未登记时按钮必然
+    // 被白名单拒绝（提示与事实不符）
+    assert!(
+        crate::backend::reveal::is_known(&destination),
+        "同步下载目的地未登记 reveal 回执"
+    );
     let event_deadline = Instant::now() + Duration::from_secs(10);
     let imported = loop {
         if let Some(next) = follow_up.lock().unwrap().take() {
@@ -537,6 +544,102 @@ fn due_treats_future_anchor_as_due_to_self_heal_clock_rollback() {
 }
 
 #[test]
+fn next_due_at_follows_the_scheduler_anchor_not_the_recent_job_window() {
+    // P-150：面板的「下次自动同步」必须与调度器同源——调度器锚点是全表
+    // 最新 upload 行（rowid 倒序），而 overview 的 job 列表只含最近 50 行，
+    // 前端在窗口内找不到 upload 行时无从推导真实锚点。此处固化后端口径：
+    // 表内无 upload 行时退回配置的 updated_at（24 小时）；最新 upload 失败
+    // 时按 1 小时短退避；最新 upload 仍在进行中（finished_at 为 NULL）时
+    // 无到期时刻
+    let learning = LearningState::for_tests().unwrap();
+    let store = learning.store().unwrap();
+    let config_updated_at = "2026-06-01T00:00:00Z";
+    // 表内没有任何 upload 行——锚点退回配置的 updated_at
+    assert_eq!(
+        scheduler::next_due_at(&store.conn, config_updated_at)
+            .unwrap()
+            .as_deref(),
+        Some("2026-06-02T00:00:00Z")
+    );
+    let insert = |id: &str, kind: &str, status: &str, finished_at: Option<&str>| {
+        store
+            .conn
+            .execute(
+                "INSERT INTO sync_jobs (id, kind, status, config_json, remote_path, created_at, updated_at, finished_at)
+                 VALUES (?1, ?2, ?3, '{}', 'p', ?4, ?4, ?5)",
+                params![id, kind, status, finished_at.unwrap_or("2026-06-05T00:00:00Z"), finished_at],
+            )
+            .unwrap();
+    };
+    // 最新 upload 成功——24 小时后到期
+    insert("sync-1", "upload", "done", Some("2026-06-10T00:00:00Z"));
+    assert_eq!(
+        scheduler::next_due_at(&store.conn, config_updated_at)
+            .unwrap()
+            .as_deref(),
+        Some("2026-06-11T00:00:00Z")
+    );
+    // 最新 upload 失败——1 小时短退避
+    insert("sync-2", "upload", "failed", Some("2026-06-20T00:00:00Z"));
+    assert_eq!(
+        scheduler::next_due_at(&store.conn, config_updated_at)
+            .unwrap()
+            .as_deref(),
+        Some("2026-06-20T01:00:00Z")
+    );
+    // 锚点不受 job 列表窗口限制：其后插入 60 条非 upload 任务（超过
+    // overview 的 50 行窗口），锚点仍是最新 upload 行而非配置 updated_at
+    for index in 0..60 {
+        insert(
+            &format!("sync-check-{index}"),
+            "check",
+            "done",
+            Some("2026-06-21T00:00:00Z"),
+        );
+    }
+    assert_eq!(
+        scheduler::next_due_at(&store.conn, config_updated_at)
+            .unwrap()
+            .as_deref(),
+        Some("2026-06-20T01:00:00Z")
+    );
+    // 最新 upload 仍在进行中（finished_at 为 NULL）——无到期时刻
+    insert("sync-3", "upload", "running", None);
+    assert_eq!(
+        scheduler::next_due_at(&store.conn, config_updated_at).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn overview_reports_the_next_auto_sync_time_with_the_scheduler_anchor() {
+    // P-150：overview 的 nextAutoSyncAt 与调度器同源——开启自动同步时按
+    // 配置 updated_at + 24 小时给出；关闭自动同步时无到期时刻
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let server = server(|_, stream| response(stream, "200 OK", ""));
+    let (app, learning) = setup();
+    let service = SyncService::new(&learning);
+    let mut input = config("webdav", &server.url());
+    input.auto_sync = true;
+    save_config(app.handle(), &service, input).unwrap();
+    let view = overview(&service).unwrap();
+    // 锚点取 overview 自己回传的 config.updated_at（sync_config 行的
+    // updated_at）——save_config 返回的 config.updated_at 是 validate_input
+    // 内取的另一时刻，两者相差毫秒级，不能混用
+    let anchor =
+        OffsetDateTime::parse(&view.config.as_ref().unwrap().config.updated_at, &Rfc3339).unwrap();
+    let expected = (anchor + time::Duration::hours(24))
+        .format(&Rfc3339)
+        .unwrap();
+    assert_eq!(view.next_auto_sync_at.as_deref(), Some(expected.as_str()));
+    // 自动同步关闭——面板不显示到期时刻
+    let mut input = config("webdav", &server.url());
+    input.auto_sync = false;
+    save_config(app.handle(), &service, input).unwrap();
+    assert_eq!(overview(&service).unwrap().next_auto_sync_at, None);
+}
+
+#[test]
 fn progress_and_completion_preserve_a_cancellation_request() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let gate = Arc::new(AtomicBool::new(false));
@@ -571,4 +674,21 @@ fn progress_and_completion_preserve_a_cancellation_request() {
     gate.store(true, Ordering::Release);
     assert_eq!(after_progress, "cancelling");
     assert_eq!(wait_job(&service, &started.id).status, "cancelled");
+}
+
+// P-159：保存同步配置的路径含 endpoint() 的阻塞 DNS 解析（to_socket_addrs
+// 在弱网或域名不可达时可阻塞数秒），原先是同步命令——按 Tauri 2 语义命令体
+// 在主线程执行，点击保存后界面冻结至解析返回或超时。回归守卫盯住命令声明
+// 本身：改回同步命令即视为回归（运行时无法从返回值观察执行线程）
+#[test]
+fn save_sync_config_command_is_declared_async() {
+    let source = include_str!("commands.rs");
+    let declaration = source
+        .split("#[tauri::command")
+        .find(|chunk| chunk.contains("pub async fn save_sync_config"))
+        .expect("未找到 save_sync_config 的命令声明");
+    assert!(
+        declaration.starts_with("(async)]"),
+        "save_sync_config 必须标注 #[tauri::command(async)]，否则按 Tauri 2 语义在主线程同步执行（阻塞 DNS 解析会冻结界面），实际：{declaration}"
+    );
 }

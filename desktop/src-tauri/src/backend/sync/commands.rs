@@ -7,13 +7,30 @@ pub fn get_sync_overview(state: State<'_, BackendState>) -> Result<SyncOverview>
     super::overview(&SyncService::new(&state.learning))
 }
 
-#[tauri::command]
-pub fn save_sync_config<R: Runtime>(
+// P-159：保存同步配置先做 endpoint() 的阻塞 DNS 解析（to_socket_addrs 在
+// 弱网或域名不可达时可在 Windows 上阻塞数秒），原先是同步命令——命令体在
+// 主线程执行，点击保存后界面冻结至解析返回或超时；保存配置的域名恰是
+// 用户刚输入、最可能不可达的地址。移后台（81#3/73#5 同型）
+#[tauri::command(async)]
+pub async fn save_sync_config<R: Runtime + 'static>(
     app: AppHandle<R>,
-    state: State<'_, BackendState>,
     input: SyncConfigInput,
 ) -> Result<SyncConfigView> {
-    super::save_config(&app, &SyncService::new(&state.learning), input)
+    use tauri::Manager;
+    // 23#7：async 命令体运行在 tokio worker（guard 在 IPC 线程设置的
+    // thread-local principal 不可见）——从会话派生当前用户并显式传播进
+    // 阻塞线程，否则 Store::new 会打开错误的工作区
+    let principal = super::super::security::session_principal(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        super::super::security::with_principal(principal, || {
+            let state = app.state::<BackendState>();
+            super::save_config(&app, &SyncService::new(&state.learning), input)
+        })
+    })
+    .await
+    .map_err(|_| {
+        super::super::error::BackendError::new("internal_error", "同步配置保存任务执行异常终止")
+    })?
 }
 
 #[tauri::command]
