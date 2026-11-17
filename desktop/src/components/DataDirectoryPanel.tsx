@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CircleAlert, Folder, FolderOpen, RefreshCw, RotateCcw } from 'lucide-react'
+import { CircleAlert, Folder, FolderOpen, RefreshCw, RotateCcw } from './icons'
 import { Badge, Button, ConfirmDialog, SectionHeader } from './UI'
 import { backendErrorMessage, reportBackendError } from '../backend/client'
 import { storageBackend, subscribeStorageOverview } from '../backend/storage'

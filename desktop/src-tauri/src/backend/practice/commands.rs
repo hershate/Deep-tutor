@@ -3,6 +3,21 @@ use super::{AnswerResult, GenerateInput, Mistake, PracticeSet, PracticeSetDetail
 use serde_json::Value;
 use tauri::{AppHandle, Runtime, State};
 
+/// P-069：交卷写事务用 BEGIN IMMEDIATE 取写锁——备份导入/VACUUM/重置的
+/// 长写事务期间，原先同步命令在主线程上等待 busy_timeout（10 秒），
+/// 窗口被系统标记「未响应」；移后台（127#2/141#2 同款，61#3 返工的
+/// guard::scoped 保证写入落在该用户自己的工作区）
+async fn background<R: Runtime + 'static, T: Send + 'static>(
+    app: AppHandle<R>,
+    task: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(move || super::super::security::guard::scoped(&app, task))
+        .await
+        .map_err(|_| {
+            super::super::error::BackendError::new("internal_error", "练习任务执行异常终止")
+        })?
+}
+
 #[tauri::command]
 pub fn generate_practice<R: Runtime>(
     app: AppHandle<R>,
@@ -61,15 +76,23 @@ pub fn resume_practice_generation<R: Runtime>(
     super::resume(&app, &state.practice, id)
 }
 
-#[tauri::command]
-pub fn submit_practice_answer<R: Runtime>(
+// P-069：交卷写事务用 BEGIN IMMEDIATE 取写锁——备份导入/VACUUM/重置的
+// 长写事务期间，原先同步命令在主线程上等待 busy_timeout（10 秒），
+// 窗口被系统标记「未响应」；移后台（127#2/141#2 同款）
+#[tauri::command(async)]
+pub async fn submit_practice_answer<R: Runtime + 'static>(
     app: AppHandle<R>,
     state: State<'_, BackendState>,
     set_id: i64,
     question_id: i64,
     answer: Value,
 ) -> Result<AnswerResult> {
-    super::submit(&app, &state.practice, set_id, question_id, answer)
+    let practice = state.practice.shared();
+    let inner = app.clone();
+    background(app, move || {
+        super::submit(&inner, &practice, set_id, question_id, answer)
+    })
+    .await
 }
 
 #[tauri::command]

@@ -215,6 +215,74 @@ fn redirects_content_types_and_empty_search_return_real_errors() {
     );
 }
 
+/// P-017：失败明细与说明性 note 分列——rejected 原先混装两类条目，
+/// 截断逻辑把刚写入的「预算省略」说明删掉后又被「另有 N 个候选验证失败」
+/// 顶替，失实的失败计数直达用户（省略不是失败）。
+#[test]
+fn search_separates_failure_details_from_omission_notes() {
+    let server = server(|request, stream| {
+        if request.starts_with("GET /search") {
+            let mut body = String::from("<html>");
+            for index in 0..6 {
+                body.push_str(&format!(
+                    "<a rel=\"nofollow\" class=\"result__a\" href=\"/broken-{index}\">失败候选 {index}</a><span class=\"result__snippet\">摘要</span>"
+                ));
+            }
+            body.push_str("<a rel=\"nofollow\" class=\"result__a\" href=\"/article\">有效候选</a><span class=\"result__snippet\">摘要</span></html>");
+            respond(stream, "200 OK", "text/html; charset=utf-8", &body, "");
+        } else if request.starts_with("GET /article") {
+            respond(
+                stream,
+                "200 OK",
+                "text/html",
+                "<html><head><title>实际文章标题</title></head><body><main>真实正文</main></body></html>",
+                "",
+            );
+        } else {
+            respond(stream, "404 Not Found", "text/plain", "missing", "");
+        }
+    });
+    let _search_lock = crate::backend::web::SEARCH_ENDPOINT_LOCK.lock().unwrap();
+    let _guard = set_search_endpoint_for_tests(Some(format!("{}/search", server.url())));
+    let result = search("真实检索", 3).unwrap();
+    // 失败明细只保留前 5 条，且每条都带失败原因
+    let rejected = result["rejected"].as_array().unwrap();
+    assert_eq!(rejected.len(), 5, "{result}");
+    assert!(
+        rejected.iter().all(|item| item
+            .get("error")
+            .and_then(|error| error.get("code"))
+            .is_some()),
+        "{result}"
+    );
+    // 省略说明独立成 notes——不占用失败明细位，也不再被截断逻辑挤掉
+    let notes = result["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 1, "{result}");
+    assert!(
+        notes[0].as_str().unwrap().contains("另有 1 个候选验证失败"),
+        "{result}"
+    );
+    assert_eq!(result["results"].as_array().unwrap().len(), 1, "{result}");
+}
+
+/// P-015：检索词截断须同时满足字节上限与搜索地址长度上限——中文一字
+/// 百分号编码后 9 字节，只按字节上限截断仍会超出 900 字节的地址校验，
+/// 检索照样被拒（方案永久降级）。
+#[test]
+fn query_truncation_respects_byte_and_encoded_limits() {
+    let (text, truncated) = truncate_query("短检索词");
+    assert_eq!(text, "短检索词");
+    assert!(!truncated);
+    let (text, truncated) = truncate_query(&"超长学习目标".repeat(60));
+    assert!(truncated);
+    assert!(text.len() <= 300, "{}", text.len());
+    let mut url = Url::parse("https://html.duckduckgo.com/html/").unwrap();
+    url.query_pairs_mut()
+        .append_pair("q", &text)
+        .append_pair("kl", "cn-zh");
+    assert!(url.as_str().len() <= 900, "{}", url.as_str().len());
+}
+
 #[test]
 fn search_endpoint_failures_are_reported_in_search_context() {
     // 106：固定检索端点被本机 DNS 拦截时，复用面向用户输入 URL 的 SSRF

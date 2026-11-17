@@ -25,6 +25,25 @@ pub(crate) const SUPPORTED: [&str; 19] = [
     "pdf", "docx", "pptx", "epub", "txt", "md", "mp4", "mov", "m4v", "webm", "mp3", "wav", "ogg",
     "m4a", "png", "jpg", "jpeg", "gif", "webp",
 ];
+
+/// P-022：原件扩展名是否在白名单内（zip 仅作旧档兼容）——备份导入与运维
+/// 扫描共用本真源。白名单外的原件在导入侧以 `.orphan-` 前缀保留（165#1），
+/// 运维扫描若仍按 `{sha}.{kind}` 判定期望路径，该原件会被既误报「缺失
+/// 原件」、又当成无引用孤儿物理删除
+pub(crate) fn supported_original_ext(declared: &str) -> bool {
+    SUPPORTED.contains(&declared) || declared == "zip"
+}
+
+/// P-022：白名单外扩展名的原件落盘后缀——与备份导入的 `.orphan-{ext}` 命名
+/// 一致（扩展名取前 16 位字母数字）
+pub(crate) fn orphan_original_suffix(declared: &str) -> String {
+    declared
+        .chars()
+        .take(16)
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 const MAX_PARSE_WORKERS: usize = 1;
@@ -197,6 +216,10 @@ pub fn migrate(conn: &Connection, legacy_import: bool) -> Result<()> {
         .optional()?
         .filter(|value| value == "1");
     if imported_marker.is_some() {
+        // P-113：resources 快照新增 status 字段——存量库的快照缺该字段时
+        // 前端只能退回 progress===100 判定，会把「已取消」显示成「已解析」。
+        // 快照由 materials 表派生，重建一次即可补齐。
+        sync_resources(conn)?;
         return Ok(());
     }
     let has_materials: bool =
@@ -209,6 +232,7 @@ pub fn migrate(conn: &Connection, legacy_import: bool) -> Result<()> {
              ON CONFLICT(key) DO UPDATE SET value = '1'",
             [],
         )?;
+        sync_resources(conn)?;
         return Ok(());
     }
     // 137#2：逐行导入与标记写入包进单个事务——原先逐行自动提交，迁移中途
@@ -369,7 +393,10 @@ pub(crate) fn sync_resources(conn: &Connection) -> Result<()> {
             "title": title,
             "type": if kind == "pdf" { "PDF" } else if webpage { "网页" } else { media::category(&kind).unwrap_or("文件") },
             "meta": meta,
-            "progress": progress
+            "progress": progress,
+            // P-113：快照带上真实解析状态——progress=100 不等价于「已解析」
+            // （取消交叠终态也写 progress=100），前端按 status 判定口径
+            "status": status
         }));
     }
     conn.execute("DELETE FROM kv WHERE namespace = 'resources'", [])?;
@@ -2242,6 +2269,22 @@ mod tests {
             detail_row.material.error.as_ref().unwrap().code,
             "cancelled"
         );
+        // P-113：取消交叠终态同样写 progress=100——resources 快照必须带真实
+        // 状态，否则前端只能按 progress 判定「已解析」，把「已取消」显示成
+        // 已解析（与资料库列表的 meta 行口径矛盾）
+        let resources = store.collection("resources").unwrap();
+        let snapshot = resources
+            .value
+            .as_array()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item["id"].as_i64() == Some(id))
+                    .cloned()
+            })
+            .expect("cancelled resource snapshot");
+        assert_eq!(snapshot["progress"], 100);
+        assert_eq!(snapshot["status"], "cancelled");
         let kinds: Vec<String> = events
             .lock()
             .unwrap()

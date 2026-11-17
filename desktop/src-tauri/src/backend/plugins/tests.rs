@@ -238,12 +238,17 @@ fn assets_are_real_files_and_reset_removes_installed_manifest_data() {
     assert_eq!(super::overview(&state).unwrap().enabled_count, 0);
 }
 
-// 117#3：白名单双向一致性——后端实发事件命名空间（Store::event 调用点的
-// 字符串字面量）必须 ⊆ EVENT_NAMESPACES ∪ {state}，反向白名单每项也须有
-// 实发事件（61#1「只含真实 emit」）；state.changed 是 replace_collection 的
-// 高频内部 UI 状态同步（载荷仅含 namespace/revision），不作为插件面开放。
-// 前端 Integrations.tsx 的 namespaces 数组须与白名单同步。新增命名空间时同步
-// 三处：EVENT_NAMESPACES、Integrations.tsx、本测试自动跟随
+// 117#3：白名单双向一致性——后端实发事件命名空间（Store::event 与
+// Self::event 两类调用点的字符串字面量）必须 ⊆ EVENT_NAMESPACES ∪
+// INTERNAL_EVENT_NAMESPACES，反向白名单每项也须有实发事件（61#1「只含真实
+// emit」）；state/draft/application 是内部命名空间（P-024），实发但不对
+// 插件开放。前端 Integrations.tsx 的 namespaces 数组须与 EVENT_NAMESPACES
+// 同步。新增命名空间时同步三处：EVENT_NAMESPACES、INTERNAL_EVENT_NAMESPACES、
+// Integrations.tsx、本测试自动跟随
+// P-151：原扫描只匹配 "Store::event("——store.rs 内的 4 处 Self::event
+// 调用（state.changed / draft.saved / draft.deleted / application.reset）
+// 全部漏扫，「实发 ⊆ 白名单 ∪ {state}」实际从未被验证；两类调用形态一并
+// 扫描，并用已知事件自检提取器（调用形态再变时测试不得静默通过）
 #[test]
 fn event_namespaces_cover_whitelist() {
     let mut emitted: std::collections::BTreeSet<String> = Default::default();
@@ -260,46 +265,56 @@ fn event_namespaces_cover_whitelist() {
                     .is_some_and(|name| name.to_string_lossy().contains("tests"))
             {
                 let content = std::fs::read_to_string(&path).unwrap();
-                for offset in content.match_indices("Store::event(").map(|(at, _)| at) {
-                    let after = &content.as_bytes()[offset + "Store::event(".len()..];
-                    // 字节级窗口（到 json! 或 240B 截止）——注释里的中文可能
-                    // 落在窗口内，字符串切片会切断 UTF-8 边界
-                    let window = &after[..after
-                        .windows(5)
-                        .position(|probe| probe == b"json!")
-                        .unwrap_or(after.len())
-                        .min(240)];
-                    let mut cursor = 0;
-                    while let Some(rel) = window[cursor..].iter().position(|&byte| byte == b'"') {
-                        let start = cursor + rel + 1;
-                        let Some(rel_end) = window[start..].iter().position(|&byte| byte == b'"')
-                        else {
-                            break;
-                        };
-                        let end = start + rel_end;
-                        let candidate = &window[start..end];
-                        if candidate.is_ascii() && !candidate.is_empty() {
-                            let name = std::str::from_utf8(candidate).unwrap();
-                            let mut parts = name.split('.');
-                            let looks_like_kind = name.contains('.')
-                                && parts.next().is_some_and(|head| {
-                                    !head.is_empty()
-                                        && head.starts_with(|c: char| c.is_ascii_lowercase())
-                                        && head.chars().all(|c| {
-                                            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
-                                        })
-                                })
-                                && parts.all(|part| {
-                                    !part.is_empty()
-                                        && part.chars().all(|c| {
-                                            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
-                                        })
-                                });
-                            if looks_like_kind {
-                                emitted.insert(name.to_string());
+                // P-151：两类调用形态都要扫——store.rs 用 Self::event，其余域
+                // 用 Store::event，只扫其一即漏掉整类实发事件
+                for marker in ["Store::event(", "Self::event("] {
+                    for offset in content.match_indices(marker).map(|(at, _)| at) {
+                        let after = &content.as_bytes()[offset + marker.len()..];
+                        // 字节级窗口（到 json! 或 240B 截止）——注释里的中文可能
+                        // 落在窗口内，字符串切片会切断 UTF-8 边界
+                        let window = &after[..after
+                            .windows(5)
+                            .position(|probe| probe == b"json!")
+                            .unwrap_or(after.len())
+                            .min(240)];
+                        let mut cursor = 0;
+                        while let Some(rel) = window[cursor..].iter().position(|&byte| byte == b'"')
+                        {
+                            let start = cursor + rel + 1;
+                            let Some(rel_end) =
+                                window[start..].iter().position(|&byte| byte == b'"')
+                            else {
+                                break;
+                            };
+                            let end = start + rel_end;
+                            let candidate = &window[start..end];
+                            if candidate.is_ascii() && !candidate.is_empty() {
+                                let name = std::str::from_utf8(candidate).unwrap();
+                                let mut parts = name.split('.');
+                                let looks_like_kind = name.contains('.')
+                                    && parts.next().is_some_and(|head| {
+                                        !head.is_empty()
+                                            && head.starts_with(|c: char| c.is_ascii_lowercase())
+                                            && head.chars().all(|c| {
+                                                c.is_ascii_lowercase()
+                                                    || c.is_ascii_digit()
+                                                    || c == '_'
+                                            })
+                                    })
+                                    && parts.all(|part| {
+                                        !part.is_empty()
+                                            && part.chars().all(|c| {
+                                                c.is_ascii_lowercase()
+                                                    || c.is_ascii_digit()
+                                                    || c == '_'
+                                            })
+                                    });
+                                if looks_like_kind {
+                                    emitted.insert(name.to_string());
+                                }
                             }
+                            cursor = end + 1;
                         }
-                        cursor = end + 1;
                     }
                 }
             }
@@ -310,14 +325,27 @@ fn event_namespaces_cover_whitelist() {
         emitted.contains("plan.adopted"),
         "源码扫描未提取到已知事件，提取器失效：{emitted:?}"
     );
+    // P-151：Self::event 调用点同样必须被提取到——这四处实发事件此前整体
+    // 漏扫，白名单与实发集合分叉时测试不会报警
+    for internal in [
+        "state.changed",
+        "draft.saved",
+        "draft.deleted",
+        "application.reset",
+    ] {
+        assert!(
+            emitted.contains(internal),
+            "源码扫描未提取到 Self::event 实发事件 {internal}，提取器失效：{emitted:?}"
+        );
+    }
     let prefixes: std::collections::BTreeSet<&str> = emitted
         .iter()
         .map(|name| name.split('.').next().unwrap())
         .collect();
     for prefix in &prefixes {
         assert!(
-            *prefix == "state" || EVENT_NAMESPACES.contains(prefix),
-            "实发事件命名空间 {prefix} 不在订阅白名单——同步 EVENT_NAMESPACES 与 Integrations.tsx（state.changed 为内部状态同步例外）"
+            EVENT_NAMESPACES.contains(prefix) || INTERNAL_EVENT_NAMESPACES.contains(prefix),
+            "实发事件命名空间 {prefix} 既不在插件订阅白名单也不在内部命名空间清单——同步 EVENT_NAMESPACES / INTERNAL_EVENT_NAMESPACES 与 Integrations.tsx"
         );
     }
     for entry in EVENT_NAMESPACES {

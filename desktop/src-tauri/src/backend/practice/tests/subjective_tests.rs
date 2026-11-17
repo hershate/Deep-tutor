@@ -151,6 +151,70 @@ fn subjective_rubrics_scores_citations_and_evidence_are_real() {
     );
 }
 
+/// P-010：主观评分的模型原始终回文本含逐项得分与总体反馈——反馈公开前
+/// 经 IPC 回传即等于提前泄题。deferred 练习与模拟考试的自测效度依赖
+/// 该遮蔽，判分原文只能在反馈公开（集合完成或 immediate）后回传。
+#[test]
+fn grading_output_stays_masked_until_feedback_is_public() {
+    let (app, state, _server, plan_id) = prepare();
+    let generated = generate_subjectives(&app, &state, &plan_id, "deferred");
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let short = &generated.questions[0];
+    let pending = ipc(
+        &window,
+        "submit_practice_answer",
+        json!({"setId": generated.set.id, "questionId": short.id, "answer": "先验概率决定证据更新的起点。"}),
+    )
+    .unwrap();
+    let request_id = pending["answer"]["requestId"].as_str().unwrap().to_string();
+    assert!(
+        request_id.starts_with(providers::GRADED_REQUEST_PREFIX),
+        "{request_id}"
+    );
+    let graded = wait_answer(&state, generated.set.id, short.id);
+    assert_eq!(graded.status, "done");
+    // 判分已完成但集合尚未完成（deferred 统一反馈）——判分原文不得回传
+    assert_eq!(
+        detail(&state, generated.set.id).unwrap().set.status,
+        "ready"
+    );
+    let masked = ipc(
+        &window,
+        "get_provider_chat",
+        json!({"requestId": request_id}),
+    )
+    .unwrap();
+    assert_eq!(masked["output"], "", "反馈公开前不得回传判分原文");
+    // 第二题判分完成 → 集合完成 → 反馈公开，判分原文方可回传
+    let essay = &generated.questions[1];
+    ipc(
+        &window,
+        "submit_practice_answer",
+        json!({"setId": generated.set.id, "questionId": essay.id, "answer": "先验概率影响证据更新。"}),
+    )
+    .unwrap();
+    wait_answer(&state, generated.set.id, essay.id);
+    assert_eq!(
+        detail(&state, generated.set.id).unwrap().set.status,
+        "completed"
+    );
+    let public = ipc(
+        &window,
+        "get_provider_chat",
+        json!({"requestId": request_id}),
+    )
+    .unwrap();
+    assert!(
+        public["output"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("overallFeedback"),
+        "反馈公开后应可回传判分原文：{public}"
+    );
+}
+
 #[test]
 fn subjective_cancellation_resume_and_reset_wait_for_the_grader() {
     let gate = Arc::new(AtomicBool::new(false));

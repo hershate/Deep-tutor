@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Clock3, Flame, Lightbulb, LoaderCircle, Play, RotateCcw, Sparkles, Timer, TrendingUp } from 'lucide-react'
+import { ArrowRight, BookOpen, Brain, CalendarDays, Check, ChevronRight, CircleAlert, Clock3, Flame, Lightbulb, LoaderCircle, Play, RotateCcw, Sparkles, Timer, TrendingUp } from '../components/icons'
 import type { PageId, Task } from '../data'
 import { Badge, Button, MiniBars, ProgressBar, ProgressRing, SectionHeader } from '../components/UI'
 import { reportBackendError } from '../backend/client'

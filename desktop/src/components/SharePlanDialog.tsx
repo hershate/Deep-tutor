@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Download, Eye, Link2, LoaderCircle, Share2, Trash2 } from 'lucide-react'
+import { Download, Eye, Link2, LoaderCircle, Share2, Trash2 } from './icons'
 import { Badge, Button, ConfirmDialog, Modal } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { sharingBackend } from '../backend/sharing'

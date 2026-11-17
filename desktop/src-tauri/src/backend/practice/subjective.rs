@@ -184,7 +184,9 @@ pub fn submit<R: Runtime>(
         params![question_id, set_id, serde_json::to_string(&answer)?, now()?],
     )?;
     let answer_id = tx.last_insert_rowid();
-    let request_id = format!("practice-grade-{answer_id}-1");
+    // P-010：评分请求标识前缀取自供应商域常量——供应商域据此识别评分
+    // 请求并遮蔽流式输出与终态事件，两处不会漂移
+    let request_id = format!("{}{answer_id}-1", providers::GRADED_REQUEST_PREFIX);
     tx.execute(
         "UPDATE practice_answers SET grader_request_id = ?1 WHERE id = ?2",
         params![request_id, answer_id],
@@ -915,7 +917,7 @@ pub fn resume<R: Runtime>(
     let request_id = if reusable {
         previous_request.unwrap()
     } else {
-        format!("practice-grade-{answer_id}-{attempt}")
+        format!("{}{answer_id}-{attempt}", providers::GRADED_REQUEST_PREFIX)
     };
     tx.execute(
         "UPDATE practice_answers SET status = 'grading', grader_request_id = ?1, attempt = ?2, error_code = NULL, error_message = NULL WHERE id = ?3 AND status IN ('failed', 'cancelled', 'interrupted')",

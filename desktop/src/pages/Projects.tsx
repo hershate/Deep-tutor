@@ -24,6 +24,9 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
   const [versions, setVersions] = useState<ProjectVersion[]>([])
   // 101#8：损坏被跳过的版本行数——「最新版本消失」需有解释
   const [skippedVersions, setSkippedVersions] = useState(0)
+  // P-086：「已评价成果」计数取后端全表统计——原先在 200 行版本窗口内数
+  // done 行，被挤出窗口的完成版本不再计入，计数停增甚至回落
+  const [evaluatedVersions, setEvaluatedVersions] = useState(0)
   const [plans, setPlans] = useState<LearningPlan[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null)
@@ -55,7 +58,6 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
   const evaluating = Boolean(currentVersion && ['running', 'cancelling'].includes(currentVersion.status))
   const linkedPlan = plans.find(item => item.id === project?.planId)
   const completedMilestones = projects.reduce((total, item) => total + item.milestones.filter(milestone => milestone.done).length, 0)
-  const evaluatedVersions = versions.filter(item => item.status === 'done').length
 
   // 51#9：事件监听只挂载一次——原先依赖 running?.requestId，评估版本状态一变
   // 就先注销再异步重挂，间隙到达的 project.*/chat_delta 事件被丢弃；改经 ref 取
@@ -80,6 +82,7 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
         if (!active || ticket !== loadSeq.current) return
         setVersions(workspace.versions)
         setSkippedVersions(workspace.skippedVersions)
+        setEvaluatedVersions(workspace.evaluatedVersions)
         setPlans(allPlans.filter(item => item.adoptedProjectId !== null && item.result))
         setMaterials(allMaterials.filter(item => ['parsed', 'degraded'].includes(item.status) && item.textLength > 0))
         setError('')
@@ -188,6 +191,7 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     try {
       const result = await projectsBackend.submit({ projectId: project.id, content: submission, milestoneId: submissionMilestone ? Number(submissionMilestone) : null, materialId: materialId ? Number(materialId) : null })
       setVersions(result.versions)
+      setEvaluatedVersions(result.evaluatedVersions)
       setSelectedVersionId(result.versions.find(item => item.projectId === project.id)?.id ?? null)
       setSubmission(''); setSubmitOpen(false)
       notify('真实成果已保存，模型评价任务已开始')
@@ -197,7 +201,9 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     if (!running || busy) return
     setBusy('cancel')
     try {
-      setVersions((await projectsBackend.cancel(running.id)).versions)
+      const result = await projectsBackend.cancel(running.id)
+      setVersions(result.versions)
+      setEvaluatedVersions(result.evaluatedVersions)
       notify('已请求取消，最终状态由原生后端保存')
     } catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }
@@ -205,7 +211,9 @@ export default function Projects({ projects, setProjects, onNavigateMap, notify 
     if (!currentVersion || busy) return
     setBusy('resume')
     try {
-      setVersions((await projectsBackend.resume(currentVersion.id)).versions)
+      const result = await projectsBackend.resume(currentVersion.id)
+      setVersions(result.versions)
+      setEvaluatedVersions(result.evaluatedVersions)
       notify('已从原提交恢复真实评价，不重复已完成请求')
     } catch (cause) { if (!isCancelRace(cause)) setError(backendErrorMessage(cause)) } finally { setBusy('') }
   }

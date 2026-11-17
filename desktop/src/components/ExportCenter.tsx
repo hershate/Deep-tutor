@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowDownToLine, CalendarDays, Check, Code2, FileArchive, FileText, FolderOpen, Layers3, LoaderCircle, Presentation, Table2 } from 'lucide-react'
+import { ArrowDownToLine, CalendarDays, Check, Code2, FileArchive, FileText, FolderOpen, Layers3, LoaderCircle, Presentation, Table2 } from './icons'
 import { Badge, Button, Modal } from './UI'
 import { backend, backendErrorMessage, onBackendEvent } from '../backend/client'
 import type { LearningPlan, Lecture } from '../backend/client'

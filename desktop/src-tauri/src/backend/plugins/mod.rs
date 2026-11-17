@@ -19,9 +19,12 @@ use time::OffsetDateTime;
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 // 117#3：可订阅事件命名空间白名单——61#1「只含真实 emit 的命名空间」的
-// 双向口径（实发 ⊆ 白名单 ∪ {state} 且白名单 ⊆ 实发）由一致性回归测试
-// event_namespaces_cover_whitelist 固化；state.changed 是 replace_collection
-// 的高频内部 UI 状态同步（载荷仅含 namespace/revision），不作为插件面开放。
+// 双向口径（实发 ⊆ 白名单 ∪ 内部命名空间，且白名单 ⊆ 实发）由一致性回归
+// 测试 event_namespaces_cover_whitelist 固化。
+// P-151：原注释称本表是「实发事件命名空间全集，唯一例外 state.changed」，
+// 与事实不符——store.rs 经 Self::event 实发的 draft.saved / draft.deleted /
+// application.reset 同样不在本表内；实发全集 = 本表 22 项 ∪ 内部命名空间
+// （INTERNAL_EVENT_NAMESPACES），内部命名空间实发但不对插件开放。
 // 前端 Integrations.tsx 的 namespaces 数组须与本表同步
 pub(crate) const EVENT_NAMESPACES: &[&str] = &[
     "plan",
@@ -47,6 +50,15 @@ pub(crate) const EVENT_NAMESPACES: &[&str] = &[
     "usage",
     "project",
 ];
+
+// P-024：内部事件命名空间——不在 EVENT_NAMESPACES 的事件不属插件面：
+// state.changed 是 replace_collection 的高频内部 UI 状态同步、
+// draft.saved / draft.deleted 是资料库编辑器的停顿保存与删除、
+// application.reset 是应用级重置。此前通配订阅 `*` 对任意 kind 都命中，
+// 三类内部事件被写进 plugin_deliveries：插件卡片的「真实投递」计数随每次
+// 打字保存递增，「真实事件记录」首屏被 state.changed 占据，
+// plugin_deliveries 表随高频事件无限增长
+pub(crate) const INTERNAL_EVENT_NAMESPACES: &[&str] = &["state", "draft", "application"];
 
 pub struct PluginState {
     database_path: PathBuf,
@@ -768,6 +780,13 @@ pub fn reset_files(state: &PluginState) -> Result<()> {
 }
 
 fn matches(pattern: &str, kind: &str) -> bool {
+    // P-024：内部命名空间不对插件开放——通配订阅 `*` 只覆盖 EVENT_NAMESPACES
+    // 的 22 个命名空间（技术决策第 31 条与 docs/architecture 的同一口径），
+    // 不得命中 state.changed / draft.saved / application.reset
+    let namespace = kind.split('.').next().unwrap_or_default();
+    if INTERNAL_EVENT_NAMESPACES.contains(&namespace) {
+        return false;
+    }
     pattern == "*"
         || pattern.strip_suffix(".*").is_some_and(|prefix| {
             kind.strip_prefix(prefix)

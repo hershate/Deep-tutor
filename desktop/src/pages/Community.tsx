@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowRight, CalendarClock, Check, Heart, LoaderCircle, MessageCircle, Plus, Search, Send, ShieldCheck, Users } from 'lucide-react'
+import { ArrowRight, CalendarClock, Check, Heart, LoaderCircle, MessageCircle, Plus, Search, Send, ShieldCheck, Users } from '../components/icons'
 import type { Project } from '../data'
 import { Badge, Button, ConfirmDialog, EmptyState, Modal, SectionHeader } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError, isCancelRace } from '../backend/client'

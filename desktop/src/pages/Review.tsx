@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowRight, Brain, CalendarClock, Check, ChevronRight, CircleAlert, CircleHelp, Clock3, Layers3, Plus, RotateCcw, Sparkles } from 'lucide-react'
+import { ArrowRight, Brain, CalendarClock, Check, ChevronRight, CircleAlert, CircleHelp, Clock3, Layers3, Plus, RotateCcw, Sparkles } from '../components/icons'
 import { Badge, Button, ConfirmDialog, EmptyState, hasOpenModal, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import { backend, onBackendEvent, reportBackendError, type LearningPlan, backendErrorMessage } from '../backend/client'
 import { reviewBackend, type ReviewCard, type ReviewCardInput, type ReviewGrade, type ReviewHistoryEntry, type ReviewStats } from '../backend/review'

@@ -25,6 +25,9 @@ pub struct PlanInput {
     pub provider_id: Option<String>,
     pub milestone: Option<String>,
     pub milestone_date: Option<String>,
+    /// P-002：方案自身已生效的强度——排期分钟已含该强度因子。未记录
+    /// （None）表示排期从未乘过因子（新建方案的原始基数）。
+    pub intensity: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

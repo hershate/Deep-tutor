@@ -823,7 +823,10 @@ pub fn resume<R: Runtime>(
     if active.contains_key(&id) {
         return Err(BackendError::new("answer_active", "该问答已在恢复"));
     }
-    let reusable = status == "interrupted"
+    // P-016：取消与模型完成的毫秒竞态下终态是 cancelled 而非 interrupted，
+    // 但上游输出与用量已完整落库——同 interrupted 口径复用，避免重复执行与
+    // 重复计费；failed 仍是重新执行口径（模型输出可能被领域校验拒绝）
+    let reusable = matches!(status.as_str(), "interrupted" | "cancelled")
         && providers::completed_chat(&state.providers, previous.as_deref())?;
     let attempt = if reusable {
         initial.attempt

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, BookOpen, CalendarDays, Check, Clock3, FileUp, LoaderCircle, LockKeyhole, Route, Target } from 'lucide-react'
+import { AlertTriangle, BookOpen, CalendarDays, Check, Clock3, FileUp, LoaderCircle, LockKeyhole, Route, Target } from '../components/icons'
 import { Badge, Button } from '../components/UI'
 import { backendErrorMessage } from '../backend/client'
 import { sharingBackend } from '../backend/sharing'

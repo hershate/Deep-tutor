@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Accessibility, Bell, Brain, Check, ChevronRight, Keyboard, LockKeyhole, Moon, ShieldCheck, Sun, Trash2, UserRound, Users } from 'lucide-react'
+import { Accessibility, Bell, Brain, Check, ChevronRight, Keyboard, LockKeyhole, Moon, ShieldCheck, Sun, Trash2, UserRound, Users } from '../components/icons'
 import { Badge, Button, Modal, SectionHeader, Toggle } from '../components/UI'
 import BackupPanel from '../components/BackupPanel'
 import DataDirectoryPanel from '../components/DataDirectoryPanel'

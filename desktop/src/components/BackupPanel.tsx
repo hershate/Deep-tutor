@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Check, Database, Download, FileArchive, FolderOpen, HardDriveDownload, LoaderCircle, Upload } from 'lucide-react'
+import { AlertTriangle, Check, Database, Download, FileArchive, FolderOpen, HardDriveDownload, LoaderCircle, Upload } from './icons'
 import { Badge, Button, Modal } from './UI'
 import { backendErrorMessage, reportBackendError } from '../backend/client'
 import type { AppSnapshot } from '../backend/client'

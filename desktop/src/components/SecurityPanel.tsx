@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, KeyRound, LoaderCircle, Plus, ShieldCheck, Trash2, UserRound, Users } from 'lucide-react'
+import { Check, KeyRound, LoaderCircle, Plus, ShieldCheck, Trash2, UserRound, Users } from './icons'
 import { Badge, Button, Modal } from './UI'
 import { backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'
 import { securityBackend } from '../backend/security'

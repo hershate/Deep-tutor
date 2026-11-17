@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, BookOpen, Check, CircleDashed, GitBranch, List, LoaderCircle, Map as MapIcon, Play, Route, Target } from 'lucide-react'
+import { ArrowRight, BookOpen, Check, CircleDashed, GitBranch, List, LoaderCircle, Map as MapIcon, Play, Route, Target } from '../components/icons'
 import type { PageId } from '../data'
 import { Badge, Button, ProgressBar, SectionHeader } from '../components/UI'
 import { backend, backendErrorMessage, onBackendEvent, reportBackendError } from '../backend/client'

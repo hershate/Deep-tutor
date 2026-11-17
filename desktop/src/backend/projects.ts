@@ -27,7 +27,8 @@ export type ProjectVersion = {
   completedAt: string | null
 }
 /** 101#8：窗口内损坏跳过的版本行数（用户可见，避免「最新版本消失」无解释） */
-export type ProjectWorkspace = { versions: ProjectVersion[]; skippedVersions: number }
+/** P-086：全库已评价（done）版本数——不随 200 行版本窗口截断 */
+export type ProjectWorkspace = { versions: ProjectVersion[]; skippedVersions: number; evaluatedVersions: number }
 export type ProjectSubmission = { projectId: number; content: string; milestoneId: number | null; materialId: number | null }
 
 export const projectsBackend = {

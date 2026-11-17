@@ -93,6 +93,10 @@ pub struct ProjectWorkspace {
     /// 101#8：窗口内损坏跳过的版本行数——原先仅 eprintln，用户看到的
     /// 「最新版本消失」无解释且不知占用 200 条窗口名额
     pub skipped_versions: u64,
+    /// P-086：全库「已评价成果」计数——原先由前端在 200 行版本窗口内统计
+    /// done 行，被挤出窗口的完成版本不再计入，计数停增甚至随新版本挤掉
+    /// 旧完成行而回落。计数按全表统计，版本列表仍走窗口
+    pub evaluated_versions: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -204,9 +208,18 @@ pub fn workspace(state: &ProjectState) -> Result<ProjectWorkspace> {
     if skipped > 0 {
         eprintln!("project workspace: {skipped} 行损坏已跳过");
     }
+    // P-086：「已评价成果」计数按全表统计——前端原先在 200 行窗口内数
+    // done 行，被挤出窗口的完成版本不再计入，计数停增甚至随新版本挤掉
+    // 旧完成行而回落；窗口只用于版本列表，不用于计数
+    let evaluated_versions: u64 = store.conn.query_row(
+        "SELECT COUNT(*) FROM project_versions WHERE status = 'done'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )? as u64;
     Ok(ProjectWorkspace {
         versions,
         skipped_versions: skipped,
+        evaluated_versions,
     })
 }
 
@@ -699,7 +712,12 @@ pub fn iteration_note<R: Runtime>(
         ));
     }
     let version = version(&state.store()?.conn, input.version_id)?;
-    if version.status != "done" {
+    // P-030：门禁对齐前端「有真实评价结果」——取消交叠（119#3/121#1）时
+    // 评价结果照存但终态记 cancelled，resume 失败又只改 status 不清
+    // feedback_json：版本带着完整量规评价却因 status != 'done' 被拒，
+    // 用户看着评价却存不了笔记。仍在评价中的版本不开放（结果未出），
+    // 无评价结果的版本同样拒绝
+    if version.feedback.is_none() || ["running", "cancelling"].contains(&version.status.as_str()) {
         return Err(BackendError::new(
             "project_feedback_not_ready",
             "只有已完成真实评价的版本才能生成迭代笔记",

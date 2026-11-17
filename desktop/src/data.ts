@@ -25,6 +25,8 @@ export type Resource = {
   type: 'PDF' | '视频' | '网页' | '音频' | '文件'
   meta: string
   progress: number
+  /** P-113：资料真实解析状态（后端 materials 状态原值）——progress=100 不等价于「已解析」（取消交叠终态也写 progress=100）；旧快照可能无此字段 */
+  status?: string
 }
 
 export type Milestone = { id: number; title: string; done: boolean }

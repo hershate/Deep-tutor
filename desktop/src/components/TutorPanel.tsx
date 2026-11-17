@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, BookOpen, FileCheck2, Lightbulb, LoaderCircle, MessageCircleQuestion, RotateCcw, Sparkles, Square, X } from 'lucide-react'
+import { ArrowUp, BookOpen, FileCheck2, Lightbulb, LoaderCircle, MessageCircleQuestion, RotateCcw, Sparkles, Square, X } from './icons'
 import { IconButton, Button, Badge } from './UI'
 import { clampToBytes, utf8Bytes } from '../limits'
 import { useAgent } from '../backend/useAgent'

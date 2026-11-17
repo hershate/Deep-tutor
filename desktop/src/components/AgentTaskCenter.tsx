@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Ban, Check, CircleAlert, LoaderCircle, Square } from 'lucide-react'
+import { Ban, Check, CircleAlert, LoaderCircle, Square } from './icons'
 import { Badge, Button, EmptyState, ProgressBar } from './UI'
 import { backend, backendErrorMessage, onBackendEvent, isCancelRace, reportBackendError } from '../backend/client'
 import type { Lecture } from '../backend/client'

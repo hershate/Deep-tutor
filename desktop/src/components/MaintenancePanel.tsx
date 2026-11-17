@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Check, Database, LoaderCircle, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
+import { AlertTriangle, Check, Database, LoaderCircle, RefreshCw, ShieldCheck, Trash2 } from './icons'
 import { Badge, Button, Modal } from './UI'
 import { onBackendEvent, reportBackendError } from '../backend/client'
 import { maintenanceBackend } from '../backend/maintenance'
@@ -40,6 +40,12 @@ export default function MaintenancePanel() {
     let disposed = false
     void onBackendEvent(event => {
       if (disposed || !event.kind.startsWith('maintenance.')) return
+      // P-007：不消费失败事件——体检失败会广播 maintenance.failed，而报告
+      // 读取失败又写一条 maintenance.failed 并再次广播，原先命中
+      // maintenance. 前缀即拉取报告形成自激循环：错误提示风暴、events 表
+      // 无界增长、全库检查与目录遍历持续空转。报告内容不因失败而变化，
+      // 只在「已完成」事件后刷新即可
+      if (event.kind === 'maintenance.failed') return
       void pullReport()
     // 136#2：订阅链补 .catch——与全仓其余订阅同口径，不留 unhandled rejection
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(reportBackendError)

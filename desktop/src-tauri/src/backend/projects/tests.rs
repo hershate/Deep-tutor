@@ -400,3 +400,27 @@ fn project_write_commands_are_declared_async() {
         );
     }
 }
+
+#[test]
+fn evaluated_version_count_survives_the_two_hundred_row_window() {
+    // P-086：「已评价成果」计数原先由前端在 200 行版本窗口内统计 done 行
+    // ——被挤出窗口的完成版本不再计入，计数停增甚至随新版本挤掉旧完成行
+    // 而回落。计数改为后端全表统计，版本列表仍走窗口
+    let (app, state, _learning, _model) = setup(None, false);
+    let store = state.store().unwrap();
+    for index in 0..250 {
+        store
+            .conn
+            .execute(
+                "INSERT INTO project_versions (project_id, version_number, content, status, attempt, provider_id, created_at, updated_at) VALUES (1, ?1, '真实提交内容', 'done', 1, 'p1', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')",
+                params![index + 1],
+            )
+            .unwrap();
+    }
+    let workspace = ipc(&app, "get_project_workspace", json!({})).unwrap();
+    assert_eq!(
+        workspace["evaluatedVersions"], 250,
+        "已评价成果计数不得随 200 行窗口截断"
+    );
+    assert_eq!(workspace["versions"].as_array().unwrap().len(), 200);
+}

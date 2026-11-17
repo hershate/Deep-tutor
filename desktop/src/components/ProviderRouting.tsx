@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Check, Network, Route, ShieldCheck, X, Zap } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Network, Route, ShieldCheck, X, Zap } from './icons'
 import { Badge, Button, IconButton, SectionHeader } from './UI'
 import type { CircuitSettings, CircuitSnapshot, ProviderProfile, ProviderRouteLog, RoutingSettings, TaskRouteId } from '../backend/client'
 import { statusName } from '../status'

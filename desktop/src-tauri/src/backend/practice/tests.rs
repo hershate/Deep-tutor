@@ -45,6 +45,7 @@ fn setup() -> (tauri::App<tauri::test::MockRuntime>, PracticeState) {
             super::commands::cancel_practice_answer,
             super::commands::resume_practice_answer,
             super::commands::abandon_practice_answer,
+            crate::backend::providers::commands::get_provider_chat,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
@@ -1042,4 +1043,21 @@ fn frontend_objective_answers_restore_saved_responses() {
     assert!(source.contains(
         "value={answered && typeof answer?.response === 'string' ? answer.response : textAnswer}"
     ));
+}
+
+// P-069：交卷写事务用 BEGIN IMMEDIATE 取写锁——备份导入/VACUUM/重置的
+// 长写事务期间，同步命令在主线程上等待 busy_timeout（10 秒），窗口被
+// 系统标记「未响应」。回归守卫盯住命令声明本身（运行时无法从返回值
+// 观察执行线程）。
+#[test]
+fn practice_answer_command_is_declared_async() {
+    let source = include_str!("commands.rs");
+    let declaration = source
+        .split("#[tauri::command")
+        .find(|chunk| chunk.contains("pub async fn submit_practice_answer"))
+        .unwrap_or_else(|| panic!("未找到 submit_practice_answer 的命令声明"));
+    assert!(
+        declaration.starts_with("(async)]"),
+        "submit_practice_answer 必须标注 #[tauri::command(async)]，否则按 Tauri 2 语义在主线程同步执行，实际：{declaration}"
+    );
 }
